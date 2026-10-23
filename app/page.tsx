@@ -769,11 +769,22 @@ function handleMoveComponent(
   {validationIssues.length > 0 && (
     <div>
       <strong>Revisión estructural</strong>
-      {validationIssues.map((issue, index) => (
-        <p key={`${issue.code}-${index}`}>
-          {issue.severity === "error" ? "❌" : "⚠️"} {issue.message}
-        </p>
-      ))}
+      {validationIssues.map((issue, index) => {
+        const selected = selectedValidationIssue === issue;
+        return (
+          <button
+            key={`${issue.code}-${index}`}
+            type="button"
+            className={selected ? "validation-issue validation-issue-selected" : "validation-issue"}
+            onClick={() => setSelectedValidationIssue(selected ? null : issue)}
+            aria-pressed={selected}
+          >
+            <span aria-hidden="true">{issue.severity === "error" ? "❌" : issue.severity === "info" ? "ℹ️" : "⚠️"}</span>
+            <span>{issue.message}</span>
+            <small>{issue.componentIds?.length || issue.wireIds?.length ? "Localizar" : "Aviso"}</small>
+          </button>
+        );
+      })}
     </div>
   )}
 </div>
