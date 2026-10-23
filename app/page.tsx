@@ -178,8 +178,8 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
 
         return (
-          <g key={wire.id} className="circuit-wire" data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
-            <polyline points={pointString} fill="none" stroke={componentColor} strokeWidth="2" />
+          <g key={wire.id} className={highlightedWireIds.includes(wire.id) ? "circuit-wire circuit-item-highlighted" : "circuit-wire"} data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+            <polyline points={pointString} fill="none" stroke={highlightedWireIds.includes(wire.id) ? "#ff7373" : componentColor} strokeWidth={highlightedWireIds.includes(wire.id) ? "4" : "2"} />
             <polyline points={pointString} fill="none" stroke="transparent" strokeWidth="12" />
           </g>
         );
@@ -197,6 +197,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         <g
           key={component.id}
           data-circuit-item="true"
+          className={highlightedComponentIds.includes(component.id) ? "circuit-component circuit-item-highlighted" : "circuit-component"}
           onClick={(event) => event.stopPropagation()}
     onPointerDown={(event) => {
       event.preventDefault();
@@ -698,6 +699,8 @@ function handleMoveComponent(
     onMove={handleMoveComponent}
     onConnect={handleConnectTerminals}
     onDeleteWire={handleDeleteWire}
+    highlightedComponentIds={selectedValidationIssue?.componentIds ?? []}
+    highlightedWireIds={selectedValidationIssue?.wireIds ?? []}
   />
 ) : (
 
