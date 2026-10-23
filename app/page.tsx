@@ -4,6 +4,8 @@ import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent 
 
 import {
   addComponent,
+  connectTerminals,
+  disconnectWire,
   removeComponent,
 } from "@/lib/circuits/circuit-model";
 
@@ -40,11 +42,39 @@ const starterIdeas = [
 function CircuitPreview({
   circuit,
   onMove,
+  onConnect,
+  onDeleteWire,
 }: {
   circuit: Circuit;
   onMove: (componentId: string, x: number, y: number) => void;
+  onConnect: (fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string) => void;
+  onDeleteWire: (wireId: string) => void;
 }) {
   const componentColor = "#45f59a";
+  const [selectedTerminal, setSelectedTerminal] = useState<{ componentId: string; terminalId: string } | null>(null);
+
+  function getTerminalPoint(component: Circuit["components"][number], terminalId: string) {
+    const terminal = component.terminals.find((item) => item.id === terminalId);
+    if (!terminal) return component.position;
+    const angle = (component.rotation * Math.PI) / 180;
+    return {
+      x: component.position.x + terminal.position.x * Math.cos(angle) - terminal.position.y * Math.sin(angle),
+      y: component.position.y + terminal.position.x * Math.sin(angle) + terminal.position.y * Math.cos(angle),
+    };
+  }
+
+  function handleTerminalClick(componentId: string, terminalId: string) {
+    if (!selectedTerminal) {
+      setSelectedTerminal({ componentId, terminalId });
+      return;
+    }
+    if (selectedTerminal.componentId === componentId && selectedTerminal.terminalId === terminalId) {
+      setSelectedTerminal(null);
+      return;
+    }
+    onConnect(selectedTerminal.componentId, selectedTerminal.terminalId, componentId, terminalId);
+    setSelectedTerminal(null);
+  }
 
   const dragging = useRef<{
   id: string;
@@ -109,25 +139,17 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
       <rect width="440" height="330" fill="url(#circuit-grid)" />
 
       {circuit.wires.map((wire) => {
-        const from = circuit.components.find(
-          (component) => component.id === wire.from.componentId,
-        );
-        const to = circuit.components.find(
-          (component) => component.id === wire.to.componentId,
-        );
-
+        const from = circuit.components.find((component) => component.id === wire.from.componentId);
+        const to = circuit.components.find((component) => component.id === wire.to.componentId);
         if (!from || !to) return null;
+        const fromPoint = getTerminalPoint(from, wire.from.terminalId);
+        const toPoint = getTerminalPoint(to, wire.to.terminalId);
 
         return (
-          <line
-            key={wire.id}
-            x1={from.position.x}
-            y1={from.position.y}
-            x2={to.position.x}
-            y2={to.position.y}
-            stroke={componentColor}
-            strokeWidth="2"
-          />
+          <g key={wire.id} className="circuit-wire" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+            <line x1={fromPoint.x} y1={fromPoint.y} x2={toPoint.x} y2={toPoint.y} stroke={componentColor} strokeWidth="2" />
+            <line x1={fromPoint.x} y1={fromPoint.y} x2={toPoint.x} y2={toPoint.y} stroke="transparent" strokeWidth="12" />
+          </g>
         );
       })}
 
@@ -140,7 +162,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
       event.stopPropagation();
 
       const point = getSvgPoint(
-        event as unknown as ReactPointerEvent<SVGSVGElement>,
+        event as unknown as React.PointerEvent<SVGSVGElement>,
       );
 
       dragging.current = {
@@ -225,6 +247,27 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         </g>
       ))}
 
+      {circuit.components.flatMap((component) => component.terminals.map((terminal) => {
+        const point = getTerminalPoint(component, terminal.id);
+        const selected = selectedTerminal?.componentId === component.id && selectedTerminal.terminalId === terminal.id;
+        return (
+          <g
+            key={`${component.id}-terminal-${terminal.id}`}
+            transform={`translate(${point.x}, ${point.y})`}
+            role="button"
+            aria-label={`Terminal ${terminal.name} de ${component.label}`}
+            tabIndex={0}
+            onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+            onClick={(event) => { event.stopPropagation(); handleTerminalClick(component.id, terminal.id); }}
+            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); handleTerminalClick(component.id, terminal.id); } }}
+            style={{ cursor: "crosshair" }}
+          >
+            <circle r={selected ? 7 : 5} fill={selected ? "#f7d774" : "#07130c"} stroke={selected ? "#f7d774" : componentColor} strokeWidth="2" />
+            <circle r="11" fill="transparent" />
+          </g>
+        );
+      }))}
+
       {circuit.components.length === 0 && (
         <text
           x="220"
@@ -300,6 +343,24 @@ function handleRemoveComponent(componentId: string) {
   setCircuit(nextCircuit);
   setValidationIssues(validateCircuit(nextCircuit));
   setNotice("Componente eliminado.");
+}
+
+function handleConnectTerminals(fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string) {
+  try {
+    const nextCircuit = connectTerminals(circuit, fromComponentId, fromTerminalId, toComponentId, toTerminalId);
+    setCircuit(nextCircuit);
+    setValidationIssues(validateCircuit(nextCircuit));
+    setNotice("Cable conectado. Hacé clic sobre un cable para eliminarlo.");
+  } catch (error) {
+    setNotice(error instanceof Error ? error.message : "No se pudo crear la conexión.");
+  }
+}
+
+function handleDeleteWire(wireId: string) {
+  const nextCircuit = disconnectWire(circuit, wireId);
+  setCircuit(nextCircuit);
+  setValidationIssues(validateCircuit(nextCircuit));
+  setNotice("Cable eliminado.");
 }
 
 function handleMoveComponent(
@@ -593,6 +654,8 @@ function handleMoveComponent(
   <CircuitPreview
     circuit={circuit}
     onMove={handleMoveComponent}
+    onConnect={handleConnectTerminals}
+    onDeleteWire={handleDeleteWire}
   />
 ) : (
 

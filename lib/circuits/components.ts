@@ -21,8 +21,8 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
       description: "Fuente de tensión continua",
     },
     terminals: [
-      { id: "positive", name: "+", position: { x: 0, y: -20 } },
-      { id: "negative", name: "−", position: { x: 0, y: 20 } },
+      { id: "positive", name: "+", position: { x: -25, y: 0 } },
+      { id: "negative", name: "−", position: { x: 25, y: 0 } },
     ],
   },
 
@@ -35,8 +35,8 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
       unit: "Ω",
     },
     terminals: [
-      { id: "a", name: "A", position: { x: -25, y: 0 } },
-      { id: "b", name: "B", position: { x: 25, y: 0 } },
+      { id: "a", name: "A", position: { x: -30, y: 0 } },
+      { id: "b", name: "B", position: { x: 30, y: 0 } },
     ],
   },
 
@@ -49,8 +49,8 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
       maxCurrent: 20,
     },
     terminals: [
-      { id: "anode", name: "Ánodo (+)", position: { x: -20, y: 0 } },
-      { id: "cathode", name: "Cátodo (−)", position: { x: 20, y: 0 } },
+      { id: "anode", name: "Ánodo (+)", position: { x: -28, y: 0 } },
+      { id: "cathode", name: "Cátodo (−)", position: { x: 28, y: 0 } },
     ],
   },
 
@@ -62,8 +62,8 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
       description: "Interruptor simple",
     },
     terminals: [
-      { id: "a", name: "A", position: { x: -20, y: 0 } },
-      { id: "b", name: "B", position: { x: 20, y: 0 } },
+      { id: "a", name: "A", position: { x: -28, y: 0 } },
+      { id: "b", name: "B", position: { x: 28, y: 0 } },
     ],
   },
 
@@ -74,7 +74,7 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
       description: "Referencia de potencial",
     },
     terminals: [
-      { id: "gnd", name: "GND", position: { x: 0, y: -10 } },
+      { id: "gnd", name: "GND", position: { x: 0, y: -17 } },
     ],
   },
 };
