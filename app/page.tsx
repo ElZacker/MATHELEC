@@ -47,11 +47,15 @@ function CircuitPreview({
 }: {
   circuit: Circuit;
   onMove: (componentId: string, x: number, y: number) => void;
-  onConnect: (fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string) => void;
+  onConnect: (fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string, points: { x: number; y: number }[]) => void;
   onDeleteWire: (wireId: string) => void;
 }) {
   const componentColor = "#45f59a";
-  const [selectedTerminal, setSelectedTerminal] = useState<{ componentId: string; terminalId: string } | null>(null);
+  const [wireDraft, setWireDraft] = useState<{
+    from: { componentId: string; terminalId: string };
+    points: { x: number; y: number }[];
+    cursor: { x: number; y: number };
+  } | null>(null);
 
   function getTerminalPoint(component: Circuit["components"][number], terminalId: string) {
     const terminal = component.terminals.find((item) => item.id === terminalId);
@@ -64,16 +68,31 @@ function CircuitPreview({
   }
 
   function handleTerminalClick(componentId: string, terminalId: string) {
-    if (!selectedTerminal) {
-      setSelectedTerminal({ componentId, terminalId });
+    if (!wireDraft) {
+      const component = circuit.components.find((item) => item.id === componentId);
+      if (!component) return;
+      const point = getTerminalPoint(component, terminalId);
+      setWireDraft({
+        from: { componentId, terminalId },
+        points: [],
+        cursor: point,
+      });
       return;
     }
-    if (selectedTerminal.componentId === componentId && selectedTerminal.terminalId === terminalId) {
-      setSelectedTerminal(null);
+
+    if (wireDraft.from.componentId === componentId && wireDraft.from.terminalId === terminalId) {
+      setWireDraft(null);
       return;
     }
-    onConnect(selectedTerminal.componentId, selectedTerminal.terminalId, componentId, terminalId);
-    setSelectedTerminal(null);
+
+    onConnect(
+      wireDraft.from.componentId,
+      wireDraft.from.terminalId,
+      componentId,
+      terminalId,
+      wireDraft.points,
+    );
+    setWireDraft(null);
   }
 
   const dragging = useRef<{
@@ -102,16 +121,23 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
   className="circuit-drawing"
       
       onPointerMove={(event) => {
-        const current = dragging.current;
-        if (!current) return;
-
         const point = getSvgPoint(event);
-
-        onMove(
-          current.id,
-          Math.max(15, Math.min(425, point.x - current.offsetX)),
-          Math.max(15, Math.min(315, point.y - current.offsetY)),
-        );
+        const current = dragging.current;
+        if (current) {
+          onMove(
+            current.id,
+            Math.max(15, Math.min(425, point.x - current.offsetX)),
+            Math.max(15, Math.min(315, point.y - current.offsetY)),
+          );
+        }
+        setWireDraft((draft) => draft ? { ...draft, cursor: point } : null);
+      }}
+      onClick={(event) => {
+        if (!wireDraft) return;
+        const target = event.target as SVGElement;
+        if (target.closest("[data-circuit-item='true']")) return;
+        const point = getSvgPoint(event as unknown as React.PointerEvent<SVGSVGElement>);
+        setWireDraft((draft) => draft ? { ...draft, points: [...draft.points, point], cursor: point } : null);
       }}
       onPointerUp={() => {
         dragging.current = null;
@@ -144,19 +170,30 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         if (!from || !to) return null;
         const fromPoint = getTerminalPoint(from, wire.from.terminalId);
         const toPoint = getTerminalPoint(to, wire.to.terminalId);
+        const points = [fromPoint, ...(wire.points ?? []), toPoint];
+        const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
 
         return (
-          <g key={wire.id} className="circuit-wire" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
-            <line x1={fromPoint.x} y1={fromPoint.y} x2={toPoint.x} y2={toPoint.y} stroke={componentColor} strokeWidth="2" />
-            <line x1={fromPoint.x} y1={fromPoint.y} x2={toPoint.x} y2={toPoint.y} stroke="transparent" strokeWidth="12" />
+          <g key={wire.id} className="circuit-wire" data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+            <polyline points={pointString} fill="none" stroke={componentColor} strokeWidth="2" />
+            <polyline points={pointString} fill="none" stroke="transparent" strokeWidth="12" />
           </g>
         );
       })}
 
+      {wireDraft && (() => {
+        const source = circuit.components.find((component) => component.id === wireDraft.from.componentId);
+        if (!source) return null;
+        const startPoint = getTerminalPoint(source, wireDraft.from.terminalId);
+        const points = [startPoint, ...wireDraft.points, wireDraft.cursor];
+        return <polyline key="wire-preview" points={points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke="#f7d774" strokeWidth="2" strokeDasharray="5 4" pointerEvents="none" />;
+      })()}
+
       {circuit.components.map((component) => (
         <g
           key={component.id}
-          
+          data-circuit-item="true"
+          onClick={(event) => event.stopPropagation()}
     onPointerDown={(event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -249,10 +286,11 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
 
       {circuit.components.flatMap((component) => component.terminals.map((terminal) => {
         const point = getTerminalPoint(component, terminal.id);
-        const selected = selectedTerminal?.componentId === component.id && selectedTerminal.terminalId === terminal.id;
+        const selected = wireDraft?.from.componentId === component.id && wireDraft.from.terminalId === terminal.id;
         return (
           <g
             key={`${component.id}-terminal-${terminal.id}`}
+            data-circuit-item="true"
             transform={`translate(${point.x}, ${point.y})`}
             role="button"
             aria-label={`Terminal ${terminal.name} de ${component.label}`}
@@ -345,12 +383,12 @@ function handleRemoveComponent(componentId: string) {
   setNotice("Componente eliminado.");
 }
 
-function handleConnectTerminals(fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string) {
+function handleConnectTerminals(fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string, points: { x: number; y: number }[]) {
   try {
-    const nextCircuit = connectTerminals(circuit, fromComponentId, fromTerminalId, toComponentId, toTerminalId);
+    const nextCircuit = connectTerminals(circuit, fromComponentId, fromTerminalId, toComponentId, toTerminalId, undefined, points);
     setCircuit(nextCircuit);
     setValidationIssues(validateCircuit(nextCircuit));
-    setNotice("Cable conectado. Hacé clic sobre un cable para eliminarlo.");
+    setNotice("Cable conectado. Hacé clic en el cable para eliminarlo.");
   } catch (error) {
     setNotice(error instanceof Error ? error.message : "No se pudo crear la conexión.");
   }

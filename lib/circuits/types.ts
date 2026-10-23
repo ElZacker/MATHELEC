@@ -37,6 +37,8 @@ export type CircuitWire = {
     componentId: string;
     terminalId: string;
   };
+  /** Puntos intermedios opcionales para definir los quiebres del cable. */
+  points?: Point[];
 };
 
 export type Circuit = {
