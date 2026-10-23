@@ -140,7 +140,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
       event.stopPropagation();
 
       const point = getSvgPoint(
-        event as unknown as ReactPointerEvent<SVGSVGElement>,
+        event as unknown as React.PointerEvent<SVGSVGElement>,
       );
 
       dragging.current = {
