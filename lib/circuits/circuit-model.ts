@@ -200,6 +200,7 @@ export function connectTerminals(
   toComponentId: string,
   toTerminalId: string,
   wireId = makeId("wire"),
+  points: { x: number; y: number }[] = [],
 ): Circuit {
   const fromComponent = circuit.components.find(
     (component) => component.id === fromComponentId,
@@ -272,6 +273,7 @@ export function connectTerminals(
       componentId: toComponentId,
       terminalId: toTerminalId,
     },
+    ...(points.length > 0 ? { points: points.map((point) => ({ ...point })) } : {}),
   };
 
   return {
