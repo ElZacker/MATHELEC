@@ -386,3 +386,30 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .component-actions button span {
   color: #ffffff !important;
 }
+
+
+/* Revisión estructural del circuito */
+.validation-issue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(17, 26, 20, .75);
+  color: var(--muted);
+  text-align: left;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.validation-issue:hover, .validation-issue-selected {
+  border-color: rgba(255, 115, 115, .65);
+  background: rgba(255, 115, 115, .08);
+  color: var(--text);
+}
+.validation-issue small { color: var(--green); font-size: 9px; white-space: nowrap; }
+.validation-issue-selected small { color: #ffaaaa; }
+.circuit-item-highlighted { filter: drop-shadow(0 0 5px rgba(255, 115, 115, .85)); }
