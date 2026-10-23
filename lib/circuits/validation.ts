@@ -38,6 +38,15 @@ export function validateCircuit(
 
     componentIds.add(component.id);
 
+    if (!Number.isFinite(component.position.x) || !Number.isFinite(component.position.y)) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_COMPONENT_POSITION",
+        message: `${component.label} tiene coordenadas inválidas.`,
+        componentIds: [component.id],
+      });
+    }
+
     const terminalIds = new Set<string>();
 
     for (const terminal of component.terminals) {
@@ -115,7 +124,7 @@ export function validateCircuit(
 
   // 3. Comprobar cables, componentes y terminales.
   const wireIds = new Set<string>();
-  const connectedTerminals = new Set<string>();
+  const connectedTerminals = new Set<string>();\n  const connectionKeys = new Set<string>();
 
   for (const wire of circuit.wires) {
     if (wireIds.has(wire.id)) {
@@ -128,6 +137,30 @@ export function validateCircuit(
     }
 
     wireIds.add(wire.id);
+
+    const endpoints = [
+      `${wire.from.componentId}:${wire.from.terminalId}`,
+      `${wire.to.componentId}:${wire.to.terminalId}`,
+    ].sort();
+    const connectionKey = endpoints.join("<->");
+    if (connectionKeys.has(connectionKey)) {
+      issues.push({
+        severity: "error",
+        code: "DUPLICATE_CONNECTION",
+        message: `El cable "${wire.id}" duplica una conexión existente.`,
+        wireIds: [wire.id],
+      });
+    }
+    connectionKeys.add(connectionKey);
+
+    if ((wire.points ?? []).some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_WIRE_POINT",
+        message: `El cable "${wire.id}" contiene un punto de quiebre con coordenadas inválidas.`,
+        wireIds: [wire.id],
+      });
+    }
 
     const fromComponent = circuit.components.find(
       (component) =>
