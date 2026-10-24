@@ -8,6 +8,7 @@ import {
   connectTerminals,
   disconnectWire,
   removeComponent,
+  rotateComponent,
 } from "@/lib/circuits/circuit-model";
 
 
@@ -491,6 +492,50 @@ function handleMoveComponent(
     if (!activeChat || isGenerating) return;
     if (files.length > 0) {
       setNotice("Los adjuntos todavía no se analizan. Quitalos para generar una propuesta a partir del texto.");
+      return;
+    }
+
+    const normalized = content.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es");
+    const replyToCommand = (text: string) => {
+      const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: content };
+      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text };
+      setChats((current) => current.map((chat) => chat.id === activeChat.id
+        ? { ...chat, messages: [...chat.messages, userMessage, assistantMessage] } : chat));
+      setInput("");
+      setNotice("");
+    };
+    const referenceMatch = normalized.match(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i);
+    const reference = referenceMatch?.[1]?.toUpperCase();
+    const target = reference
+      ? circuit.components.find((component) => component.label.toUpperCase() === reference)
+      : undefined;
+
+    if (/\\b(elimina|eliminar|borra|borrar|quita|quitar)\\b/.test(normalized) && referenceMatch) {
+      if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
+      else {
+        const next = removeComponent(circuit, target.id);
+        setCircuit(next);
+        setValidationIssues(validateCircuit(next));
+        replyToCommand("Eliminé " + target.label + " y sus conexiones.");
+      }
+      return;
+    }
+    if (/\\b(rota|gira|rotar|girar)\\b/.test(normalized) && referenceMatch) {
+      if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
+      else {
+        const next = rotateComponent(circuit, target.id);
+        setCircuit(next);
+        setValidationIssues(validateCircuit(next));
+        replyToCommand("Roté " + target.label + " 90° en sentido horario.");
+      }
+      return;
+    }
+    if (/\\b(elimina|eliminar|borra|borrar|limpia|limpiar|vacia|vaciar)\\b/.test(normalized) &&
+        /\\b(todo|circuito|componentes)\\b/.test(normalized)) {
+      const next = createCircuit("Nuevo circuito");
+      setCircuit(next);
+      setValidationIssues(validateCircuit(next));
+      replyToCommand("Eliminé todos los componentes y conexiones del circuito.");
       return;
     }
 
