@@ -336,7 +336,8 @@ export default function Home() {
     messages: [welcomeMessage()],
   }]);
   const [activeChatId, setActiveChatId] = useState("chat-inicial");
-  const [input, setInput] = useState("");\n  const [isGenerating, setIsGenerating] = useState(false);
+  const [input, setInput] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
   
 const [circuit, setCircuit] = useState<Circuit>(() => ({
   id: "circuit-principal",
