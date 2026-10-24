@@ -21,6 +21,27 @@ type Proposal = {
 
 const supportedTypes = new Set<string>(getAvailableComponentTypes());
 
+// Límite básico por IP para evitar bucles accidentales y abuso del endpoint.
+// En despliegues con varias instancias, reemplazar por un limitador compartido.
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX_REQUESTS = 8;
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(request: Request): boolean {
+  const forwarded = request.headers.get("x-forwarded-for");
+  const clientIp = forwarded?.split(",")[0]?.trim() || "unknown";
+  const now = Date.now();
+  const current = rateBuckets.get(clientIp);
+  if (!current || current.resetAt <= now) {
+    rateBuckets.set(clientIp, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return true;
+  }
+  if (current.count >= RATE_MAX_REQUESTS) return false;
+  current.count += 1;
+  return true;
+}
+
+
 const terminalMap: Record<ComponentType, string[]> = {
   battery: ["positive", "negative"],
   resistor: ["a", "b"],
@@ -196,6 +217,12 @@ function buildDemoProposal(prompt: string): Proposal {
   return { mode: "demo", title: simpleLed ? "Propuesta de circuito LED básico" : "Componentes reconocidos según tu pedido", explanation: simpleLed ? "Lazo cerrado batería-resistencia-LED. Revisá valores y polaridad." : "Se colocaron los componentes reconocidos en una distribución no lineal, sin inventar conexiones.", components, wires, confirmedRequirements, assumptions: simpleLed ? ["Valores predeterminados: batería 9 V, resistencia 220 Ω, LED Vf 2 V."] : [], missingInformation, warnings: ["MODO DEMOSTRACIÓN: el reconocimiento por palabras clave no equivale a una IA general.", "No hay simulación eléctrica; revisá la propuesta antes de construirla."] };
 }
 export async function POST(request: Request) {
+  if (!checkRateLimit(request)) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes. Esperá un minuto antes de volver a intentarlo." },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }
   try {
     const body: unknown = await request.json();
     if (
@@ -228,10 +255,18 @@ export async function POST(request: Request) {
     // Los errores de proveedor/configuración no son errores del texto enviado por el usuario.
     const message = error instanceof Error ? error.message : "";
     const isProviderFailure = Boolean(process.env.OPENAI_API_KEY);
+    // No devolver detalles internos ni respuestas crudas del proveedor al navegador.
+    const safeMessage = message.includes("Falta OPENAI_API_KEY")
+      ? "Falta configurar OPENAI_API_KEY en el servidor."
+      : message.includes("límite de solicitudes")
+        ? message
+        : message.includes("no existe") || message.includes("inválid") || message.includes("JSON")
+          ? message
+          : "Falló la generación. Revisá la configuración del proveedor e intentá nuevamente.";
     return NextResponse.json(
       {
         error: isProviderFailure
-          ? (message || "Falló la generación con el proveedor de IA. Revisá la configuración del servidor.")
+          ? safeMessage
           : "No se pudo interpretar la solicitud. Intentá de nuevo.",
       },
       { status: isProviderFailure ? 502 : 400 },
