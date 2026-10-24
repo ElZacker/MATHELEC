@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { getAvailableComponentTypes } from "@/lib/circuits/components";
 import type { ComponentType } from "@/lib/circuits/types";
 
-export const runtime = "nodejs";
-
 type ProposalComponent = { type: ComponentType; x: number; y: number };
 type ProposalWire = {
   from: { componentIndex: number; terminalId: string };
