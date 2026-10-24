@@ -12,7 +12,7 @@ import {
 
 import { validateCircuit } from "@/lib/circuits/validation";
 
-import type { Circuit, ComponentType } from "@/lib/circuits/types";
+import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -44,11 +44,15 @@ function CircuitPreview({
   onMove,
   onConnect,
   onDeleteWire,
+  highlightedComponentIds,
+  highlightedWireIds,
 }: {
   circuit: Circuit;
   onMove: (componentId: string, x: number, y: number) => void;
   onConnect: (fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string, points: { x: number; y: number }[]) => void;
   onDeleteWire: (wireId: string) => void;
+  highlightedComponentIds: string[];
+  highlightedWireIds: string[];
 }) {
   const componentColor = "#45f59a";
   const [wireDraft, setWireDraft] = useState<{
@@ -174,8 +178,8 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
 
         return (
-          <g key={wire.id} className="circuit-wire" data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
-            <polyline points={pointString} fill="none" stroke={componentColor} strokeWidth="2" />
+          <g key={wire.id} className={highlightedWireIds.includes(wire.id) ? "circuit-wire circuit-item-highlighted" : "circuit-wire"} data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+            <polyline points={pointString} fill="none" stroke={highlightedWireIds.includes(wire.id) ? "#ff7373" : componentColor} strokeWidth={highlightedWireIds.includes(wire.id) ? "4" : "2"} />
             <polyline points={pointString} fill="none" stroke="transparent" strokeWidth="12" />
           </g>
         );
@@ -193,6 +197,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         <g
           key={component.id}
           data-circuit-item="true"
+          className={highlightedComponentIds.includes(component.id) ? "circuit-component circuit-item-highlighted" : "circuit-component"}
           onClick={(event) => event.stopPropagation()}
     onPointerDown={(event) => {
       event.preventDefault();
@@ -342,7 +347,7 @@ const [circuit, setCircuit] = useState<Circuit>(() => ({
   updatedAt: "",
 }));
 
-const [validationIssues, setValidationIssues] = useState(() =>
+const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);\n\nconst [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
     name: "Mi primer circuito",
@@ -364,7 +369,7 @@ function handleAddComponent(type: ComponentType) {
     );
 
     setCircuit(nextCircuit);
-    setValidationIssues(validateCircuit(nextCircuit));
+    setValidationIssues(validateCircuit(nextCircuit));\n  setSelectedValidationIssue(null);\n    setSelectedValidationIssue(null);
     setNotice(`Componente agregado: ${type}.`);
   } catch (error) {
     setNotice(
@@ -694,6 +699,8 @@ function handleMoveComponent(
     onMove={handleMoveComponent}
     onConnect={handleConnectTerminals}
     onDeleteWire={handleDeleteWire}
+    highlightedComponentIds={selectedValidationIssue?.componentIds ?? []}
+    highlightedWireIds={selectedValidationIssue?.wireIds ?? []}
   />
 ) : (
 
@@ -765,11 +772,22 @@ function handleMoveComponent(
   {validationIssues.length > 0 && (
     <div>
       <strong>Revisión estructural</strong>
-      {validationIssues.map((issue, index) => (
-        <p key={`${issue.code}-${index}`}>
-          {issue.severity === "error" ? "❌" : "⚠️"} {issue.message}
-        </p>
-      ))}
+      {validationIssues.map((issue, index) => {
+        const selected = selectedValidationIssue === issue;
+        return (
+          <button
+            key={`${issue.code}-${index}`}
+            type="button"
+            className={selected ? "validation-issue validation-issue-selected" : "validation-issue"}
+            onClick={() => setSelectedValidationIssue(selected ? null : issue)}
+            aria-pressed={selected}
+          >
+            <span aria-hidden="true">{issue.severity === "error" ? "❌" : issue.severity === "info" ? "ℹ️" : "⚠️"}</span>
+            <span>{issue.message}</span>
+            <small>{issue.componentIds?.length || issue.wireIds?.length ? "Localizar" : "Aviso"}</small>
+          </button>
+        );
+      })}
     </div>
   )}
 </div>
