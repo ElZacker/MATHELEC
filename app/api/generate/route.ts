@@ -152,73 +152,49 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
 
 
 function buildDemoProposal(prompt: string): Proposal {
-  const text = prompt.toLowerCase();
-  const asksLed = /led|diodo/.test(text);
-  const asksBlink = /intermit|parpade|555|temporiz/.test(text);
-
-  if (!asksLed) {
-    return {
-      mode: "demo",
-      title: "Necesito más información",
-      explanation:
-        "El generador de esta etapa funciona en modo demostración y solo puede proponer estructuras con componentes de la biblioteca actual.",
-      components: [],
-      wires: [],
-      confirmedRequirements: [],
-      assumptions: [],
-      missingInformation: [
-        "Indicá qué debe hacer el circuito y qué componentes querés utilizar.",
-        "La biblioteca actual solo incluye batería, resistencia, LED, interruptor y tierra.",
-      ],
-      warnings: [
-        "Esta respuesta es una demostración local; todavía no se consultó ningún modelo de IA.",
-      ],
-    };
-  }
-
-  const components: ProposalComponent[] = [
-    { type: "battery", x: 80, y: 100 },
-    { type: "resistor", x: 190, y: 100 },
-    { type: "led", x: 310, y: 100 },
-  ];
-  const wires: ProposalWire[] = [
-    {
-      from: { componentIndex: 0, terminalId: "positive" },
-      to: { componentIndex: 1, terminalId: "a" },
-    },
-    {
-      from: { componentIndex: 1, terminalId: "b" },
-      to: { componentIndex: 2, terminalId: "anode" },
-    },
-    {
-      from: { componentIndex: 2, terminalId: "cathode" },
-      to: { componentIndex: 0, terminalId: "negative" },
-    },
-  ];
-
-  return {
-    mode: "demo",
-    title: asksBlink
-      ? "Propuesta parcial: LED con alimentación y resistencia"
-      : "Propuesta de circuito LED básico",
-    explanation: asksBlink
-      ? "La biblioteca actual no contiene un NE555 ni otros temporizadores. Para no inventar componentes, solo se propone un circuito LED básico; no hará que parpadee."
-      : "Se propone una batería, una resistencia limitadora y un LED conectados en serie.",
-    components: components.filter((item) => supportedTypes.has(item.type)),
-    wires,
-    confirmedRequirements: ["El pedido menciona un LED."],
-    assumptions: ["Se usa la batería de 9 V y la resistencia predeterminada de 220 Ω de la biblioteca."],
-    missingInformation: asksBlink
-      ? ["Agregar un componente temporizador compatible para generar el parpadeo."]
-      : ["Confirmar que los valores de la batería, la resistencia y el LED son adecuados para el LED real."],
-    warnings: [
-      "MODO DEMOSTRACIÓN: esta propuesta usa reglas fijas, no un modelo de IA.",
-      "El verificador actual comprueba estructura, no demuestra el funcionamiento eléctrico.",
-      "No construyas el circuito físicamente sin revisar los valores y la polaridad.",
-    ],
+  const text = prompt.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase();
+  const wantsBlink = /\\b(parpade|intermit|titil|555|temporiz|oscilador)\\w*/.test(text);
+  const wantsAlarm = /\\b(alarma|sensor de luz|ldr|fotoresist)\\b/.test(text);
+  const wantsCounter = /\\b(contador|cd4017|decada)\\b/.test(text);
+  const asksForAction = /\\b(agrega|agregá|añade|anade|pon|pone|quiero|necesito|crea|crear|arma|armar|diseña|disena|genera|generar|circuito|conecta|conectar)\\b/.test(text);
+  const requested = new Map<ComponentType, number>();
+  const detect = (type: ComponentType, pattern: RegExp) => {
+    const match = text.match(pattern);
+    if (match) requested.set(type, Math.max(1, Math.min(8, Number(match[1] || 1))));
   };
+  detect("battery", /\\b(?:(\\d+)\\s*)?(?:baterias?|pilas|fuentes)\\b/);
+  detect("resistor", /\\b(?:(\\d+)\\s*)?(?:resistencias?|resistores?)\\b/);
+  detect("led", /\\b(?:(\\d+)\\s*)?(?:leds?|diodos?)\\b/);
+  detect("switch", /\\b(?:(\\d+)\\s*)?(?:interruptores?|llaves|switches)\\b/);
+  detect("ground", /\\b(?:(\\d+)\\s*)?(?:tierras|masas|grounds?|gnds?)\\b/);
+  const expanded = [...requested.entries()].flatMap(([type, count]) => Array.from({ length: count }, () => type)).slice(0, 12);
+  const unsupported: string[] = [];
+  if (wantsBlink) unsupported.push("temporizador NE555 u otro oscilador");
+  if (wantsAlarm) unsupported.push("sensor de luz/etapa de control");
+  if (wantsCounter) unsupported.push("integrado CD4017 y fuente de pulsos");
+  if (/\\b(transistor|bc547|mosfet|capacitor|condensador|cd4017|555|ldr|fotoresistencia|potenciometro|bobina|inductor|motor|rele)\\b/.test(text)) unsupported.push("componentes mencionados que no están en la biblioteca actual");
+  if (expanded.length === 0) return { mode: "demo", title: "No reconocí componentes disponibles", explanation: "El modo demostración usa palabras clave y no tiene comprensión general como un modelo de IA. No sustituiré componentes faltantes por otros.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: ["Disponibles: batería/fuente, resistencia, LED/diodo, interruptor y tierra/masa.", ...(unsupported.length ? ["Faltan: " + unsupported.join("; ") + "."] : ["Indicá componentes y función del circuito."])], warnings: ["MODO DEMOSTRACIÓN: no se consultó un modelo de IA."] };
+  const positions = [{x:75,y:80},{x:220,y:55},{x:360,y:90},{x:365,y:220},{x:220,y:265},{x:75,y:220},{x:145,y:135},{x:290,y:150},{x:145,y:235},{x:285,y:235},{x:215,y:145},{x:75,y:145}];
+  const components: ProposalComponent[] = expanded.map((type, index) => ({ type, ...positions[index] }));
+  const hasBattery = expanded.includes("battery"), hasResistor = expanded.includes("resistor"), hasLed = expanded.includes("led");
+  const simpleLed = asksForAction && hasBattery && hasResistor && hasLed && !wantsBlink && !wantsAlarm && !wantsCounter;
+  const wires: ProposalWire[] = [];
+  if (simpleLed) {
+    const bi = expanded.indexOf("battery"), ri = expanded.indexOf("resistor"), li = expanded.indexOf("led");
+    wires.push({ from: { componentIndex: bi, terminalId: "positive" }, to: { componentIndex: ri, terminalId: "a" } });
+    wires.push({ from: { componentIndex: ri, terminalId: "b" }, to: { componentIndex: li, terminalId: "anode" } });
+    wires.push({ from: { componentIndex: li, terminalId: "cathode" }, to: { componentIndex: bi, terminalId: "negative" } });
+  }
+  const names: Record<ComponentType, string> = { battery: "batería/fuente", resistor: "resistencia", led: "LED/diodo", switch: "interruptor", ground: "tierra/masa" };
+  const confirmedRequirements = [...requested.entries()].map(([type, count]) => String(count) + " " + names[type] + (count > 1 ? "s" : ""));
+  const missingInformation: string[] = [];
+  if (wantsBlink) missingInformation.push("Falta un temporizador/oscilador para hacer parpadear el LED; no está disponible en la biblioteca.");
+  if (wantsAlarm) missingInformation.push("Faltan sensor de luz y etapa de control para una alarma funcional.");
+  if (wantsCounter) missingInformation.push("Faltan CD4017 y fuente de pulsos para un contador digital.");
+  if (!simpleLed) missingInformation.push("No se dedujeron conexiones porque el pedido no define una topología compatible con las reglas de demostración.");
+  if (unsupported.length) missingInformation.push("Componentes no disponibles: " + unsupported.join("; ") + ".");
+  return { mode: "demo", title: simpleLed ? "Propuesta de circuito LED básico" : "Componentes reconocidos según tu pedido", explanation: simpleLed ? "Lazo cerrado batería-resistencia-LED. Revisá valores y polaridad." : "Se colocaron los componentes reconocidos en una distribución no lineal, sin inventar conexiones.", components, wires, confirmedRequirements, assumptions: simpleLed ? ["Valores predeterminados: batería 9 V, resistencia 220 Ω, LED Vf 2 V."] : [], missingInformation, warnings: ["MODO DEMOSTRACIÓN: el reconocimiento por palabras clave no equivale a una IA general.", "No hay simulación eléctrica; revisá la propuesta antes de construirla."] };
 }
-
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
