@@ -567,6 +567,63 @@ function handleMoveComponent(
     }
   }
 
+  function downloadTextFile(filename: string, content: string, type: string) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportCircuitSvg() {
+    const source = document.querySelector(".circuit-drawing");
+    if (!(source instanceof SVGSVGElement)) {
+      setNotice("No se encontró el esquema para exportar. Abrí la Vista previa e intentá nuevamente.");
+      return;
+    }
+    const clone = source.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", "880");
+    clone.setAttribute("height", "660");
+    const serialized = new XMLSerializer().serializeToString(clone);
+    downloadTextFile("mathelect-esquema.svg", serialized, "image/svg+xml;charset=utf-8");
+    setNotice("Esquema SVG exportado. Es una imagen vectorial, no un archivo nativo de simulación.");
+  }
+
+  function exportConnectionReport() {
+    const lines = [
+      "MATHELEC — Informe de conexiones",
+      "Proyecto: " + circuit.name,
+      "Componentes: " + circuit.components.length,
+      "Conexiones: " + circuit.wires.length,
+      "",
+      "COMPONENTES",
+      ...circuit.components.map((component) =>
+        "- " + component.label + " (" + component.type + "), referencia " + component.id +
+        ", posición (" + Math.round(component.position.x) + ", " + Math.round(component.position.y) + ")"
+      ),
+      "",
+      "CONEXIONES",
+      ...(circuit.wires.length ? circuit.wires.map((wire, index) => {
+        const from = circuit.components.find((component) => component.id === wire.from.componentId);
+        const to = circuit.components.find((component) => component.id === wire.to.componentId);
+        const fromTerminal = from?.terminals.find((terminal) => terminal.id === wire.from.terminalId);
+        const toTerminal = to?.terminals.find((terminal) => terminal.id === wire.to.terminalId);
+        return (index + 1) + ". " + (from?.label ?? wire.from.componentId) + " [" +
+          (fromTerminal?.label ?? wire.from.terminalId) + "] → " +
+          (to?.label ?? wire.to.componentId) + " [" + (toTerminal?.label ?? wire.to.terminalId) + "]";
+      }) : ["No hay conexiones registradas."]),
+      "",
+      "ADVERTENCIA: este informe enumera los datos guardados en el proyecto. No demuestra que el circuito sea eléctricamente correcto ni que haya sido simulado."
+    ];
+    downloadTextFile("mathelect-conexiones.txt", lines.join("\n"), "text/plain;charset=utf-8");
+    setNotice("Informe de conexiones exportado. Revisá la advertencia incluida al final del archivo.");
+  }
+
   function saveProjectFile() {
     const now = new Date().toISOString();
     const project = {
@@ -931,8 +988,9 @@ function handleMoveComponent(
 
         <div className="preview-warning"><span>ⓘ</span><p>Esta imagen es ilustrativa, no representa un circuito calculado ni validado. Todavía no se ha generado un archivo descargable.</p></div>
         <div className="preview-bottom">
-          <button className="export-button" type="button" onClick={() => setNotice("La exportación se habilitará cuando el generador de circuitos esté implementado.")}><span>↓</span> Exportar circuito</button>
-          <small>Formatos previstos: Livewire · Proteus · PCB</small>
+          <button className="export-button" type="button" onClick={exportCircuitSvg}><span>↓</span> Exportar esquema SVG</button>
+          <button className="export-button" type="button" onClick={exportConnectionReport}>Exportar conexiones (.txt)</button>
+          <small>Exportaciones informativas; no son archivos nativos de simulación.</small>
         </div>
       </aside>}
     </main>
