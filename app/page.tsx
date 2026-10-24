@@ -347,7 +347,8 @@ const [circuit, setCircuit] = useState<Circuit>(() => ({
   updatedAt: "",
 }));
 
-const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);\n\nconst [validationIssues, setValidationIssues] = useState(() =>
+const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);
+const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
     name: "Mi primer circuito",
@@ -369,7 +370,8 @@ function handleAddComponent(type: ComponentType) {
     );
 
     setCircuit(nextCircuit);
-    setValidationIssues(validateCircuit(nextCircuit));\n  setSelectedValidationIssue(null);\n    setSelectedValidationIssue(null);
+    setValidationIssues(validateCircuit(nextCircuit));
+    setSelectedValidationIssue(null);
     setNotice(`Componente agregado: ${type}.`);
   } catch (error) {
     setNotice(
