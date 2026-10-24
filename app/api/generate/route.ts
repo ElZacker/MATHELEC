@@ -51,48 +51,40 @@ const terminalMap: Record<ComponentType, string[]> = {
 };
 
 async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("Falta OPENAI_API_KEY en el entorno del servidor.");
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Falta GEMINI_API_KEY en el entorno del servidor.");
 
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const systemInstruction = `Sos un asistente para propuestas preliminares de circuitos. Devolvé solo JSON con las claves title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. components es una lista de {type,x,y}; wires es una lista de {from:{componentIndex,terminalId},to:{componentIndex,terminalId}}. Tipos permitidos: battery (terminales positive,negative), resistor (a,b), led (anode,cathode), switch (a,b), ground (gnd). No inventes componentes ni terminales. Si el pedido requiere un tipo no disponible, no lo sustituyas silenciosamente: devuelve components y wires vacíos y explica qué falta. No afirmes que el circuito está eléctricamente validado ni simulado. Las coordenadas deben estar entre x=30..410 e y=40..290. Propiedades predeterminadas: batería 9 V, resistencia 220 ohm, LED Vf 2 V/20 mA. Marcá supuestos, faltantes y advertencias. Máximo 12 componentes y 20 cables.`;
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `Sos un asistente para propuestas preliminares de circuitos. Devolvé solo JSON con las claves title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. components es una lista de {type,x,y}; wires es una lista de {from:{componentIndex,terminalId},to:{componentIndex,terminalId}}. Tipos permitidos: battery (terminales positive,negative), resistor (a,b), led (anode,cathode), switch (a,b), ground (gnd). No inventes componentes ni terminales. Si el pedido requiere un tipo no disponible, no lo sustituyas silenciosamente: devuelve components y wires vacíos y explica qué falta. No afirmes que el circuito está eléctricamente validado ni simulado. Las coordenadas deben estar entre x=30..410 e y=40..290. Propiedades predeterminadas: batería 9 V, resistencia 220 ohm, LED Vf 2 V/20 mA. Marcá supuestos, faltantes y advertencias. Máximo 12 componentes y 20 cables.`,
-        },
-        { role: "user", content: prompt },
-      ],
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
     }),
     signal: AbortSignal.timeout(20000),
   });
 
   if (!response.ok) {
-    throw new Error(response.status === 429
-      ? "Se alcanzó el límite de solicitudes del proveedor de IA."
-      : "El proveedor de IA respondió con un error. Revisá la configuración del servidor.");
+    if (response.status === 429) throw new Error("Se alcanzó la cuota gratuita o el límite de solicitudes de Gemini. Esperá a que se restablezca la cuota o revisá los límites de AI Studio.");
+    if (response.status === 401 || response.status === 403) throw new Error("Gemini rechazó la clave. Revisá GEMINI_API_KEY y que la clave pertenezca a un proyecto habilitado.");
+    if (response.status === 404) throw new Error("El modelo configurado no está disponible. Revisá GEMINI_MODEL en .env.local.");
+    throw new Error("Gemini respondió con un error HTTP " + response.status + ". Revisá la configuración e intentá nuevamente.");
   }
 
   const payload: unknown = await response.json();
-  if (typeof payload !== "object" || payload === null || !("choices" in payload)) {
-    throw new Error("La respuesta del proveedor de IA no tiene el formato esperado.");
+  if (typeof payload !== "object" || payload === null || !("candidates" in payload)) {
+    throw new Error("La respuesta de Gemini no tiene el formato esperado.");
   }
-  const choices = (payload as { choices?: { message?: { content?: string } }[] }).choices;
-  const raw = choices?.[0]?.message?.content;
-  if (!raw || typeof raw !== "string") throw new Error("El proveedor de IA devolvió una respuesta vacía.");
+  const candidates = (payload as { candidates?: { content?: { parts?: { text?: string }[] } }[] }).candidates;
+  const raw = candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+  if (!raw) throw new Error("Gemini devolvió una respuesta vacía. Puede que el pedido haya sido bloqueado o que se haya agotado la cuota.");
 
   let parsed: unknown;
-  try { parsed = JSON.parse(raw); } catch { throw new Error("La respuesta de IA no era JSON válido."); }
-  if (typeof parsed !== "object" || parsed === null) throw new Error("La propuesta de IA no tiene un objeto válido.");
+  try { parsed = JSON.parse(raw); } catch { throw new Error("La respuesta de Gemini no era JSON válido."); }
+  if (typeof parsed !== "object" || parsed === null) throw new Error("La propuesta de Gemini no tiene un objeto válido.");
 
   const value = parsed as Record<string, unknown>;
   const componentsRaw = value.components;
@@ -108,13 +100,9 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
     if (typeof component.type !== "string" || !supportedTypes.has(component.type) ||
         typeof component.x !== "number" || !Number.isFinite(component.x) ||
         typeof component.y !== "number" || !Number.isFinite(component.y)) {
-      throw new Error("La IA propuso un componente o coordenada no permitidos.");
+      throw new Error("Gemini propuso un componente o coordenada no permitidos.");
     }
-    return {
-      type: component.type as ComponentType,
-      x: Math.max(30, Math.min(410, component.x)),
-      y: Math.max(40, Math.min(290, component.y)),
-    };
+    return { type: component.type as ComponentType, x: Math.max(30, Math.min(410, component.x)), y: Math.max(40, Math.min(290, component.y)) };
   });
 
   const wires: ProposalWire[] = wiresRaw.map((item) => {
@@ -123,38 +111,22 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
     const parseEnd = (end: unknown) => {
       if (typeof end !== "object" || end === null) throw new Error("Terminal inválido en la propuesta.");
       const terminal = end as Record<string, unknown>;
-      if (!Number.isInteger(terminal.componentIndex) || typeof terminal.terminalId !== "string") {
-        throw new Error("Referencia de terminal inválida.");
-      }
+      if (!Number.isInteger(terminal.componentIndex) || typeof terminal.terminalId !== "string") throw new Error("Referencia de terminal inválida.");
       const index = terminal.componentIndex as number;
-      if (index < 0 || index >= components.length ||
-          !terminalMap[components[index].type].includes(terminal.terminalId)) {
-        throw new Error("La IA hizo referencia a un terminal que no existe.");
-      }
+      if (index < 0 || index >= components.length || !terminalMap[components[index].type].includes(terminal.terminalId)) throw new Error("Gemini hizo referencia a un terminal que no existe.");
       return { componentIndex: index, terminalId: terminal.terminalId };
     };
-    const from = parseEnd(wire.from);
-    const to = parseEnd(wire.to);
-    if (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId) {
-      throw new Error("La IA propuso conectar un terminal consigo mismo.");
-    }
+    const from = parseEnd(wire.from), to = parseEnd(wire.to);
+    if (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId) throw new Error("Gemini propuso conectar un terminal consigo mismo.");
     return { from, to };
   });
 
-  // Rechazar conexiones duplicadas aunque la IA las devuelva en orden inverso.
   const connectionKeys = new Set<string>();
   for (const wire of wires) {
-    const ends = [
-      `${wire.from.componentIndex}:${wire.from.terminalId}`,
-      `${wire.to.componentIndex}:${wire.to.terminalId}`,
-    ].sort();
-    const key = ends.join("<->");
-    if (connectionKeys.has(key)) {
-      throw new Error("La IA propuso una conexión duplicada.");
-    }
+    const key = [`${wire.from.componentIndex}:${wire.from.terminalId}`, `${wire.to.componentIndex}:${wire.to.terminalId}`].sort().join("<->");
+    if (connectionKeys.has(key)) throw new Error("Gemini propuso una conexión duplicada.");
     connectionKeys.add(key);
   }
-
   const stringList = (key: string): string[] => {
     const entry = value[key];
     return Array.isArray(entry) ? entry.filter((item): item is string => typeof item === "string").slice(0, 10) : [];
@@ -162,15 +134,13 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
   return {
     title: typeof value.title === "string" ? value.title.slice(0, 120) : "Propuesta de circuito",
     explanation: typeof value.explanation === "string" ? value.explanation.slice(0, 1200) : "",
-    components,
-    wires,
+    components, wires,
     confirmedRequirements: stringList("confirmedRequirements"),
     assumptions: stringList("assumptions"),
     missingInformation: stringList("missingInformation"),
     warnings: [...stringList("warnings"), "Propuesta generada por IA; requiere revisión humana y validación eléctrica independiente."],
   };
 }
-
 
 function buildDemoProposal(prompt: string): Proposal {
   const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -245,7 +215,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "El pedido no puede superar los 2000 caracteres." }, { status: 413 });
     }
 
-    if (process.env.OPENAI_API_KEY) {
+    if (process.env.GEMINI_API_KEY) {
       const proposal = await buildAiProposal(prompt);
       return NextResponse.json({ mode: "ai", ...proposal });
     }
@@ -254,11 +224,11 @@ export async function POST(request: Request) {
   } catch (error) {
     // Los errores de proveedor/configuración no son errores del texto enviado por el usuario.
     const message = error instanceof Error ? error.message : "";
-    const isProviderFailure = Boolean(process.env.OPENAI_API_KEY);
+    const isProviderFailure = Boolean(process.env.GEMINI_API_KEY);
     // No devolver detalles internos ni respuestas crudas del proveedor al navegador.
-    const safeMessage = message.includes("Falta OPENAI_API_KEY")
-      ? "Falta configurar OPENAI_API_KEY en el servidor."
-      : message.includes("límite de solicitudes")
+    const safeMessage = message.includes("Falta GEMINI_API_KEY")
+      ? "Falta configurar GEMINI_API_KEY en .env.local."
+      : message.includes("cuota gratuita") || message.includes("límite de solicitudes") || message.includes("Gemini respondió")
         ? message
         : message.includes("no existe") || message.includes("inválid") || message.includes("JSON")
           ? message
