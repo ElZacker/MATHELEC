@@ -152,69 +152,97 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
 
 
 function buildDemoProposal(prompt: string): Proposal {
-  const text = prompt.toLowerCase();
-  const asksLed = /led|diodo/.test(text);
+  const text = prompt.toLocaleLowerCase("es");
   const asksBlink = /intermit|parpade|555|temporiz/.test(text);
 
-  if (!asksLed) {
+  // Reconocer cada componente mencionado, en vez de responder siempre con el mismo circuito.
+  const requested: ComponentType[] = [];
+  const addIfMentioned = (type: ComponentType, pattern: RegExp) => {
+    if (pattern.test(text) && !requested.includes(type)) requested.push(type);
+  };
+  addIfMentioned("battery", /\b(bater[ií]a|pila|fuente|alimentaci[oó]n)\b/);
+  addIfMentioned("resistor", /\b(resistencia|resistor|resistencias|resistores)\b/);
+  addIfMentioned("led", /\b(leds?|diodo[s]?)\b/);
+  addIfMentioned("switch", /\b(interruptor|llave|switch)\b/);
+  addIfMentioned("ground", /\b(tierra|masa|ground|gnd)\b/);
+
+  const asksForCircuit = /\b(circuito|conect|armar|crear|generar|agrega|agreg[aá]|añad|pon[eé]|necesito|quiero)\b/.test(text);
+  const recognized = requested.length > 0;
+  if (!recognized) {
     return {
       mode: "demo",
-      title: "Necesito más información",
-      explanation:
-        "El generador de esta etapa funciona en modo demostración y solo puede proponer estructuras con componentes de la biblioteca actual.",
+      title: "No reconocí componentes de la biblioteca",
+      explanation: "El modo demostración identifica menciones de los componentes disponibles, pero todavía no interpreta cualquier pedido como lo haría un modelo de IA.",
       components: [],
       wires: [],
       confirmedRequirements: [],
       assumptions: [],
       missingInformation: [
-        "Indicá qué debe hacer el circuito y qué componentes querés utilizar.",
-        "La biblioteca actual solo incluye batería, resistencia, LED, interruptor y tierra.",
+        "Probá nombrar batería, resistencia, LED, interruptor o tierra.",
+        "Explicá qué querés que haga el circuito.",
       ],
-      warnings: [
-        "Esta respuesta es una demostración local; todavía no se consultó ningún modelo de IA.",
-      ],
+      warnings: ["MODO DEMOSTRACIÓN: no se consultó ningún modelo de IA."],
     };
   }
 
-  const components: ProposalComponent[] = [
-    { type: "battery", x: 80, y: 100 },
-    { type: "resistor", x: 190, y: 100 },
-    { type: "led", x: 310, y: 100 },
-  ];
-  const wires: ProposalWire[] = [
-    {
-      from: { componentIndex: 0, terminalId: "positive" },
-      to: { componentIndex: 1, terminalId: "a" },
-    },
-    {
-      from: { componentIndex: 1, terminalId: "b" },
-      to: { componentIndex: 2, terminalId: "anode" },
-    },
-    {
-      from: { componentIndex: 2, terminalId: "cathode" },
-      to: { componentIndex: 0, terminalId: "negative" },
-    },
-  ];
+  const components: ProposalComponent[] = requested.map((type, index) => ({
+    type,
+    x: 70 + (index % 4) * 105,
+    y: 100 + Math.floor(index / 4) * 90,
+  }));
+
+  const hasLed = requested.includes("led");
+  const hasBattery = requested.includes("battery");
+  const hasResistor = requested.includes("resistor");
+  const canSuggestLedCircuit = hasLed && asksForCircuit && (hasBattery || hasResistor);
+
+  let wires: ProposalWire[] = [];
+  let explanation = "Se identificaron los componentes mencionados y se colocaron en el área de propuesta. Todavía no se dedujeron conexiones, porque una mención de componentes no alcanza para determinar una topología fiable.";
+  const assumptions: string[] = [];
+  const missingInformation: string[] = [];
+
+  if (canSuggestLedCircuit && hasBattery && hasResistor) {
+    const batteryIndex = requested.indexOf("battery");
+    const resistorIndex = requested.indexOf("resistor");
+    const ledIndex = requested.indexOf("led");
+    wires = [
+      { from: { componentIndex: batteryIndex, terminalId: "positive" }, to: { componentIndex: resistorIndex, terminalId: "a" } },
+      { from: { componentIndex: resistorIndex, terminalId: "b" }, to: { componentIndex: ledIndex, terminalId: "anode" } },
+      { from: { componentIndex: ledIndex, terminalId: "cathode" }, to: { componentIndex: batteryIndex, terminalId: "negative" } },
+    ];
+    explanation = "Propuesta preliminar de un LED en serie con una resistencia y una batería. Revisá los valores reales antes de construirlo.";
+    assumptions.push("Se usan los valores predeterminados de la biblioteca: batería de 9 V, resistencia de 220 Ω y LED de Vf 2 V.");
+    missingInformation.push("Confirmar que la resistencia y la corriente sean adecuadas para el LED real.");
+  } else {
+    missingInformation.push("Indicá qué componentes deben conectarse entre sí y qué función debe cumplir el circuito.");
+  }
+
+  if (asksBlink) {
+    missingInformation.push("La biblioteca no incluye un temporizador como el NE555; no se puede proponer un circuito de parpadeo completo.");
+  }
 
   return {
     mode: "demo",
     title: asksBlink
-      ? "Propuesta parcial: LED con alimentación y resistencia"
-      : "Propuesta de circuito LED básico",
-    explanation: asksBlink
-      ? "La biblioteca actual no contiene un NE555 ni otros temporizadores. Para no inventar componentes, solo se propone un circuito LED básico; no hará que parpadee."
-      : "Se propone una batería, una resistencia limitadora y un LED conectados en serie.",
-    components: components.filter((item) => supportedTypes.has(item.type)),
+      ? "Propuesta parcial: faltan componentes para el parpadeo"
+      : canSuggestLedCircuit && hasBattery && hasResistor
+        ? "Propuesta de circuito LED básico"
+        : "Componentes reconocidos en tu pedido",
+    explanation,
+    components,
     wires,
-    confirmedRequirements: ["El pedido menciona un LED."],
-    assumptions: ["Se usa la batería de 9 V y la resistencia predeterminada de 220 Ω de la biblioteca."],
-    missingInformation: asksBlink
-      ? ["Agregar un componente temporizador compatible para generar el parpadeo."]
-      : ["Confirmar que los valores de la batería, la resistencia y el LED son adecuados para el LED real."],
+    confirmedRequirements: requested.map((type) => ({
+      battery: "Se solicitó una batería o fuente.",
+      resistor: "Se solicitó una resistencia.",
+      led: "Se solicitó un LED o diodo.",
+      switch: "Se solicitó un interruptor.",
+      ground: "Se solicitó una conexión a tierra o masa.",
+    })[type]),
+    assumptions,
+    missingInformation,
     warnings: [
-      "MODO DEMOSTRACIÓN: esta propuesta usa reglas fijas, no un modelo de IA.",
-      "El verificador actual comprueba estructura, no demuestra el funcionamiento eléctrico.",
-      "No construyas el circuito físicamente sin revisar los valores y la polaridad.",
+      "MODO DEMOSTRACIÓN: estas reglas locales no son un modelo de IA.",
+      "La propuesta no está simulada ni eléctricamente validada.",
     ],
   };
 }
