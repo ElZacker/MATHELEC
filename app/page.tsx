@@ -616,8 +616,8 @@ function handleMoveComponent(
         const fromTerminal = from?.terminals.find((terminal) => terminal.id === wire.from.terminalId);
         const toTerminal = to?.terminals.find((terminal) => terminal.id === wire.to.terminalId);
         return (index + 1) + ". " + (from?.label ?? wire.from.componentId) + " [" +
-          (fromTerminal?.label ?? wire.from.terminalId) + "] → " +
-          (to?.label ?? wire.to.componentId) + " [" + (toTerminal?.label ?? wire.to.terminalId) + "]";
+          (fromTerminal?.name ?? wire.from.terminalId) + "] → " +
+          (to?.label ?? wire.to.componentId) + " [" + (toTerminal?.name ?? wire.to.terminalId) + "]";
       }) : ["No hay conexiones registradas."]),
       "",
       "ADVERTENCIA: este informe enumera los datos guardados en el proyecto. No demuestra que el circuito sea eléctricamente correcto ni que haya sido simulado."
