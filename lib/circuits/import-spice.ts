@@ -22,7 +22,7 @@ function stripInlineComment(line: string): string {
 }
 
 function parseSpiceValue(raw: string): number | null {
-  const normalized = raw.trim().replace(/(?:ohms?|volts?)$/i, "");
+  const normalized = raw.trim().replace(/(?:ohms?|volts?|v)$/i, "");
   const match = normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(meg|[tgkmunpf])?$/i);
   if (!match) return null;
   const number = Number(match[1]);
