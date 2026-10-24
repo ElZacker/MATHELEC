@@ -506,6 +506,7 @@ function handleMoveComponent(
         body: JSON.stringify({ prompt: content }),
       });
       const data: {
+        mode?: "demo" | "ai";
         title?: string; explanation?: string;
         components?: { type: ComponentType; x: number; y: number }[];
         wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
@@ -516,6 +517,7 @@ function handleMoveComponent(
 
       let assistantText = [
         data.title ?? "Propuesta recibida",
+        data.mode === "ai" ? "Modo IA: respuesta generada por el proveedor configurado." : "Modo demostración: todavía no se configuró una clave de IA.",
         data.explanation ?? "",
         data.confirmedRequirements?.length ? "Requisitos identificados:\n- " + data.confirmedRequirements.join("\n- ") : "",
         data.assumptions?.length ? "Suposiciones:\n- " + data.assumptions.join("\n- ") : "",
