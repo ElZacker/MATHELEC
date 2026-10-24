@@ -452,3 +452,33 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .project-file-actions button:active {
   transform: translateY(1px);
 }
+
+
+/* Controles visibles de rotación por componente */
+.detail-row-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.detail-row-controls button {
+  appearance: none;
+  border: 1px solid #287a50;
+  border-radius: 7px;
+  background: #10251a;
+  color: #d8ffea;
+  padding: 6px 8px;
+  min-height: 30px;
+  font: 600 11px/1.2 inherit;
+  cursor: pointer;
+}
+.detail-row-controls button:hover {
+  border-color: #45f59a;
+  background: #17432b;
+}
+.detail-row-controls .rotate-component-button {
+  min-width: 55px;
+  color: #45f59a;
+  background: #0d2b1b;
+}
