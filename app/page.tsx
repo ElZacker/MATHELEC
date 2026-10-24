@@ -525,14 +525,14 @@ function handleMoveComponent(
       setNotice("");
     };
 
-    if (/\\b(elimina|eliminar|borra|borrar|vac[ií]a|limpia|limpiar)\\b/.test(normalized) &&
-        /\\b(circuito|todo|todos los componentes)\\b/.test(normalized)) {
+    if (/\b(elimina|eliminar|borra|borrar|vac[ií]a|limpia|limpiar)\b/.test(normalized) &&
+        /\b(circuito|todo|todos los componentes)\b/.test(normalized)) {
       clearCircuit();
       commandMessage("Listo: eliminé todos los componentes y conexiones del circuito.");
       return;
     }
 
-    const rotateMatch = normalized.match(/\\b(?:rota|rot[aá]|gira|gir[aá]|rotate)\\b(?:\\s+(?:el|la|los|las))?\\s*(led|diodo|resistencia|resistor|bater[ií]a|interruptor|switch|tierra|masa|\\b[rdq]\\d+\\b)?/);
+    const rotateMatch = normalized.match(/\b(?:rota|rot[aá]|gira|gir[aá]|rotate)\b(?:\s+(?:el|la|los|las))?\s*(led|diodo|resistencia|resistor|bater[ií]a|interruptor|switch|tierra|masa|\b[rdq]\d+\b)?/);
     if (rotateMatch) {
       const requestedName = rotateMatch[1];
       const target = requestedName
@@ -550,7 +550,7 @@ function handleMoveComponent(
       return;
     }
 
-    const deleteMatch = normalized.match(/\\b(?:elimina|eliminar|borra|borrar|quita|quitar)\\b.*?\\b(led|diodo|resistencia|resistor|bater[ií]a|interruptor|switch|tierra|masa|[rdq]\\d+)\\b/);
+    const deleteMatch = normalized.match(/\b(?:elimina|eliminar|borra|borrar|quita|quitar)\b.*?\b(led|diodo|resistencia|resistor|bater[ií]a|interruptor|switch|tierra|masa|[rdq]\d+)\b/);
     if (deleteMatch) {
       const requestedName = deleteMatch[1];
       const target = circuit.components.find((item) =>
