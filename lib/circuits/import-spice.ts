@@ -15,8 +15,15 @@ type ElementRecord = {
   value: number;
 };
 
+function stripInlineComment(line: string): string {
+  // SPICE suele usar $ para comentarios al final de una línea.
+  // También aceptamos ; como separador de comentario en netlists sencillas.
+  return line.split(/[$;]/, 1)[0].trim();
+}
+
 function parseSpiceValue(raw: string): number | null {
-  const match = raw.trim().match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(meg|[tgkmunpf])?$/i);
+  const normalized = raw.trim().replace(/(?:ohms?|volts?)$/i, "");
+  const match = normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(meg|[tgkmunpf])?$/i);
   if (!match) return null;
   const number = Number(match[1]);
   const suffix = (match[2] ?? "").toLowerCase();
@@ -41,8 +48,8 @@ export function importSpiceNetlist(source: string, projectName = "Circuito SPICE
   let sawElement = false;
 
   for (const [index, rawLine] of lines.entries()) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("*") || line.startsWith(";")) continue;
+    const line = stripInlineComment(rawLine);
+    if (!line || line.startsWith("*")) continue;
     if (line.startsWith("+")) {
       warnings.push(`Línea ${index + 1}: se omitió una continuación SPICE; algunos modelos pueden quedar incompletos.`);
       continue;
