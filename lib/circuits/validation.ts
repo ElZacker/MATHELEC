@@ -38,6 +38,15 @@ export function validateCircuit(
 
     componentIds.add(component.id);
 
+    if (!Number.isFinite(component.position.x) || !Number.isFinite(component.position.y)) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_COMPONENT_POSITION",
+        message: `${component.label} tiene coordenadas inválidas.`,
+        componentIds: [component.id],
+      });
+    }
+
     const terminalIds = new Set<string>();
 
     for (const terminal of component.terminals) {
@@ -116,6 +125,7 @@ export function validateCircuit(
   // 3. Comprobar cables, componentes y terminales.
   const wireIds = new Set<string>();
   const connectedTerminals = new Set<string>();
+  const connectionKeys = new Set<string>();
 
   for (const wire of circuit.wires) {
     if (wireIds.has(wire.id)) {
@@ -128,6 +138,30 @@ export function validateCircuit(
     }
 
     wireIds.add(wire.id);
+
+    const endpoints = [
+      `${wire.from.componentId}:${wire.from.terminalId}`,
+      `${wire.to.componentId}:${wire.to.terminalId}`,
+    ].sort();
+    const connectionKey = endpoints.join("<->");
+    if (connectionKeys.has(connectionKey)) {
+      issues.push({
+        severity: "error",
+        code: "DUPLICATE_CONNECTION",
+        message: `El cable "${wire.id}" duplica una conexión existente.`,
+        wireIds: [wire.id],
+      });
+    }
+    connectionKeys.add(connectionKey);
+
+    if ((wire.points ?? []).some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))) {
+      issues.push({
+        severity: "error",
+        code: "INVALID_WIRE_POINT",
+        message: `El cable "${wire.id}" contiene un punto de quiebre con coordenadas inválidas.`,
+        wireIds: [wire.id],
+      });
+    }
 
     const fromComponent = circuit.components.find(
       (component) =>
@@ -213,6 +247,73 @@ export function validateCircuit(
         message: `${component.label} no está conectado a ningún cable.`,
         componentIds: [component.id],
       });
+    }
+  }
+
+  // 5. Reglas eléctricas preliminares para circuitos con batería, LED y resistencia.
+  // Son heurísticas: no analizan nodos completos ni reemplazan una simulación.
+  const batteries = circuit.components.filter((component) => component.type === "battery");
+  const leds = circuit.components.filter((component) => component.type === "led");
+  const resistors = circuit.components.filter((component) => component.type === "resistor");
+
+  if (batteries.length > 0 && leds.length > 0 && resistors.length === 0) {
+    issues.push({
+      severity: "warning",
+      code: "LED_WITHOUT_CURRENT_LIMITING_RESISTOR",
+      message: "Hay una batería y un LED, pero no se encontró ninguna resistencia limitadora. Revisá la protección de corriente del LED.",
+      componentIds: [...batteries.map((item) => item.id), ...leds.map((item) => item.id)],
+    });
+  }
+
+  for (const battery of batteries) {
+    const voltage = battery.properties.voltage;
+    if (typeof voltage !== "number" || !Number.isFinite(voltage) || voltage <= 0) continue;
+
+    for (const led of leds) {
+      const forwardVoltage = led.properties.forwardVoltage;
+      const maxCurrent = led.properties.maxCurrent;
+      if (typeof forwardVoltage !== "number" || !Number.isFinite(forwardVoltage) || forwardVoltage < 0 ||
+          typeof maxCurrent !== "number" || !Number.isFinite(maxCurrent) || maxCurrent <= 0) continue;
+
+      // Estimación conservadora simple: asume que una sola resistencia está en serie.
+      // No se afirma que la topología real del circuito cumpla ese supuesto.
+      const candidateResistors = resistors.filter((item) => {
+        const value = item.properties.resistance;
+        return typeof value === "number" && Number.isFinite(value) && value > 0;
+      });
+
+      if (candidateResistors.length === 1) {
+        const resistance = candidateResistors[0].properties.resistance as number;
+        const estimatedCurrentMa = Math.max(0, (voltage - forwardVoltage) / resistance * 1000);
+        if (estimatedCurrentMa > maxCurrent) {
+          issues.push({
+            severity: "warning",
+            code: "ESTIMATED_LED_OVERCURRENT",
+            message: `${led.label}: estimación simplificada de ${estimatedCurrentMa.toFixed(1)} mA con una resistencia de ${resistance} Ω; supera el máximo declarado de ${maxCurrent} mA. Revisá los valores y la conexión real.`,
+            componentIds: [battery.id, candidateResistors[0].id, led.id],
+          });
+        }
+      }
+
+      // Detecta solo conexiones directas a terminales de polaridad opuesta.
+      const directReverseConnection = circuit.wires.some((wire) =>
+        (wire.from.componentId === battery.id && wire.from.terminalId === "positive" &&
+          wire.to.componentId === led.id && wire.to.terminalId === "cathode") ||
+        (wire.to.componentId === battery.id && wire.to.terminalId === "positive" &&
+          wire.from.componentId === led.id && wire.from.terminalId === "cathode") ||
+        (wire.from.componentId === battery.id && wire.from.terminalId === "negative" &&
+          wire.to.componentId === led.id && wire.to.terminalId === "anode") ||
+        (wire.to.componentId === battery.id && wire.to.terminalId === "negative" &&
+          wire.from.componentId === led.id && wire.from.terminalId === "anode")
+      );
+      if (directReverseConnection) {
+        issues.push({
+          severity: "warning",
+          code: "POSSIBLE_REVERSED_LED_POLARITY",
+          message: `${led.label}: una conexión directa parece aplicar polaridad inversa al LED. Verificá el circuito completo.`,
+          componentIds: [battery.id, led.id],
+        });
+      }
     }
   }
 

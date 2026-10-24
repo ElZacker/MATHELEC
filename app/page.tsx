@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent 
 
 import {
   addComponent,
+  createCircuit,
   connectTerminals,
   disconnectWire,
   removeComponent,
@@ -11,8 +12,9 @@ import {
 
 
 import { validateCircuit } from "@/lib/circuits/validation";
+import { importSpiceNetlist } from "@/lib/circuits/import-spice";
 
-import type { Circuit, ComponentType } from "@/lib/circuits/types";
+import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -44,11 +46,15 @@ function CircuitPreview({
   onMove,
   onConnect,
   onDeleteWire,
+  highlightedComponentIds,
+  highlightedWireIds,
 }: {
   circuit: Circuit;
   onMove: (componentId: string, x: number, y: number) => void;
   onConnect: (fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string, points: { x: number; y: number }[]) => void;
   onDeleteWire: (wireId: string) => void;
+  highlightedComponentIds: string[];
+  highlightedWireIds: string[];
 }) {
   const componentColor = "#45f59a";
   const [wireDraft, setWireDraft] = useState<{
@@ -174,8 +180,8 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
 
         return (
-          <g key={wire.id} className="circuit-wire" data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
-            <polyline points={pointString} fill="none" stroke={componentColor} strokeWidth="2" />
+          <g key={wire.id} className={highlightedWireIds.includes(wire.id) ? "circuit-wire circuit-item-highlighted" : "circuit-wire"} data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+            <polyline points={pointString} fill="none" stroke={highlightedWireIds.includes(wire.id) ? "#ff7373" : componentColor} strokeWidth={highlightedWireIds.includes(wire.id) ? "4" : "2"} />
             <polyline points={pointString} fill="none" stroke="transparent" strokeWidth="12" />
           </g>
         );
@@ -193,6 +199,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         <g
           key={component.id}
           data-circuit-item="true"
+          className={highlightedComponentIds.includes(component.id) ? "circuit-component circuit-item-highlighted" : "circuit-component"}
           onClick={(event) => event.stopPropagation()}
     onPointerDown={(event) => {
       event.preventDefault();
@@ -331,6 +338,7 @@ export default function Home() {
   }]);
   const [activeChatId, setActiveChatId] = useState("chat-inicial");
   const [input, setInput] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
   
 const [circuit, setCircuit] = useState<Circuit>(() => ({
   id: "circuit-principal",
@@ -342,6 +350,7 @@ const [circuit, setCircuit] = useState<Circuit>(() => ({
   updatedAt: "",
 }));
 
+const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
@@ -365,6 +374,7 @@ function handleAddComponent(type: ComponentType) {
 
     setCircuit(nextCircuit);
     setValidationIssues(validateCircuit(nextCircuit));
+    setSelectedValidationIssue(null);
     setNotice(`Componente agregado: ${type}.`);
   } catch (error) {
     setNotice(
@@ -426,6 +436,8 @@ function handleMoveComponent(
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(true);
   const fileInput = useRef<HTMLInputElement>(null);
+  const projectFileInput = useRef<HTMLInputElement>(null);
+  const spiceFileInput = useRef<HTMLInputElement>(null);
   const messageEnd = useRef<HTMLDivElement>(null);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? chats[0];
 
@@ -468,7 +480,7 @@ function handleMoveComponent(
     event.target.value = "";
   }
 
-  function sendMessage(event?: FormEvent<HTMLFormElement>, suggestedText?: string) {
+  async function sendMessage(event?: FormEvent<HTMLFormElement>, suggestedText?: string) {
     event?.preventDefault();
     const content = (suggestedText ?? input).trim();
 
@@ -476,35 +488,248 @@ function handleMoveComponent(
       setNotice("Escribí un mensaje o adjuntá un archivo antes de enviar.");
       return;
     }
-    if (!activeChat) return;
+    if (!activeChat || isGenerating) return;
+    if (files.length > 0) {
+      setNotice("Los adjuntos todavía no se analizan. Quitalos para generar una propuesta a partir del texto.");
+      return;
+    }
 
-    const names = files.map((file) => file.name);
-    const userText = [content, names.length ? `Archivos adjuntos: ${names.join(", ")}` : ""]
-      .filter(Boolean).join("\n\n");
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      text: userText,
-    };
-    const assistantMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      text: names.length
-        ? "La interfaz registró los adjuntos, pero todavía no lee sus bytes ni analiza los formatos. No se ha convertido ni validado ningún circuito."
-        : "Recibí tu pedido en el chat de demostración. Para generar circuitos reales todavía falta conectar un motor de IA, un generador de archivos y una validación eléctrica. No se ha creado un archivo de salida.",
-    };
-
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: content };
     setChats((current) => current.map((chat) => chat.id === activeChat.id ? {
       ...chat,
-      title: chat.title === "Nuevo proyecto"
-        ? (content || names[0] || "Proyecto").slice(0, 38)
-        : chat.title,
-      messages: [...chat.messages, userMessage, assistantMessage],
+      title: chat.title === "Nuevo proyecto" ? content.slice(0, 38) : chat.title,
+      messages: [...chat.messages, userMessage],
     } : chat));
     setInput("");
-    setFiles([]);
     setNotice("");
-    requestAnimationFrame(() => messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    setIsGenerating(true);
+
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: content }),
+      });
+      const data: {
+        mode?: "demo" | "ai";
+        title?: string; explanation?: string;
+        components?: { type: ComponentType; x: number; y: number }[];
+        wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
+        confirmedRequirements?: string[]; assumptions?: string[];
+        missingInformation?: string[]; warnings?: string[]; error?: string;
+      } = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "No se pudo generar la propuesta.");
+
+      let assistantText = [
+        data.title ?? "Propuesta recibida",
+        data.mode === "ai" ? "Modo IA: respuesta generada por el proveedor configurado." : "Modo demostración: todavía no se configuró una clave de IA.",
+        data.explanation ?? "",
+        data.confirmedRequirements?.length ? "Requisitos identificados:\n- " + data.confirmedRequirements.join("\n- ") : "",
+        data.assumptions?.length ? "Suposiciones:\n- " + data.assumptions.join("\n- ") : "",
+        data.missingInformation?.length ? "Datos pendientes:\n- " + data.missingInformation.join("\n- ") : "",
+        data.warnings?.length ? "Advertencias:\n- " + data.warnings.join("\n- ") : "",
+      ].filter(Boolean).join("\n\n");
+
+      if (data.components?.length) {
+        let nextCircuit = createCircuit(content.slice(0, 60) || "Propuesta de circuito");
+        const componentIds: string[] = [];
+        for (const item of data.components) {
+          if (!["battery", "resistor", "led", "switch", "ground"].includes(item.type)) {
+            throw new Error("La propuesta contiene un tipo de componente no admitido.");
+          }
+          nextCircuit = addComponent(nextCircuit, item.type, item.x, item.y);
+          componentIds.push(nextCircuit.components[nextCircuit.components.length - 1].id);
+        }
+        for (const wire of data.wires ?? []) {
+          const fromId = componentIds[wire.from.componentIndex];
+          const toId = componentIds[wire.to.componentIndex];
+          if (!fromId || !toId) throw new Error("La propuesta contiene índices de conexión inválidos.");
+          nextCircuit = connectTerminals(nextCircuit, fromId, wire.from.terminalId, toId, wire.to.terminalId);
+        }
+        const issues = validateCircuit(nextCircuit);
+        setCircuit(nextCircuit);
+        setValidationIssues(issues);
+        setSelectedValidationIssue(null);
+        assistantText += "\n\nSe cargó una propuesta en el área de circuito. Revisá las advertencias antes de usarla.";
+        if (issues.length) assistantText += "\nEl verificador estructural encontró " + issues.length + " aviso(s).";
+      } else {
+        setNotice("La propuesta no incluyó componentes para dibujar.");
+      }
+
+      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: assistantText };
+      setChats((current) => current.map((chat) => chat.id === activeChat.id
+        ? { ...chat, messages: [...chat.messages, assistantMessage] } : chat));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Ocurrió un error inesperado.";
+      setChats((current) => current.map((chat) => chat.id === activeChat.id
+        ? { ...chat, messages: [...chat.messages, { id: crypto.randomUUID(), role: "assistant", text: "No se pudo generar la propuesta: " + errorMessage }] } : chat));
+    } finally {
+      setIsGenerating(false);
+      requestAnimationFrame(() => messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    }
+  }
+
+  function downloadTextFile(filename: string, content: string, type: string) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportCircuitSvg() {
+    const source = document.querySelector(".circuit-drawing");
+    if (!(source instanceof SVGSVGElement)) {
+      setNotice("No se encontró el esquema para exportar. Abrí la Vista previa e intentá nuevamente.");
+      return;
+    }
+    const clone = source.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", "880");
+    clone.setAttribute("height", "660");
+    const serialized = new XMLSerializer().serializeToString(clone);
+    downloadTextFile("mathelect-esquema.svg", serialized, "image/svg+xml;charset=utf-8");
+    setNotice("Esquema SVG exportado. Es una imagen vectorial, no un archivo nativo de simulación.");
+  }
+
+  function exportConnectionReport() {
+    const lines = [
+      "MATHELEC — Informe de conexiones",
+      "Proyecto: " + circuit.name,
+      "Componentes: " + circuit.components.length,
+      "Conexiones: " + circuit.wires.length,
+      "",
+      "COMPONENTES",
+      ...circuit.components.map((component) =>
+        "- " + component.label + " (" + component.type + "), referencia " + component.id +
+        ", posición (" + Math.round(component.position.x) + ", " + Math.round(component.position.y) + ")"
+      ),
+      "",
+      "CONEXIONES",
+      ...(circuit.wires.length ? circuit.wires.map((wire, index) => {
+        const from = circuit.components.find((component) => component.id === wire.from.componentId);
+        const to = circuit.components.find((component) => component.id === wire.to.componentId);
+        const fromTerminal = from?.terminals.find((terminal) => terminal.id === wire.from.terminalId);
+        const toTerminal = to?.terminals.find((terminal) => terminal.id === wire.to.terminalId);
+        return (index + 1) + ". " + (from?.label ?? wire.from.componentId) + " [" +
+          (fromTerminal?.name ?? wire.from.terminalId) + "] → " +
+          (to?.label ?? wire.to.componentId) + " [" + (toTerminal?.name ?? wire.to.terminalId) + "]";
+      }) : ["No hay conexiones registradas."]),
+      "",
+      "ADVERTENCIA: este informe enumera los datos guardados en el proyecto. No demuestra que el circuito sea eléctricamente correcto ni que haya sido simulado."
+    ];
+    downloadTextFile("mathelect-conexiones.txt", lines.join("\n"), "text/plain;charset=utf-8");
+    setNotice("Informe de conexiones exportado. Revisá la advertencia incluida al final del archivo.");
+  }
+
+  function saveProjectFile() {
+    const now = new Date().toISOString();
+    const project = {
+      ...circuit,
+      createdAt: circuit.createdAt || now,
+      updatedAt: now,
+    };
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = (project.name || "mathelect-proyecto").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "") + ".mathelect.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setNotice("Proyecto exportado en formato JSON de Mathelect. Guardalo en una carpeta fácil de encontrar.");
+  }
+
+  async function loadProjectFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setNotice("El archivo supera el límite de 2 MB.");
+      return;
+    }
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      if (!parsed || typeof parsed !== "object") throw new Error("El archivo no contiene un objeto de proyecto.");
+      const candidate = parsed as Partial<Circuit>;
+      const validTypes: ComponentType[] = ["battery", "resistor", "led", "switch", "ground"];
+      if (
+        candidate.version !== 1 ||
+        typeof candidate.id !== "string" ||
+        typeof candidate.name !== "string" ||
+        !Array.isArray(candidate.components) ||
+        !Array.isArray(candidate.wires)
+      ) throw new Error("No parece un proyecto Mathelect compatible (se requiere version 1, componentes y cables).");
+
+      for (const item of candidate.components) {
+        if (!item || typeof item !== "object" || !validTypes.includes(item.type) ||
+          typeof item.id !== "string" || typeof item.label !== "string" ||
+          !item.position || !Number.isFinite(item.position.x) || !Number.isFinite(item.position.y) ||
+          !Array.isArray(item.terminals) || !item.properties || typeof item.properties !== "object") {
+          throw new Error("El archivo contiene un componente incompleto o no compatible.");
+        }
+      }
+      for (const wire of candidate.wires) {
+        if (!wire || typeof wire !== "object" || typeof wire.id !== "string" ||
+          !wire.from || typeof wire.from.componentId !== "string" || typeof wire.from.terminalId !== "string" ||
+          !wire.to || typeof wire.to.componentId !== "string" || typeof wire.to.terminalId !== "string" ||
+          (wire.points !== undefined && (!Array.isArray(wire.points) || wire.points.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))))) {
+          throw new Error("El archivo contiene una conexión incompleta o no compatible.");
+        }
+      }
+
+      const imported: Circuit = {
+        id: candidate.id,
+        name: candidate.name,
+        version: 1,
+        components: candidate.components as Circuit["components"],
+        wires: candidate.wires as Circuit["wires"],
+        createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setCircuit(imported);
+      setValidationIssues(validateCircuit(imported));
+      setSelectedValidationIssue(null);
+      setNotice(`Proyecto “${imported.name}” abierto. Revisá los avisos de validación si aparecen.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? "No se pudo abrir el proyecto: " + error.message : "No se pudo leer el archivo seleccionado.");
+    }
+  }
+
+  async function importSpiceFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      setNotice("La netlist supera el límite de 1 MB.");
+      return;
+    }
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!["cir", "net", "sp", "ckt", "txt"].includes(extension ?? "")) {
+      setNotice("Este importador solo admite netlists SPICE de texto (.cir, .net, .sp, .ckt o .txt). No admite archivos nativos de Livewire.");
+      return;
+    }
+    try {
+      const result = importSpiceNetlist(await file.text(), file.name.replace(/\.[^.]+$/, ""));
+      const issues = validateCircuit(result.circuit);
+      setCircuit(result.circuit);
+      setValidationIssues(issues);
+      setSelectedValidationIssue(null);
+      const details = [
+        `Importación parcial completada: ${result.circuit.components.length} componentes y ${result.circuit.wires.length} conexiones.`,
+        ...result.warnings,
+        ...(result.unsupportedLines.length ? ["Elementos omitidos:", ...result.unsupportedLines] : []),
+        ...(issues.length ? [`El verificador de MATHELEC generó ${issues.length} aviso(s); revisalos antes de confiar en el esquema.`] : []),
+      ];
+      setNotice(details.join(" "));
+    } catch (error) {
+      setNotice(error instanceof Error ? "No se pudo importar la netlist: " + error.message : "No se pudo leer la netlist.");
+    }
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -658,11 +883,11 @@ function handleMoveComponent(
                 </div>
                 <div className="composer-actions">
                   <button type="button" className="icon-button mic-button" title="Entrada por voz no implementada" onClick={() => setNotice("El dictado por micrófono todavía no está conectado.")} aria-label="Micrófono">♩</button>
-                  <button type="submit" className="send-button" aria-label="Enviar mensaje" title="Enviar mensaje">↑</button>
+                  <button type="submit" className="send-button" disabled={isGenerating} aria-label="Enviar mensaje" title={isGenerating ? "Generando propuesta..." : "Enviar mensaje"}>{isGenerating ? "…" : "↑"}</button>
                 </div>
               </div>
             </form>
-            <p className="composer-disclaimer">Prototipo en desarrollo. Verificá los circuitos antes de construirlos físicamente.</p>
+            <p className="composer-disclaimer">{isGenerating ? "Preparando una propuesta de demostración..." : "Generador en modo demostración. Verificá las advertencias antes de construir un circuito."}</p>
           </div>
         </div>
       </section>
@@ -672,6 +897,14 @@ function handleMoveComponent(
           <div><div className="preview-eyebrow"><i /> LABORATORIO VISUAL</div><h2>Vista previa</h2></div>
           <button className="icon-button close-preview" type="button" onClick={() => setPreviewOpen(false)} aria-label="Cerrar vista previa" title="Cerrar vista previa">×</button>
         </header>
+
+        <div className="project-file-actions">
+          <input ref={projectFileInput} type="file" accept=".json,.mathelect.json,application/json" hidden onChange={loadProjectFile} />
+          <input ref={spiceFileInput} type="file" accept=".cir,.net,.sp,.ckt,.txt,text/plain" hidden onChange={importSpiceFile} />
+          <button type="button" onClick={saveProjectFile}>Guardar proyecto (.json)</button>
+          <button type="button" onClick={() => projectFileInput.current?.click()}>Abrir proyecto (.json)</button>
+          <button type="button" onClick={() => spiceFileInput.current?.click()}>Importar netlist SPICE (experimental)</button>
+        </div>
 
         <div className="preview-project">
           <div className="preview-file-icon">⌘</div>
@@ -694,6 +927,8 @@ function handleMoveComponent(
     onMove={handleMoveComponent}
     onConnect={handleConnectTerminals}
     onDeleteWire={handleDeleteWire}
+    highlightedComponentIds={selectedValidationIssue?.componentIds ?? []}
+    highlightedWireIds={selectedValidationIssue?.wireIds ?? []}
   />
 ) : (
 
@@ -765,11 +1000,22 @@ function handleMoveComponent(
   {validationIssues.length > 0 && (
     <div>
       <strong>Revisión estructural</strong>
-      {validationIssues.map((issue, index) => (
-        <p key={`${issue.code}-${index}`}>
-          {issue.severity === "error" ? "❌" : "⚠️"} {issue.message}
-        </p>
-      ))}
+      {validationIssues.map((issue, index) => {
+        const selected = selectedValidationIssue === issue;
+        return (
+          <button
+            key={`${issue.code}-${index}`}
+            type="button"
+            className={selected ? "validation-issue validation-issue-selected" : "validation-issue"}
+            onClick={() => setSelectedValidationIssue(selected ? null : issue)}
+            aria-pressed={selected}
+          >
+            <span aria-hidden="true">{issue.severity === "error" ? "❌" : issue.severity === "info" ? "ℹ️" : "⚠️"}</span>
+            <span>{issue.message}</span>
+            <small>{issue.componentIds?.length || issue.wireIds?.length ? "Localizar" : "Aviso"}</small>
+          </button>
+        );
+      })}
     </div>
   )}
 </div>
@@ -777,8 +1023,9 @@ function handleMoveComponent(
 
         <div className="preview-warning"><span>ⓘ</span><p>Esta imagen es ilustrativa, no representa un circuito calculado ni validado. Todavía no se ha generado un archivo descargable.</p></div>
         <div className="preview-bottom">
-          <button className="export-button" type="button" onClick={() => setNotice("La exportación se habilitará cuando el generador de circuitos esté implementado.")}><span>↓</span> Exportar circuito</button>
-          <small>Formatos previstos: Livewire · Proteus · PCB</small>
+          <button className="export-button" type="button" onClick={exportCircuitSvg}><span>↓</span> Exportar esquema SVG</button>
+          <button className="export-button" type="button" onClick={exportConnectionReport}>Exportar conexiones (.txt)</button>
+          <small>Exportaciones informativas; no son archivos nativos de simulación.</small>
         </div>
       </aside>}
     </main>
