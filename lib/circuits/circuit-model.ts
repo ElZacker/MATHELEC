@@ -48,6 +48,23 @@ export function addComponent(
 
   const component = createComponent(type, id, x, y);
 
+  // Asignar referencias únicas y secuenciales por tipo: R1, R2, R3; D1, D2; BAT1...
+  const prefixByType: Record<ComponentType, string> = {
+    battery: "BAT",
+    resistor: "R",
+    led: "D",
+    switch: "SW",
+    ground: "GND",
+  };
+  const prefix = prefixByType[type];
+  const usedNumbers = circuit.components
+    .filter((existing) => existing.type === type)
+    .map((existing) => Number(existing.label.match(/(\\d+)$/)?.[1] ?? 0))
+    .filter(Number.isFinite);
+  let nextNumber = 1;
+  while (usedNumbers.includes(nextNumber)) nextNumber += 1;
+  component.label = `${prefix}${nextNumber}`;
+
   return {
     ...circuit,
     components: [...circuit.components, component],
