@@ -192,8 +192,8 @@ function buildDemoProposal(prompt: string): Proposal {
     Array.from({ length: quantityByType[type] ?? 1 }, () => type)
   ).slice(0, 12);
   const layoutPositions = [
-    { x: 90, y: 70 }, { x: 220, y: 70 }, { x: 350, y: 70 },
-    { x: 350, y: 180 }, { x: 220, y: 180 }, { x: 90, y: 180 },
+    { x: 90, y: 70 }, { x: 220, y: 170 }, { x: 350, y: 70 },
+    { x: 350, y: 180 }, { x: 220, y: 270 }, { x: 90, y: 180 },
     { x: 90, y: 270 }, { x: 220, y: 270 }, { x: 350, y: 270 },
     { x: 160, y: 125 }, { x: 285, y: 225 }, { x: 160, y: 225 },
   ];
