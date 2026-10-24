@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent 
 
 import {
   addComponent,
+  createCircuit,
   connectTerminals,
   disconnectWire,
   removeComponent,
