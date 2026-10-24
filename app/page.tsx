@@ -393,6 +393,26 @@ function handleRemoveComponent(componentId: string) {
   setNotice("Componente eliminado.");
 }
 
+function handleRotateComponent(componentId: string, direction: 1 | -1 = 1) {
+  const nextCircuit: Circuit = {
+    ...circuit,
+    components: circuit.components.map((component) => component.id === componentId
+      ? { ...component, rotation: (((component.rotation + direction * 90 + 360) % 360) as 0 | 90 | 180 | 270) }
+      : component),
+  };
+  setCircuit(nextCircuit);
+  setValidationIssues(validateCircuit(nextCircuit));
+  setNotice("Componente rotado 90°.");
+}
+
+function clearCircuit() {
+  const empty = createCircuit("Mi primer circuito");
+  setCircuit(empty);
+  setValidationIssues(validateCircuit(empty));
+  setSelectedValidationIssue(null);
+  setNotice("Se eliminó todo el circuito.");
+}
+
 function handleConnectTerminals(fromComponentId: string, fromTerminalId: string, toComponentId: string, toTerminalId: string, points: { x: number; y: number }[]) {
   try {
     const nextCircuit = connectTerminals(circuit, fromComponentId, fromTerminalId, toComponentId, toTerminalId, undefined, points);
@@ -491,6 +511,58 @@ function handleMoveComponent(
     if (!activeChat || isGenerating) return;
     if (files.length > 0) {
       setNotice("Los adjuntos todavía no se analizan. Quitalos para generar una propuesta a partir del texto.");
+      return;
+    }
+
+    const normalized = content.toLocaleLowerCase("es");
+    const commandMessage = (text: string) => {
+      setChats((current) => current.map((chat) => chat.id === activeChat.id
+        ? { ...chat, messages: [...chat.messages,
+            { id: crypto.randomUUID(), role: "user", text: content },
+            { id: crypto.randomUUID(), role: "assistant", text }] }
+        : chat));
+      setInput("");
+      setNotice("");
+    };
+
+    if (/\\b(elimina|eliminar|borra|borrar|vac[ií]a|limpia|limpiar)\\b/.test(normalized) &&
+        /\\b(circuito|todo|todos los componentes)\\b/.test(normalized)) {
+      clearCircuit();
+      commandMessage("Listo: eliminé todos los componentes y conexiones del circuito.");
+      return;
+    }
+
+    const rotateMatch = normalized.match(/\\b(?:rota|rot[aá]|gira|gir[aá]|rotate)\\b(?:\\s+(?:el|la|los|las))?\\s*(led|diodo|resistencia|resistor|bater[ií]a|interruptor|switch|tierra|masa|\\b[rdq]\\d+\\b)?/);
+    if (rotateMatch) {
+      const requestedName = rotateMatch[1];
+      const target = requestedName
+        ? circuit.components.find((item) =>
+            item.label.toLocaleLowerCase("es") === requestedName ||
+            item.type === ({ "diodo": "led", "resistencia": "resistor", "batería": "battery", "bateria": "battery", "interruptor": "switch", "masa": "ground", "tierra": "ground" } as Record<string, string>)[requestedName] ||
+            item.type === requestedName)
+        : circuit.components[circuit.components.length - 1];
+      if (target) {
+        handleRotateComponent(target.id);
+        commandMessage("Roté " + target.label + " 90°. Podés volver a rotarlo desde los controles del componente.");
+      } else {
+        commandMessage("No encontré ese componente para rotarlo. Indicá su tipo o referencia (por ejemplo, «rotá R1»).");
+      }
+      return;
+    }
+
+    const deleteMatch = normalized.match(/\\b(?:elimina|eliminar|borra|borrar|quita|quitar)\\b.*?\\b(led|diodo|resistencia|resistor|bater[ií]a|interruptor|switch|tierra|masa|[rdq]\\d+)\\b/);
+    if (deleteMatch) {
+      const requestedName = deleteMatch[1];
+      const target = circuit.components.find((item) =>
+        item.label.toLocaleLowerCase("es") === requestedName ||
+        item.type === ({ "diodo": "led", "resistencia": "resistor", "batería": "battery", "bateria": "battery", "interruptor": "switch", "masa": "ground", "tierra": "ground" } as Record<string, string>)[requestedName] ||
+        item.type === requestedName);
+      if (target) {
+        handleRemoveComponent(target.id);
+        commandMessage("Eliminé " + target.label + " y sus conexiones asociadas.");
+      } else {
+        commandMessage("No encontré un componente que coincida con ese pedido.");
+      }
       return;
     }
 
@@ -986,13 +1058,11 @@ function handleMoveComponent(
     circuit.components.map((component) => (
       <div className="detail-row" key={component.id}>
         <span>{component.label} · {component.type}</span>
-        <button
-          type="button"
-          onClick={() => handleRemoveComponent(component.id)}
-          aria-label={`Eliminar ${component.label}`}
-        >
-          Eliminar
-        </button>
+        <div className="detail-row-controls">
+          <button type="button" className="rotate-component-button" onClick={() => handleRotateComponent(component.id, -1)} aria-label={`Rotar ${component.label} a la izquierda`} title="Rotar 90° a la izquierda">↶ 90°</button>
+          <button type="button" className="rotate-component-button" onClick={() => handleRotateComponent(component.id, 1)} aria-label={`Rotar ${component.label} a la derecha`} title="Rotar 90° a la derecha">↻ 90°</button>
+          <button type="button" onClick={() => handleRemoveComponent(component.id)} aria-label={`Eliminar ${component.label}`}>Eliminar</button>
+        </div>
       </div>
     ))
   )}
