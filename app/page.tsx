@@ -435,6 +435,7 @@ function handleMoveComponent(
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(true);
   const fileInput = useRef<HTMLInputElement>(null);
+  const projectFileInput = useRef<HTMLInputElement>(null);
   const messageEnd = useRef<HTMLDivElement>(null);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? chats[0];
 
@@ -563,6 +564,81 @@ function handleMoveComponent(
     } finally {
       setIsGenerating(false);
       requestAnimationFrame(() => messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    }
+  }
+
+  function saveProjectFile() {
+    const now = new Date().toISOString();
+    const project = {
+      ...circuit,
+      createdAt: circuit.createdAt || now,
+      updatedAt: now,
+    };
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = (project.name || "mathelect-proyecto").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "") + ".mathelect.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setNotice("Proyecto exportado en formato JSON de Mathelect. Guardalo en una carpeta fácil de encontrar.");
+  }
+
+  async function loadProjectFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setNotice("El archivo supera el límite de 2 MB.");
+      return;
+    }
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      if (!parsed || typeof parsed !== "object") throw new Error("El archivo no contiene un objeto de proyecto.");
+      const candidate = parsed as Partial<Circuit>;
+      const validTypes: ComponentType[] = ["battery", "resistor", "led", "switch", "ground"];
+      if (
+        candidate.version !== 1 ||
+        typeof candidate.id !== "string" ||
+        typeof candidate.name !== "string" ||
+        !Array.isArray(candidate.components) ||
+        !Array.isArray(candidate.wires)
+      ) throw new Error("No parece un proyecto Mathelect compatible (se requiere version 1, componentes y cables).");
+
+      for (const item of candidate.components) {
+        if (!item || typeof item !== "object" || !validTypes.includes(item.type) ||
+          typeof item.id !== "string" || typeof item.label !== "string" ||
+          !item.position || !Number.isFinite(item.position.x) || !Number.isFinite(item.position.y) ||
+          !Array.isArray(item.terminals) || !item.properties || typeof item.properties !== "object") {
+          throw new Error("El archivo contiene un componente incompleto o no compatible.");
+        }
+      }
+      for (const wire of candidate.wires) {
+        if (!wire || typeof wire !== "object" || typeof wire.id !== "string" ||
+          !wire.from || typeof wire.from.componentId !== "string" || typeof wire.from.terminalId !== "string" ||
+          !wire.to || typeof wire.to.componentId !== "string" || typeof wire.to.terminalId !== "string" ||
+          (wire.points !== undefined && (!Array.isArray(wire.points) || wire.points.some((point) => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))))) {
+          throw new Error("El archivo contiene una conexión incompleta o no compatible.");
+        }
+      }
+
+      const imported: Circuit = {
+        id: candidate.id,
+        name: candidate.name,
+        version: 1,
+        components: candidate.components as Circuit["components"],
+        wires: candidate.wires as Circuit["wires"],
+        createdAt: typeof candidate.createdAt === "string" ? candidate.createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setCircuit(imported);
+      setValidationIssues(validateCircuit(imported));
+      setSelectedValidationIssue(null);
+      setNotice(`Proyecto “${imported.name}” abierto. Revisá los avisos de validación si aparecen.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? "No se pudo abrir el proyecto: " + error.message : "No se pudo leer el archivo seleccionado.");
     }
   }
 
@@ -731,6 +807,12 @@ function handleMoveComponent(
           <div><div className="preview-eyebrow"><i /> LABORATORIO VISUAL</div><h2>Vista previa</h2></div>
           <button className="icon-button close-preview" type="button" onClick={() => setPreviewOpen(false)} aria-label="Cerrar vista previa" title="Cerrar vista previa">×</button>
         </header>
+
+        <div className="project-file-actions">
+          <input ref={projectFileInput} type="file" accept=".json,.mathelect.json,application/json" hidden onChange={loadProjectFile} />
+          <button type="button" onClick={saveProjectFile}>Guardar proyecto (.json)</button>
+          <button type="button" onClick={() => projectFileInput.current?.click()}>Abrir proyecto (.json)</button>
+        </div>
 
         <div className="preview-project">
           <div className="preview-file-icon">⌘</div>
