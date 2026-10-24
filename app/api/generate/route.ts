@@ -114,8 +114,25 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
     };
     const from = parseEnd(wire.from);
     const to = parseEnd(wire.to);
+    if (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId) {
+      throw new Error("La IA propuso conectar un terminal consigo mismo.");
+    }
     return { from, to };
   });
+
+  // Rechazar conexiones duplicadas aunque la IA las devuelva en orden inverso.
+  const connectionKeys = new Set<string>();
+  for (const wire of wires) {
+    const ends = [
+      `${wire.from.componentIndex}:${wire.from.terminalId}`,
+      `${wire.to.componentIndex}:${wire.to.terminalId}`,
+    ].sort();
+    const key = ends.join("<->");
+    if (connectionKeys.has(key)) {
+      throw new Error("La IA propuso una conexión duplicada.");
+    }
+    connectionKeys.add(key);
+  }
 
   const stringList = (key: string): string[] => {
     const entry = value[key];
@@ -231,10 +248,17 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(buildDemoProposal(prompt));
-  } catch {
+  } catch (error) {
+    // Los errores de proveedor/configuración no son errores del texto enviado por el usuario.
+    const message = error instanceof Error ? error.message : "";
+    const isProviderFailure = Boolean(process.env.OPENAI_API_KEY);
     return NextResponse.json(
-      { error: "No se pudo interpretar la solicitud. Intentá de nuevo." },
-      { status: 400 },
+      {
+        error: isProviderFailure
+          ? (message || "Falló la generación con el proveedor de IA. Revisá la configuración del servidor.")
+          : "No se pudo interpretar la solicitud. Intentá de nuevo.",
+      },
+      { status: isProviderFailure ? 502 : 400 },
     );
   }
 }
