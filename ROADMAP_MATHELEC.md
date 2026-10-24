@@ -548,6 +548,12 @@ En circuitos sencillos, la biblioteca y las reglas de diseño tendrán gran part
 
 # PARTE 6. Importar y convertir archivos de otros programas
 
+### Primera implementación: formato nativo Mathelect (en prueba)
+
+Se agregan acciones para guardar el circuito actual como JSON y abrir un JSON compatible. La carga valida tamaño, estructura básica, tipos de componentes y conexiones antes de reemplazar el circuito en pantalla. Los avisos de validación se recalculan después de abrirlo.
+
+Limitaciones actuales: esto no importa todavía archivos de Livewire, Proteus ni PCB Wizard; no hay persistencia automática ni compatibilidad garantizada con versiones futuras del formato. La importación de JSON debe probarse con archivos válidos, modificados y ajenos antes de considerarse estable.
+
 ## 17. Crear un importador de archivos
 
 Esta etapa permitirá subir un archivo y transformarlo en el modelo universal de ElectroIA.
