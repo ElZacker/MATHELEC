@@ -12,6 +12,7 @@ import {
 
 
 import { validateCircuit } from "@/lib/circuits/validation";
+import { importSpiceNetlist } from "@/lib/circuits/import-spice";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
 type Message = {
@@ -436,6 +437,7 @@ function handleMoveComponent(
   const [previewOpen, setPreviewOpen] = useState(true);
   const fileInput = useRef<HTMLInputElement>(null);
   const projectFileInput = useRef<HTMLInputElement>(null);
+  const spiceFileInput = useRef<HTMLInputElement>(null);
   const messageEnd = useRef<HTMLDivElement>(null);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? chats[0];
 
@@ -699,6 +701,37 @@ function handleMoveComponent(
     }
   }
 
+  async function importSpiceFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      setNotice("La netlist supera el límite de 1 MB.");
+      return;
+    }
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!["cir", "net", "sp", "ckt", "txt"].includes(extension ?? "")) {
+      setNotice("Este importador solo admite netlists SPICE de texto (.cir, .net, .sp, .ckt o .txt). No admite archivos nativos de Livewire.");
+      return;
+    }
+    try {
+      const result = importSpiceNetlist(await file.text(), file.name.replace(/\.[^.]+$/, ""));
+      const issues = validateCircuit(result.circuit);
+      setCircuit(result.circuit);
+      setValidationIssues(issues);
+      setSelectedValidationIssue(null);
+      const details = [
+        `Importación parcial completada: ${result.circuit.components.length} componentes y ${result.circuit.wires.length} conexiones.`,
+        ...result.warnings,
+        ...(result.unsupportedLines.length ? ["Elementos omitidos:", ...result.unsupportedLines] : []),
+        ...(issues.length ? [`El verificador de MATHELEC generó ${issues.length} aviso(s); revisalos antes de confiar en el esquema.`] : []),
+      ];
+      setNotice(details.join(" "));
+    } catch (error) {
+      setNotice(error instanceof Error ? "No se pudo importar la netlist: " + error.message : "No se pudo leer la netlist.");
+    }
+  }
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -867,8 +900,10 @@ function handleMoveComponent(
 
         <div className="project-file-actions">
           <input ref={projectFileInput} type="file" accept=".json,.mathelect.json,application/json" hidden onChange={loadProjectFile} />
+          <input ref={spiceFileInput} type="file" accept=".cir,.net,.sp,.ckt,.txt,text/plain" hidden onChange={importSpiceFile} />
           <button type="button" onClick={saveProjectFile}>Guardar proyecto (.json)</button>
           <button type="button" onClick={() => projectFileInput.current?.click()}>Abrir proyecto (.json)</button>
+          <button type="button" onClick={() => spiceFileInput.current?.click()}>Importar netlist SPICE (experimental)</button>
         </div>
 
         <div className="preview-project">
