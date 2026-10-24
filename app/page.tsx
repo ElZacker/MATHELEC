@@ -495,7 +495,7 @@ function handleMoveComponent(
       return;
     }
 
-    const normalized = content.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLocaleLowerCase("es");
+    const normalized = content.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es");
     const replyToCommand = (text: string) => {
       const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: content };
       const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text };
