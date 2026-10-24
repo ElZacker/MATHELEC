@@ -124,7 +124,8 @@ export function validateCircuit(
 
   // 3. Comprobar cables, componentes y terminales.
   const wireIds = new Set<string>();
-  const connectedTerminals = new Set<string>();\n  const connectionKeys = new Set<string>();
+  const connectedTerminals = new Set<string>();
+  const connectionKeys = new Set<string>();
 
   for (const wire of circuit.wires) {
     if (wireIds.has(wire.id)) {
