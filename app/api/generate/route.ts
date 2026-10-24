@@ -152,27 +152,27 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
 
 
 function buildDemoProposal(prompt: string): Proposal {
-  const text = prompt.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase();
-  const wantsBlink = /\\b(parpade|intermit|titil|555|temporiz|oscilador)\\w*/.test(text);
-  const wantsAlarm = /\\b(alarma|sensor de luz|ldr|fotoresist)\\b/.test(text);
-  const wantsCounter = /\\b(contador|cd4017|decada)\\b/.test(text);
-  const asksForAction = /\\b(agrega|agregá|añade|anade|pon|pone|quiero|necesito|crea|crear|arma|armar|diseña|disena|genera|generar|circuito|conecta|conectar)\\b/.test(text);
+  const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const wantsBlink = /\b(parpade|intermit|titil|555|temporiz|oscilador)\w*/.test(text);
+  const wantsAlarm = /\b(alarma|sensor de luz|ldr|fotoresist)\b/.test(text);
+  const wantsCounter = /\b(contador|cd4017|decada)\b/.test(text);
+  const asksForAction = /\b(agrega|agregá|añade|anade|pon|pone|quiero|necesito|crea|crear|arma|armar|diseña|disena|genera|generar|circuito|conecta|conectar)\b/.test(text);
   const requested = new Map<ComponentType, number>();
   const detect = (type: ComponentType, pattern: RegExp) => {
     const match = text.match(pattern);
     if (match) requested.set(type, Math.max(1, Math.min(8, Number(match[1] || 1))));
   };
-  detect("battery", /\\b(?:(\\d+)\\s*)?(?:baterias?|pilas|fuentes)\\b/);
-  detect("resistor", /\\b(?:(\\d+)\\s*)?(?:resistencias?|resistores?)\\b/);
-  detect("led", /\\b(?:(\\d+)\\s*)?(?:leds?|diodos?)\\b/);
-  detect("switch", /\\b(?:(\\d+)\\s*)?(?:interruptores?|llaves|switches)\\b/);
-  detect("ground", /\\b(?:(\\d+)\\s*)?(?:tierras|masas|grounds?|gnds?)\\b/);
+  detect("battery", /\b(?:(\d+)\s*)?(?:baterias?|pilas|fuentes)\b/);
+  detect("resistor", /\b(?:(\d+)\s*)?(?:resistencias?|resistores?)\b/);
+  detect("led", /\b(?:(\d+)\s*)?(?:leds?|diodos?)\b/);
+  detect("switch", /\b(?:(\d+)\s*)?(?:interruptores?|llaves|switches)\b/);
+  detect("ground", /\b(?:(\d+)\s*)?(?:tierras|masas|grounds?|gnds?)\b/);
   const expanded = [...requested.entries()].flatMap(([type, count]) => Array.from({ length: count }, () => type)).slice(0, 12);
   const unsupported: string[] = [];
   if (wantsBlink) unsupported.push("temporizador NE555 u otro oscilador");
   if (wantsAlarm) unsupported.push("sensor de luz/etapa de control");
   if (wantsCounter) unsupported.push("integrado CD4017 y fuente de pulsos");
-  if (/\\b(transistor|bc547|mosfet|capacitor|condensador|cd4017|555|ldr|fotoresistencia|potenciometro|bobina|inductor|motor|rele)\\b/.test(text)) unsupported.push("componentes mencionados que no están en la biblioteca actual");
+  if (/\b(transistor|bc547|mosfet|capacitor|condensador|cd4017|555|ldr|fotoresistencia|potenciometro|bobina|inductor|motor|rele)\b/.test(text)) unsupported.push("componentes mencionados que no están en la biblioteca actual");
   if (expanded.length === 0) return { mode: "demo", title: "No reconocí componentes disponibles", explanation: "El modo demostración usa palabras clave y no tiene comprensión general como un modelo de IA. No sustituiré componentes faltantes por otros.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: ["Disponibles: batería/fuente, resistencia, LED/diodo, interruptor y tierra/masa.", ...(unsupported.length ? ["Faltan: " + unsupported.join("; ") + "."] : ["Indicá componentes y función del circuito."])], warnings: ["MODO DEMOSTRACIÓN: no se consultó un modelo de IA."] };
   const positions = [{x:75,y:80},{x:220,y:55},{x:360,y:90},{x:365,y:220},{x:220,y:265},{x:75,y:220},{x:145,y:135},{x:290,y:150},{x:145,y:235},{x:285,y:235},{x:215,y:145},{x:75,y:145}];
   const components: ProposalComponent[] = expanded.map((type, index) => ({ type, ...positions[index] }));
