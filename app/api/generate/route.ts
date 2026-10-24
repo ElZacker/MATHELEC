@@ -155,18 +155,20 @@ function buildDemoProposal(prompt: string): Proposal {
   const text = prompt.toLocaleLowerCase("es");
   const asksBlink = /intermit|parpade|555|temporiz/.test(text);
 
-  // Reconocer cada componente mencionado, en vez de responder siempre con el mismo circuito.
-  const requested: ComponentType[] = [];
+  // Reconocer tipos y cantidades explícitas (por ejemplo, "3 resistencias y 2 LED").
+  const quantityByType: Partial<Record<ComponentType, number>> = {};
   const addIfMentioned = (type: ComponentType, pattern: RegExp) => {
-    if (pattern.test(text) && !requested.includes(type)) requested.push(type);
+    const match = text.match(pattern);
+    if (match) quantityByType[type] = Math.max(1, Math.min(8, Number(match[1] || 1)));
   };
-  addIfMentioned("battery", /\b(bater[ií]a|pila|fuente|alimentaci[oó]n)\b/);
-  addIfMentioned("resistor", /\b(resistencia|resistor|resistencias|resistores)\b/);
-  addIfMentioned("led", /\b(leds?|diodo[s]?)\b/);
-  addIfMentioned("switch", /\b(interruptor|llave|switch)\b/);
-  addIfMentioned("ground", /\b(tierra|masa|ground|gnd)\b/);
+  addIfMentioned("battery", /(?:\\b(\\d+)\\s*)?(?:bater[ií]as?|pilas|fuentes)\\b/);
+  addIfMentioned("resistor", /(?:\\b(\\d+)\\s*)?(?:resistencias?|resistores?)\\b/);
+  addIfMentioned("led", /(?:\\b(\\d+)\\s*)?(?:leds?|diodos?)\\b/);
+  addIfMentioned("switch", /(?:\\b(\\d+)\\s*)?(?:interruptores?|llaves|switches)\\b/);
+  addIfMentioned("ground", /(?:\\b(\\d+)\\s*)?(?:tierras|masas|grounds?|gnds?)\\b/);
 
-  const asksForCircuit = /\b(circuito|conect|armar|crear|generar|agrega|agreg[aá]|añad|pon[eé]|necesito|quiero)\b/.test(text);
+  const requested = Object.keys(quantityByType) as ComponentType[];
+  const asksForCircuit = /\\b(circuito|conect|armar|crear|generar|agrega|agreg[aá]|añad|pon[eé]|necesito|quiero)\\b/.test(text);
   const recognized = requested.length > 0;
   if (!recognized) {
     return {
@@ -179,39 +181,50 @@ function buildDemoProposal(prompt: string): Proposal {
       assumptions: [],
       missingInformation: [
         "Probá nombrar batería, resistencia, LED, interruptor o tierra.",
+        "Indicá cantidades, por ejemplo: «2 LED y 3 resistencias».",
         "Explicá qué querés que haga el circuito.",
       ],
       warnings: ["MODO DEMOSTRACIÓN: no se consultó ningún modelo de IA."],
     };
   }
 
-  const components: ProposalComponent[] = requested.map((type, index) => ({
+  const expandedTypes = requested.flatMap((type) =>
+    Array.from({ length: quantityByType[type] ?? 1 }, () => type)
+  ).slice(0, 12);
+  const layoutPositions = [
+    { x: 90, y: 70 }, { x: 220, y: 70 }, { x: 350, y: 70 },
+    { x: 350, y: 180 }, { x: 220, y: 180 }, { x: 90, y: 180 },
+    { x: 90, y: 270 }, { x: 220, y: 270 }, { x: 350, y: 270 },
+    { x: 160, y: 125 }, { x: 285, y: 225 }, { x: 160, y: 225 },
+  ];
+  const components: ProposalComponent[] = expandedTypes.map((type, index) => ({
     type,
-    x: 70 + (index % 4) * 105,
-    y: 100 + Math.floor(index / 4) * 90,
+    ...layoutPositions[index],
   }));
 
-  const hasLed = requested.includes("led");
-  const hasBattery = requested.includes("battery");
-  const hasResistor = requested.includes("resistor");
-  const canSuggestLedCircuit = hasLed && asksForCircuit && (hasBattery || hasResistor);
+  const hasLed = expandedTypes.includes("led");
+  const hasBattery = expandedTypes.includes("battery");
+  const hasResistor = expandedTypes.includes("resistor");
+  const canSuggestLedCircuit = hasLed && asksForCircuit && hasBattery && hasResistor;
 
   let wires: ProposalWire[] = [];
   let explanation = "Se identificaron los componentes mencionados y se colocaron en el área de propuesta. Todavía no se dedujeron conexiones, porque una mención de componentes no alcanza para determinar una topología fiable.";
   const assumptions: string[] = [];
   const missingInformation: string[] = [];
 
-  if (canSuggestLedCircuit && hasBattery && hasResistor) {
-    const batteryIndex = requested.indexOf("battery");
-    const resistorIndex = requested.indexOf("resistor");
-    const ledIndex = requested.indexOf("led");
+  if (canSuggestLedCircuit) {
+    const batteryIndex = expandedTypes.indexOf("battery");
+    const resistorIndex = expandedTypes.indexOf("resistor");
+    const ledIndex = expandedTypes.indexOf("led");
+    // Recorrido cerrado visualmente, con componentes en posiciones escalonadas.
     wires = [
       { from: { componentIndex: batteryIndex, terminalId: "positive" }, to: { componentIndex: resistorIndex, terminalId: "a" } },
       { from: { componentIndex: resistorIndex, terminalId: "b" }, to: { componentIndex: ledIndex, terminalId: "anode" } },
       { from: { componentIndex: ledIndex, terminalId: "cathode" }, to: { componentIndex: batteryIndex, terminalId: "negative" } },
     ];
-    explanation = "Propuesta preliminar de un LED en serie con una resistencia y una batería. Revisá los valores reales antes de construirlo.";
+    explanation = "Propuesta preliminar con batería, resistencia y LED conectados en un lazo cerrado. Los componentes se distribuyen en una disposición escalonada, no en una única línea. Revisá los valores reales antes de construirlo.";
     assumptions.push("Se usan los valores predeterminados de la biblioteca: batería de 9 V, resistencia de 220 Ω y LED de Vf 2 V.");
+    missingInformation.push("Las cantidades adicionales se colocan en el esquema, pero no se conectan automáticamente sin una función definida para ellas.");
     missingInformation.push("Confirmar que la resistencia y la corriente sean adecuadas para el LED real.");
   } else {
     missingInformation.push("Indicá qué componentes deben conectarse entre sí y qué función debe cumplir el circuito.");
@@ -237,7 +250,7 @@ function buildDemoProposal(prompt: string): Proposal {
       led: "Se solicitó un LED o diodo.",
       switch: "Se solicitó un interruptor.",
       ground: "Se solicitó una conexión a tierra o masa.",
-    })[type]),
+    })[type] + (quantityByType[type] && quantityByType[type]! > 1 ? " Cantidad solicitada: " + quantityByType[type] + "." : "")),
     assumptions,
     missingInformation,
     warnings: [
