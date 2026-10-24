@@ -4,6 +4,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent 
 
 import {
   addComponent,
+  createCircuit,
   connectTerminals,
   disconnectWire,
   removeComponent,
@@ -335,7 +336,7 @@ export default function Home() {
     messages: [welcomeMessage()],
   }]);
   const [activeChatId, setActiveChatId] = useState("chat-inicial");
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState("");\n  const [isGenerating, setIsGenerating] = useState(false);
   
 const [circuit, setCircuit] = useState<Circuit>(() => ({
   id: "circuit-principal",
@@ -475,7 +476,7 @@ function handleMoveComponent(
     event.target.value = "";
   }
 
-  function sendMessage(event?: FormEvent<HTMLFormElement>, suggestedText?: string) {
+  async function sendMessage(event?: FormEvent<HTMLFormElement>, suggestedText?: string) {
     event?.preventDefault();
     const content = (suggestedText ?? input).trim();
 
@@ -483,35 +484,85 @@ function handleMoveComponent(
       setNotice("Escribí un mensaje o adjuntá un archivo antes de enviar.");
       return;
     }
-    if (!activeChat) return;
+    if (!activeChat || isGenerating) return;
+    if (files.length > 0) {
+      setNotice("Los adjuntos todavía no se analizan. Quitalos para generar una propuesta a partir del texto.");
+      return;
+    }
 
-    const names = files.map((file) => file.name);
-    const userText = [content, names.length ? `Archivos adjuntos: ${names.join(", ")}` : ""]
-      .filter(Boolean).join("\n\n");
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      text: userText,
-    };
-    const assistantMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      text: names.length
-        ? "La interfaz registró los adjuntos, pero todavía no lee sus bytes ni analiza los formatos. No se ha convertido ni validado ningún circuito."
-        : "Recibí tu pedido en el chat de demostración. Para generar circuitos reales todavía falta conectar un motor de IA, un generador de archivos y una validación eléctrica. No se ha creado un archivo de salida.",
-    };
-
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: content };
     setChats((current) => current.map((chat) => chat.id === activeChat.id ? {
       ...chat,
-      title: chat.title === "Nuevo proyecto"
-        ? (content || names[0] || "Proyecto").slice(0, 38)
-        : chat.title,
-      messages: [...chat.messages, userMessage, assistantMessage],
+      title: chat.title === "Nuevo proyecto" ? content.slice(0, 38) : chat.title,
+      messages: [...chat.messages, userMessage],
     } : chat));
     setInput("");
-    setFiles([]);
     setNotice("");
-    requestAnimationFrame(() => messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    setIsGenerating(true);
+
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: content }),
+      });
+      const data: {
+        mode?: "demo" | "ai";
+        title?: string; explanation?: string;
+        components?: { type: ComponentType; x: number; y: number }[];
+        wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
+        confirmedRequirements?: string[]; assumptions?: string[];
+        missingInformation?: string[]; warnings?: string[]; error?: string;
+      } = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "No se pudo generar la propuesta.");
+
+      let assistantText = [
+        data.title ?? "Propuesta recibida",
+        data.mode === "ai" ? "Modo IA: respuesta generada por el proveedor configurado." : "Modo demostración: todavía no se configuró una clave de IA.",
+        data.explanation ?? "",
+        data.confirmedRequirements?.length ? "Requisitos identificados:\n- " + data.confirmedRequirements.join("\n- ") : "",
+        data.assumptions?.length ? "Suposiciones:\n- " + data.assumptions.join("\n- ") : "",
+        data.missingInformation?.length ? "Datos pendientes:\n- " + data.missingInformation.join("\n- ") : "",
+        data.warnings?.length ? "Advertencias:\n- " + data.warnings.join("\n- ") : "",
+      ].filter(Boolean).join("\n\n");
+
+      if (data.components?.length) {
+        let nextCircuit = createCircuit(content.slice(0, 60) || "Propuesta de circuito");
+        const componentIds: string[] = [];
+        for (const item of data.components) {
+          if (!["battery", "resistor", "led", "switch", "ground"].includes(item.type)) {
+            throw new Error("La propuesta contiene un tipo de componente no admitido.");
+          }
+          nextCircuit = addComponent(nextCircuit, item.type, item.x, item.y);
+          componentIds.push(nextCircuit.components[nextCircuit.components.length - 1].id);
+        }
+        for (const wire of data.wires ?? []) {
+          const fromId = componentIds[wire.from.componentIndex];
+          const toId = componentIds[wire.to.componentIndex];
+          if (!fromId || !toId) throw new Error("La propuesta contiene índices de conexión inválidos.");
+          nextCircuit = connectTerminals(nextCircuit, fromId, wire.from.terminalId, toId, wire.to.terminalId);
+        }
+        const issues = validateCircuit(nextCircuit);
+        setCircuit(nextCircuit);
+        setValidationIssues(issues);
+        setSelectedValidationIssue(null);
+        assistantText += "\n\nSe cargó una propuesta en el área de circuito. Revisá las advertencias antes de usarla.";
+        if (issues.length) assistantText += "\nEl verificador estructural encontró " + issues.length + " aviso(s).";
+      } else {
+        setNotice("La propuesta no incluyó componentes para dibujar.");
+      }
+
+      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: assistantText };
+      setChats((current) => current.map((chat) => chat.id === activeChat.id
+        ? { ...chat, messages: [...chat.messages, assistantMessage] } : chat));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Ocurrió un error inesperado.";
+      setChats((current) => current.map((chat) => chat.id === activeChat.id
+        ? { ...chat, messages: [...chat.messages, { id: crypto.randomUUID(), role: "assistant", text: "No se pudo generar la propuesta: " + errorMessage }] } : chat));
+    } finally {
+      setIsGenerating(false);
+      requestAnimationFrame(() => messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    }
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -665,11 +716,11 @@ function handleMoveComponent(
                 </div>
                 <div className="composer-actions">
                   <button type="button" className="icon-button mic-button" title="Entrada por voz no implementada" onClick={() => setNotice("El dictado por micrófono todavía no está conectado.")} aria-label="Micrófono">♩</button>
-                  <button type="submit" className="send-button" aria-label="Enviar mensaje" title="Enviar mensaje">↑</button>
+                  <button type="submit" className="send-button" disabled={isGenerating} aria-label="Enviar mensaje" title={isGenerating ? "Generando propuesta..." : "Enviar mensaje"}>{isGenerating ? "…" : "↑"}</button>
                 </div>
               </div>
             </form>
-            <p className="composer-disclaimer">Prototipo en desarrollo. Verificá los circuitos antes de construirlos físicamente.</p>
+            <p className="composer-disclaimer">{isGenerating ? "Preparando una propuesta de demostración..." : "Generador en modo demostración. Verificá las advertencias antes de construir un circuito."}</p>
           </div>
         </div>
       </section>
