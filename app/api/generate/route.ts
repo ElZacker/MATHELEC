@@ -161,14 +161,14 @@ function buildDemoProposal(prompt: string): Proposal {
     const match = text.match(pattern);
     if (match) quantityByType[type] = Math.max(1, Math.min(8, Number(match[1] || 1)));
   };
-  addIfMentioned("battery", /(?:\\b(\\d+)\\s*)?(?:bater[ií]as?|pilas|fuentes)\\b/);
-  addIfMentioned("resistor", /(?:\\b(\\d+)\\s*)?(?:resistencias?|resistores?)\\b/);
-  addIfMentioned("led", /(?:\\b(\\d+)\\s*)?(?:leds?|diodos?)\\b/);
-  addIfMentioned("switch", /(?:\\b(\\d+)\\s*)?(?:interruptores?|llaves|switches)\\b/);
-  addIfMentioned("ground", /(?:\\b(\\d+)\\s*)?(?:tierras|masas|grounds?|gnds?)\\b/);
+  addIfMentioned("battery", /(?:\b(\d+)\s*)?(?:bater[ií]as?|pilas|fuentes)\b/);
+  addIfMentioned("resistor", /(?:\b(\d+)\s*)?(?:resistencias?|resistores?)\b/);
+  addIfMentioned("led", /(?:\b(\d+)\s*)?(?:leds?|diodos?)\b/);
+  addIfMentioned("switch", /(?:\b(\d+)\s*)?(?:interruptores?|llaves|switches)\b/);
+  addIfMentioned("ground", /(?:\b(\d+)\s*)?(?:tierras|masas|grounds?|gnds?)\b/);
 
   const requested = Object.keys(quantityByType) as ComponentType[];
-  const asksForCircuit = /\\b(circuito|conect|armar|crear|generar|agrega|agreg[aá]|añad|pon[eé]|necesito|quiero)\\b/.test(text);
+  const asksForCircuit = /\b(circuito|conect|armar|crear|generar|agrega|agreg[aá]|añad|pon[eé]|necesito|quiero)\b/.test(text);
   const recognized = requested.length > 0;
   if (!recognized) {
     return {
