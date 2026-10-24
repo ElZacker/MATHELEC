@@ -227,7 +227,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "El pedido no puede superar los 2000 caracteres." }, { status: 413 });
     }
 
-    if (process.env.OPENAI_API_KEY) {\n      const proposal = await buildAiProposal(prompt);\n      return NextResponse.json({ mode: "ai", ...proposal });\n    }\n\n    return NextResponse.json(buildDemoProposal(prompt));
+    if (process.env.OPENAI_API_KEY) {
+      const proposal = await buildAiProposal(prompt);
+      return NextResponse.json({ mode: "ai", ...proposal });
+    }
+
+    return NextResponse.json(buildDemoProposal(prompt));
   } catch {
     return NextResponse.json(
       { error: "No se pudo interpretar la solicitud. Intentá de nuevo." },
