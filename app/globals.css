@@ -413,3 +413,30 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .validation-issue small { color: var(--green); font-size: 9px; white-space: nowrap; }
 .validation-issue-selected small { color: #ffaaaa; }
 .circuit-item-highlighted { filter: drop-shadow(0 0 5px rgba(255, 115, 115, .85)); }
+
+
+/* Guardado y apertura del formato nativo de Mathelect */
+.project-file-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 0 14px 12px;
+}
+.project-file-actions button {
+  min-width: 0;
+  padding: 9px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(69, 245, 154, .08);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.project-file-actions button:hover {
+  border-color: var(--green);
+  background: rgba(69, 245, 154, .14);
+}
+@media (max-width: 420px) {
+  .project-file-actions { grid-template-columns: 1fr; }
+}
