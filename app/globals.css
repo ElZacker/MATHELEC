@@ -417,26 +417,38 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* Guardado y apertura del formato nativo de Mathelect */
 .project-file-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  display: flex !important;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 0 14px 12px;
+  width: 100%;
+  box-sizing: border-box;
 }
 .project-file-actions button {
+  appearance: none !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 125px;
+  min-height: 38px;
   min-width: 0;
-  padding: 9px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(69, 245, 154, .08);
-  color: var(--text);
-  font: inherit;
-  font-size: 11px;
+  padding: 10px 12px !important;
+  border: 1px solid #32a66a !important;
+  border-radius: 8px !important;
+  background: #16834b !important;
+  color: #ffffff !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1.35;
+  text-align: center;
+  white-space: normal;
   cursor: pointer;
 }
 .project-file-actions button:hover {
-  border-color: var(--green);
-  background: rgba(69, 245, 154, .14);
+  background: #1b9b59 !important;
+  border-color: #78dba5 !important;
 }
-@media (max-width: 420px) {
-  .project-file-actions { grid-template-columns: 1fr; }
+.project-file-actions button:active {
+  transform: translateY(1px);
 }
