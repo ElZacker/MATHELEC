@@ -542,6 +542,8 @@ Si pedís un detector de mentiras, por ejemplo, el sistema debe distinguir entre
 
 La aplicación debería explicar estos límites y generar únicamente los elementos que pueda justificar técnicamente.
 
+**Primera implementación:** el verificador ahora agrega advertencias preliminares para combinaciones batería + LED sin resistencia limitadora, una estimación simplificada de sobrecorriente cuando hay exactamente una resistencia con valor conocido y conexiones directas que parecen invertir la polaridad del LED. Son heurísticas basadas en los datos actuales; no comprueban toda la topología, no calculan todas las redes y no reemplazan una simulación. Las advertencias deben revisarse con el circuito real.
+
 En circuitos sencillos, la biblioteca y las reglas de diseño tendrán gran parte del trabajo. En diseños complejos, el sistema deberá reconocer cuándo hacen falta cálculos adicionales, modelos específicos o revisión humana.
 
 # PARTE 6. Importar y convertir archivos de otros programas
