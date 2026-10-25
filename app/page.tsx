@@ -275,6 +275,15 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
             </>
           )}
 
+          {!["battery", "resistor", "led", "switch", "ground"].includes(component.type) && (
+            <>
+              <rect x="-24" y="-17" width="48" height="34" rx={["ic_555", "ic_4017", "op_amp", "logic_gate_and", "logic_gate_or", "logic_gate_not"].includes(component.type) ? 3 : 9} fill="#10291c" stroke="#45f59a" />
+              <text x="0" y="4" fill="#b8ffd2" stroke="none" textAnchor="middle" fontSize="10" fontWeight="700">
+                {({ diode: "D", capacitor: "C", polarized_capacitor: "C+", inductor: "L", npn_transistor: "NPN", pnp_transistor: "PNP", mosfet_n: "NMOS", mosfet_p: "PMOS", op_amp: "A", voltage_source_ac: "~V", current_source: "I", fuse: "F", motor: "M", lamp: "LP", push_button: "PB", relay: "K", photodiode: "PD", ldr: "LDR", thermistor: "TH", potentiometer: "RV", zener_diode: "DZ", logic_gate_and: "&", logic_gate_or: "≥1", logic_gate_not: "¬", ic_555: "555", ic_4017: "4017", connector: "J" } as Partial<Record<ComponentType, string>>)[component.type] ?? "?"}
+              </text>
+            </>
+          )}
+
           <text
             x="0"
             y="32"
