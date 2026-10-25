@@ -58,41 +58,55 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const circuitContext = JSON.stringify(currentCircuit);
   const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo, como un buen asistente general. Respondé primero en el campo response con una contestación breve y humana: saludos se contestan como saludos, preguntas se contestan como preguntas. No muestres títulos robóticos, modo IA, listas de metadatos ni advertencias genéricas en cada turno. Además devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
-  // Gemini 3.8 Flash puede tardar más de 20 s en períodos de alta demanda.
-  // Reintentamos solo fallos transitorios; nunca hacemos fallback silencioso a modo demo.
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  const requestBody = JSON.stringify({
-    systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
-    generationConfig: {
-      maxOutputTokens: 2048,
-      responseMimeType: "application/json",
-      thinkingConfig: { thinkingLevel: "LOW" },
-    },
-  });
-
+  // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
+  // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
+  const modelsToTry = [...new Set([model, fallbackModel])];
   let response: Response | undefined;
   let lastTransientError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Server-Timeout": "60" },
-        body: requestBody,
-        signal: AbortSignal.timeout(65000),
-      });
-      if (response.status !== 503 && response.status !== 504) break;
-      if (attempt === 2) break;
-      lastTransientError = new Error(`Gemini respondió HTTP ${response.status}`);
-    } catch (error) {
-      lastTransientError = error;
-      const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-      if (!timedOut || attempt === 2) throw error;
+  let activeModel = model;
+
+  for (const candidateModel of modelsToTry) {
+    activeModel = candidateModel;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${apiKey}`;
+    const requestBody = JSON.stringify({
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
+      generationConfig: {
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingLevel: "LOW" },
+      },
+    });
+
+    // Dos intentos por modelo, con una espera corta para errores transitorios.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+          signal: AbortSignal.timeout(30000),
+        });
+        if (response.ok) break;
+        if (response.status !== 503 && response.status !== 504) break;
+        lastTransientError = new Error(`Gemini ${candidateModel} respondió HTTP ${response.status}`);
+      } catch (error) {
+        lastTransientError = error;
+        const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+        if (!timedOut) throw error;
+      }
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1000));
     }
-    await new Promise((resolve) => setTimeout(resolve, 800 * 2 ** attempt));
+    if (response?.ok) break;
+    if (response && response.status !== 503 && response.status !== 504) break;
+    response = undefined;
   }
+
   if (!response) {
-    throw lastTransientError instanceof Error ? lastTransientError : new Error("No se recibió respuesta de Gemini.");
+    throw lastTransientError instanceof Error
+      ? new Error(lastTransientError.message + ". Se intentó el modelo principal y el alternativo.")
+      : new Error("Gemini no respondió. Se intentaron el modelo principal y el alternativo.");
   }
 
   if (!response.ok) {
@@ -104,7 +118,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     // Mensajes accionables; nunca incluir la clave en la respuesta al navegador.
     if (response.status === 429) throw new Error("Gemini agotó la cuota o el límite de solicitudes del nivel gratuito. Revisá el uso y los límites del proyecto en Google AI Studio y probá más tarde.");
     if (response.status === 401 || response.status === 403) throw new Error("Gemini rechazó la clave o el acceso a la API (HTTP " + response.status + "). Verificá que GEMINI_API_KEY sea la clave de AI Studio correcta y que la API Gemini esté habilitada para ese proyecto.");
-    if (response.status === 404) throw new Error("Gemini no encontró el modelo '" + model + "' (HTTP 404). Cambiá GEMINI_MODEL por un modelo disponible para tu proyecto.");
+    if (response.status === 404) throw new Error("Gemini no encontró el modelo '" + activeModel + "' (HTTP 404). Cambiá GEMINI_MODEL o GEMINI_FALLBACK_MODEL por un modelo disponible para tu proyecto.");
     if (response.status === 400) throw new Error("Gemini rechazó la solicitud (HTTP 400)." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá el modelo y el formato de la solicitud."));
     throw new Error("Gemini respondió HTTP " + response.status + "." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá la configuración e intentá nuevamente."));
   }
