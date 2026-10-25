@@ -68,10 +68,17 @@ async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> 
   });
 
   if (!response.ok) {
-    if (response.status === 429) throw new Error("Se alcanzó la cuota gratuita o el límite de solicitudes de Gemini. Esperá a que se restablezca la cuota o revisá los límites de AI Studio.");
-    if (response.status === 401 || response.status === 403) throw new Error("Gemini rechazó la clave. Revisá GEMINI_API_KEY y que la clave pertenezca a un proyecto habilitado.");
-    if (response.status === 404) throw new Error("El modelo configurado no está disponible. Revisá GEMINI_MODEL en .env.local.");
-    throw new Error("Gemini respondió con un error HTTP " + response.status + ". Revisá la configuración e intentá nuevamente.");
+    let providerMessage = "";
+    try {
+      const errorPayload = await response.json() as { error?: { message?: string; status?: string } };
+      providerMessage = typeof errorPayload.error?.message === "string" ? errorPayload.error.message : "";
+    } catch {}
+    // Mensajes accionables; nunca incluir la clave en la respuesta al navegador.
+    if (response.status === 429) throw new Error("Gemini agotó la cuota o el límite de solicitudes del nivel gratuito. Revisá el uso y los límites del proyecto en Google AI Studio y probá más tarde.");
+    if (response.status === 401 || response.status === 403) throw new Error("Gemini rechazó la clave o el acceso a la API (HTTP " + response.status + "). Verificá que GEMINI_API_KEY sea la clave de AI Studio correcta y que la API Gemini esté habilitada para ese proyecto.");
+    if (response.status === 404) throw new Error("Gemini no encontró el modelo '" + model + "' (HTTP 404). Cambiá GEMINI_MODEL por un modelo disponible para tu proyecto.");
+    if (response.status === 400) throw new Error("Gemini rechazó la solicitud (HTTP 400)." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá el modelo y el formato de la solicitud."));
+    throw new Error("Gemini respondió HTTP " + response.status + "." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá la configuración e intentá nuevamente."));
   }
 
   const payload: unknown = await response.json();
@@ -228,11 +235,15 @@ export async function POST(request: Request) {
     // No devolver detalles internos ni respuestas crudas del proveedor al navegador.
     const safeMessage = message.includes("Falta GEMINI_API_KEY")
       ? "Falta configurar GEMINI_API_KEY en .env.local."
-      : message.includes("cuota gratuita") || message.includes("límite de solicitudes") || message.includes("Gemini respondió")
+      : message.includes("cuota") || message.includes("límite de solicitudes") || message.includes("Gemini respondió") || message.includes("Gemini agotó") || message.includes("Gemini rechazó") || message.includes("Gemini no encontró")
         ? message
-        : message.includes("no existe") || message.includes("inválid") || message.includes("JSON")
+        : message.includes("no existe") || message.includes("inválid") || message.includes("JSON") || message.includes("terminal") || message.includes("componente") || message.includes("coordenada")
           ? message
-          : "Falló la generación. Revisá la configuración del proveedor e intentá nuevamente.";
+          : error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")
+            ? "Gemini tardó demasiado en responder. Probá nuevamente en unos segundos."
+            : error instanceof TypeError
+              ? "No se pudo conectar con Gemini desde el servidor. Revisá la conexión a Internet y reiniciá npm run dev."
+              : "Falló la generación por un error inesperado. Reiniciá npm run dev y volvé a probar.";
     return NextResponse.json(
       {
         error: isProviderFailure
