@@ -509,156 +509,7 @@ function handleMoveComponent(
       setInput("");
       setNotice("");
     };
-    // Acciones sencillas y deterministas sobre el circuito existente.
-    // Agregar componentes no requiere IA: se aplica directamente y preserva todo lo que ya existe.
-    const addVerb = /\\b(agrega|agregá|agregar|añade|anade|añadir|pone|pon|poner|sum[aá]|incorpora|incorporar)\\b/.test(normalized);
-    const componentWords: [RegExp, ComponentType][] = [
-      /\\b(leds?|diodos?)\\b/, "led",
-      /\\b(resistencias?|resistores?)\\b/, "resistor",
-      /\\b(baterias?|pilas|fuentes?)\\b/, "battery",
-      /\\b(interruptores?|llaves|switches)\\b/, "switch",
-      /\\b(tierras|masas|grounds?|gnds?)\\b/, "ground",
-    ];
-    if (addVerb) {
-      const requestedTypes = componentWords.filter(([pattern]) => pattern.test(normalized)).map(([, type]) => type);
-      if (requestedTypes.length > 0) {
-        let next = circuit;
-        const added: string[] = [];
-        for (const type of requestedTypes) {
-          const countMatch = normalized.match(new RegExp("\\\\b(\\\\d+)\\\\s*(?:" + ({led:"leds?",resistor:"resistencias?|resistores?",battery:"baterias?|pilas|fuentes?",switch:"interruptores?|llaves|switches",ground:"tierras|masas|grounds?|gnds?"} as Record<ComponentType,string>)[type] + ")\\\\b"));
-          const count = Math.min(4, Math.max(1, Number(countMatch?.[1] ?? 1)));
-          for (let i = 0; i < count && next.components.length < 12; i++) {
-            const index = next.components.length;
-            next = addComponent(next, type, 70 + (index % 4) * 95, 70 + Math.floor(index / 4) * 90);
-            added.push(next.components[next.components.length - 1].label);
-          }
-        }
-        if (next !== circuit) {
-          setCircuit(next); setValidationIssues(validateCircuit(next)); setSelectedValidationIssue(null);
-          replyToCommand("Listo, agregué " + added.join(", ") + " al circuito existente. Conservé los componentes y cables que ya tenías; todavía no conecté automáticamente los nuevos componentes.");
-        } else replyToCommand("El circuito alcanzó el límite de 12 componentes de esta versión.");
-        return;
-      }
-    }
-    const removeWords = /\b(elimina|eliminar|borra|borrar|quita|quitar)\b/.test(normalized);
-    const clearWords = /\b(todo|todos|todas|el circuito|los componentes)\b/.test(normalized);
-    if (removeWords && !/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/i.test(normalized) &&
-        /\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\b/.test(normalized)) {
-      const typeMatch = normalized.match(/\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\b/);
-      const typeMap: Record<string, ComponentType> = { led: "led", diodo: "led", resistencia: "resistor", resistor: "resistor", bateria: "battery", pila: "battery", interruptor: "switch", tierra: "ground", masa: "ground" };
-      const type = typeMatch ? typeMap[typeMatch[1]] : undefined;
-      const matches = type ? circuit.components.filter(c => c.type === type) : [];
-      if (matches.length === 1) {
-        const next = removeComponent(circuit, matches[0].id);
-        setCircuit(next); setValidationIssues(validateCircuit(next));
-        replyToCommand("Listo, eliminé " + matches[0].label + " y cualquier cable conectado a ese componente.");
-        return;
-      }
-      if (matches.length > 1) {
-        replyToCommand("Hay varios componentes de ese tipo. Decime su referencia (por ejemplo, R1 o D1) para borrar el correcto.");
-        return;
-      }
-    }
-    if (/\b(conecta|conectar|conectalos|conectalas|unilos|unilas|unir|cablea|cablear)\b/.test(normalized) &&
-        circuit.components.length >= 2) {
-      const refs = [...normalized.matchAll(/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/gi)].map(m => m[1].toUpperCase());
-      let pair = refs.length >= 2
-        ? refs.slice(0, 2).map(ref => circuit.components.find(c => c.label.toUpperCase() === ref))
-        : [];
-      if (pair.length < 2 || !pair[0] || !pair[1]) {
-        const requestedTypes = [...normalized.matchAll(/\b(led|diodo|resistencia|resistor|bateria|pila|interruptor)\b/g)].map(m => ({led:"led",diodo:"led",resistencia:"resistor",resistor:"resistor",bateria:"battery",pila:"battery",interruptor:"switch"} as Record<string, ComponentType>)[m[1]]);
-        if (requestedTypes.length >= 2) {
-          pair = requestedTypes.slice(0,2).map(type => circuit.components.find(c => c.type === type));
-        } else if (circuit.components.length === 2) pair = [circuit.components[0], circuit.components[1]];
-      }
-      if (pair.length === 2 && pair[0] && pair[1]) {
-        const freeTerminal = (component: typeof circuit.components[number]) => component.terminals.find(t => !circuit.wires.some(w => (w.from.componentId === component.id && w.from.terminalId === t.id) || (w.to.componentId === component.id && w.to.terminalId === t.id)));
-        const a = freeTerminal(pair[0]), b = freeTerminal(pair[1]);
-        if (a && b) {
-          try {
-            const next = connectTerminals(circuit, pair[0].id, a.id, pair[1].id, b.id);
-            setCircuit(next); setValidationIssues(validateCircuit(next));
-            replyToCommand("Listo, conecté " + pair[0].label + " (" + a.name + ") con " + pair[1].label + " (" + b.name + "). Revisá la conexión en el esquema.");
-          } catch (error) { replyToCommand(error instanceof Error ? error.message : "No pude crear esa conexión."); }
-        } else replyToCommand("No encontré terminales libres en ambos componentes. Revisá el esquema o indicame qué terminales querés conectar.");
-        return;
-      }
-    }
-    // Desconectar un cable entre dos componentes existentes.
-    if (/\b(desconecta|desconectar|separa|desunir)\b/.test(normalized)) {
-      const refsForDisconnect = [...normalized.matchAll(/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/gi)].map(m => m[1].toUpperCase());
-      if (refsForDisconnect.length >= 2) {
-        const a = circuit.components.find(c => c.label.toUpperCase() === refsForDisconnect[0]);
-        const b = circuit.components.find(c => c.label.toUpperCase() === refsForDisconnect[1]);
-        const wire = a && b ? circuit.wires.find(w =>
-          (w.from.componentId === a.id && w.to.componentId === b.id) ||
-          (w.from.componentId === b.id && w.to.componentId === a.id)) : undefined;
-        if (wire) {
-          const next = disconnectWire(circuit, wire.id);
-          setCircuit(next); setValidationIssues(validateCircuit(next));
-          replyToCommand("Listo, desconecté " + refsForDisconnect[0] + " de " + refsForDisconnect[1] + ".");
-        } else replyToCommand("No encontré un cable directo entre esas dos referencias. No cambié el circuito.");
-        return;
-      }
-      replyToCommand("Decime las dos referencias que querés desconectar, por ejemplo: «desconectá R1 de D1».");
-      return;
-    }
-
-    const referenceMatch = normalized.match(/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/i);
-    const reference = referenceMatch?.[1]?.toUpperCase();
-    const target = reference
-      ? circuit.components.find((component) => component.label.toUpperCase() === reference)
-      : undefined;
-
-    if (/\b(mueve|mover|mové|desplaza|desplazar)\b/.test(normalized) && referenceMatch) {
-      if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
-      else {
-        let dx = 0, dy = 0;
-        if (/\b(izquierda|izquierd[a]?|left)\b/.test(normalized)) dx = -35;
-        if (/\b(derecha|derech[a]?|right)\b/.test(normalized)) dx = 35;
-        if (/\b(arriba|sube|subir|up)\b/.test(normalized)) dy = -25;
-        if (/\b(abajo|baja|bajar|down)\b/.test(normalized)) dy = 25;
-        if (dx === 0 && dy === 0) {
-          replyToCommand("¿Hacia dónde querés mover " + reference + "? Podés decir «mové R1 a la izquierda», «a la derecha», «arriba» o «abajo».");
-        } else {
-          const next = moveComponent(circuit, target.id,
-            Math.max(15, Math.min(425, target.position.x + dx)),
-            Math.max(15, Math.min(315, target.position.y + dy)));
-          setCircuit(next); setValidationIssues(validateCircuit(next));
-          replyToCommand("Moví " + reference + " en el esquema.");
-        }
-      }
-      return;
-    }
-    if (/\b(elimina|eliminar|borra|borrar|quita|quitar)\b/.test(normalized) && referenceMatch) {
-      if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
-      else {
-        const next = removeComponent(circuit, target.id);
-        setCircuit(next);
-        setValidationIssues(validateCircuit(next));
-        replyToCommand("Eliminé " + target.label + " y sus conexiones.");
-      }
-      return;
-    }
-    if (/\b(rota|gira|rotar|girar)\b/.test(normalized) && referenceMatch) {
-      if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
-      else {
-        const next = rotateComponent(circuit, target.id);
-        setCircuit(next);
-        setValidationIssues(validateCircuit(next));
-        replyToCommand("Roté " + target.label + " 90° en sentido horario.");
-      }
-      return;
-    }
-    if (/\b(elimina|eliminar|borra|borrar|limpia|limpiar|vacia|vaciar)\b/.test(normalized) &&
-        /\b(todo|circuito|componentes)\b/.test(normalized)) {
-      const next = createCircuit("Nuevo circuito");
-      setCircuit(next);
-      setValidationIssues(validateCircuit(next));
-      replyToCommand("Eliminé todos los componentes y conexiones del circuito.");
-      return;
-    }
-
+    // Todas las instrucciones, incluidas las ediciones del circuito, se interpretan con Gemini.
     const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: content };
     setChats((current) => current.map((chat) => chat.id === activeChat.id ? {
       ...chat,
@@ -676,10 +527,11 @@ function handleMoveComponent(
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: content, currentCircuit: { components: circuit.components.map((component) => ({ type: component.type, label: component.label, position: component.position })), wires: circuit.wires.map((wire) => ({ from: wire.from, to: wire.to })) } }),
+        body: JSON.stringify({ prompt: content, currentCircuit: { id: circuit.id, name: circuit.name, components: circuit.components.map((component) => ({ id: component.id, type: component.type, label: component.label, position: component.position, rotation: component.rotation, properties: component.properties, terminals: component.terminals.map((terminal) => ({ id: terminal.id, name: terminal.name })) })), wires: circuit.wires.map((wire) => ({ id: wire.id, from: wire.from, to: wire.to, points: wire.points ?? [] })) } }),
       });
       const data: {
         mode?: "demo" | "ai";
+        actions?: Record<string, unknown>[];
         response?: string;
         title?: string; explanation?: string;
         components?: { type: ComponentType; x: number; y: number }[];
@@ -691,6 +543,53 @@ function handleMoveComponent(
 
       let assistantText = data.response?.trim() || data.explanation?.trim() || "Listo. ¿Qué te gustaría hacer ahora?";
       let nextCircuit = circuit;
+      const actionWarnings: string[] = [];
+      const findByReference = (reference: unknown) => typeof reference === "string"
+        ? nextCircuit.components.find((component) => component.label.toUpperCase() === reference.toUpperCase() || component.id === reference)
+        : undefined;
+      for (const action of data.actions ?? []) {
+        try {
+          if (action.type === "add_component") {
+            const aliases: Record<string, ComponentType> = { battery: "battery", bateria: "battery", "batería": "battery", pila: "battery", resistor: "resistor", resistencia: "resistor", led: "led", diodo: "led", switch: "switch", interruptor: "switch", ground: "ground", tierra: "ground", masa: "ground" };
+            const componentType = typeof action.componentType === "string" ? aliases[action.componentType.toLowerCase()] : undefined;
+            if (!componentType) throw new Error("Tipo de componente no disponible.");
+            if (nextCircuit.components.length >= 12) throw new Error("Se alcanzó el límite de 12 componentes.");
+            const x = typeof action.x === "number" && Number.isFinite(action.x) ? action.x : 220;
+            const y = typeof action.y === "number" && Number.isFinite(action.y) ? action.y : 165;
+            nextCircuit = addComponent(nextCircuit, componentType, Math.max(30, Math.min(410, x)), Math.max(40, Math.min(290, y)));
+          } else if (action.type === "rotate_component") {
+            const target = findByReference(action.reference);
+            if (!target) throw new Error("No encontré " + String(action.reference ?? "") + " para rotar.");
+            const turns = Math.max(1, Math.min(4, Math.round(typeof action.quarterTurns === "number" ? action.quarterTurns : 1)));
+            for (let i = 0; i < turns; i++) nextCircuit = rotateComponent(nextCircuit, target.id);
+          } else if (action.type === "move_component") {
+            const target = findByReference(action.reference);
+            if (!target || typeof action.x !== "number" || typeof action.y !== "number") throw new Error("Referencia o posición inválida para mover.");
+            nextCircuit = moveComponent(nextCircuit, target.id, Math.max(15, Math.min(425, action.x)), Math.max(15, Math.min(315, action.y)));
+          } else if (action.type === "delete_component") {
+            const target = findByReference(action.reference);
+            if (!target) throw new Error("No encontré " + String(action.reference ?? "") + " para eliminar.");
+            nextCircuit = removeComponent(nextCircuit, target.id);
+          } else if (action.type === "clear_circuit") {
+            nextCircuit = createCircuit(nextCircuit.name);
+          } else if (action.type === "connect") {
+            const from = findByReference(action.fromReference), to = findByReference(action.toReference);
+            if (!from || !to || typeof action.fromTerminal !== "string" || typeof action.toTerminal !== "string") throw new Error("Conexión sin referencias o terminales válidos.");
+            nextCircuit = connectTerminals(nextCircuit, from.id, action.fromTerminal, to.id, action.toTerminal);
+          } else if (action.type === "disconnect") {
+            const from = findByReference(action.fromReference), to = findByReference(action.toReference);
+            if (!from || !to) throw new Error("No encontré ambos componentes para desconectar.");
+            const wire = nextCircuit.wires.find((item) => (item.from.componentId === from.id && item.to.componentId === to.id) || (item.from.componentId === to.id && item.to.componentId === from.id));
+            if (!wire) throw new Error("No existe un cable directo entre " + from.label + " y " + to.label + ".");
+            nextCircuit = disconnectWire(nextCircuit, wire.id);
+          } else if (action.type === "update_properties") {
+            const target = findByReference(action.reference);
+            if (!target || !action.properties || typeof action.properties !== "object" || Array.isArray(action.properties)) throw new Error("Propiedades inválidas.");
+            const props = Object.fromEntries(Object.entries(action.properties as Record<string, unknown>).filter(([key, value]) => ["voltage", "resistance", "forwardVoltage", "state", "name"].includes(key) && ["string", "number", "boolean"].includes(typeof value)));
+            nextCircuit = { ...nextCircuit, components: nextCircuit.components.map((item) => item.id === target.id ? { ...item, properties: { ...item.properties, ...props } } : item), updatedAt: new Date().toISOString() };
+          } else actionWarnings.push("Gemini devolvió una acción no compatible y se omitió.");
+        } catch (error) { actionWarnings.push(error instanceof Error ? error.message : "Se omitió una acción inválida."); }
+      }
       const componentIds: string[] = [];
       if (data.components?.length) {
         for (const item of data.components) {
@@ -715,6 +614,7 @@ function handleMoveComponent(
         setValidationIssues(issues);
         setSelectedValidationIssue(null);
       }
+      if (actionWarnings.length) assistantText += "\n\nAcciones no aplicadas: " + actionWarnings.join(" ");
       if (data.missingInformation?.length && !data.response) {
         assistantText += "\\n\\nPara seguir, necesito aclarar: " + data.missingInformation.join("; ");
       }
