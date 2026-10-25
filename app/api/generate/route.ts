@@ -159,7 +159,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const componentsRaw = value.components;
   const wiresRaw = value.wires;
   if (!Array.isArray(componentsRaw) || !Array.isArray(wiresRaw) ||
-      componentsRaw.length > 12 || wiresRaw.length > 20) {
+      componentsRaw.length > 30 || wiresRaw.length > 40) {
     throw new Error("La propuesta excede los límites o no contiene listas válidas.");
   }
 
@@ -264,7 +264,7 @@ function buildDemoProposal(prompt: string): Proposal {
   detect("led", /\b(?:(\d+)\s*)?(?:leds?|diodos?)\b/);
   detect("switch", /\b(?:(\d+)\s*)?(?:interruptores?|llaves|switches)\b/);
   detect("ground", /\b(?:(\d+)\s*)?(?:tierras|masas|grounds?|gnds?)\b/);
-  const expanded = [...requested.entries()].flatMap(([type, count]) => Array.from({ length: count }, () => type)).slice(0, 12);
+  const expanded = [...requested.entries()].flatMap(([type, count]) => Array.from({ length: count }, () => type)).slice(0, 30);
   const unsupported: string[] = [];
   if (wantsBlink) unsupported.push("temporizador NE555 u otro oscilador");
   if (wantsAlarm) unsupported.push("sensor de luz/etapa de control");
