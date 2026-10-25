@@ -580,9 +580,9 @@ function handleMoveComponent(
           } else if (action.type === "disconnect") {
             const from = findByReference(action.fromReference), to = findByReference(action.toReference);
             if (!from || !to) throw new Error("No encontré ambos componentes para desconectar.");
-            const wire = nextCircuit.wires.find((item) => (item.from.componentId === from.id && item.to.componentId === to.id) || (item.from.componentId === to.id && item.to.componentId === from.id));
-            if (!wire) throw new Error("No existe un cable directo entre " + from.label + " y " + to.label + ".");
-            nextCircuit = disconnectWire(nextCircuit, wire.id);
+            const matchingWires = nextCircuit.wires.filter((item) => (item.from.componentId === from.id && item.to.componentId === to.id) || (item.from.componentId === to.id && item.to.componentId === from.id));
+            if (!matchingWires.length) throw new Error("No existe un cable directo entre " + from.label + " y " + to.label + ".");
+            for (const wire of matchingWires) nextCircuit = disconnectWire(nextCircuit, wire.id);
           } else if (action.type === "update_properties") {
             const target = findByReference(action.reference);
             if (!target || !action.properties || typeof action.properties !== "object" || Array.isArray(action.properties)) throw new Error("Propiedades inválidas.");
