@@ -553,7 +553,7 @@ function handleMoveComponent(
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: content }),
+        body: JSON.stringify({ prompt: content, currentCircuit: { components: circuit.components.map((component) => ({ type: component.type, label: component.label, position: component.position })), wires: circuit.wires.map((wire) => ({ from: wire.from, to: wire.to })) } }),
       });
       const data: {
         mode?: "demo" | "ai";
@@ -576,7 +576,10 @@ function handleMoveComponent(
       ].filter(Boolean).join("\n\n");
 
       if (data.components?.length) {
-        let nextCircuit = createCircuit(content.slice(0, 60) || "Propuesta de circuito");
+        // La IA devuelve solo los componentes nuevos solicitados; el circuito actual se conserva.
+        let nextCircuit = circuit.components.length > 0
+          ? circuit
+          : createCircuit(content.slice(0, 60) || "Propuesta de circuito");
         const componentIds: string[] = [];
         for (const item of data.components) {
           if (!["battery", "resistor", "led", "switch", "ground"].includes(item.type)) {
