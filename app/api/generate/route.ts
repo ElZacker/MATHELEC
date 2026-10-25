@@ -327,19 +327,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "El pedido no puede superar los 2000 caracteres." }, { status: 413 });
     }
 
-    // Saludos y despedidas comunes no necesitan una llamada al modelo: respuesta instantánea.
-    const normalizedPrompt = prompt.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[!¡?¿.,;:]+/g, "").trim();
-    if (/^(hola|holaa+|buenas|buen dia|buenas tardes|buenas noches|hey|ey|que tal|como va|chau|adios|hasta luego)$/.test(normalizedPrompt)) {
-      const response = /^(chau|adios|hasta luego)$/.test(normalizedPrompt)
-        ? "¡Nos vemos! Cuando quieras, seguimos con tus proyectos de electrónica."
-        : "¡Hola! ¿Qué vamos a crear hoy?";
-      return NextResponse.json({
-        mode: "ai", response, title: "Conversación", explanation: "",
-        components: [], wires: [], confirmedRequirements: [], assumptions: [],
-        missingInformation: [], warnings: [],
-      });
-    }
-
     if (process.env.GEMINI_API_KEY) {
       const rawCircuit = "currentCircuit" in body ? body.currentCircuit : null;
       const currentCircuit = rawCircuit && typeof rawCircuit === "object" && "components" in rawCircuit && Array.isArray(rawCircuit.components) && "wires" in rawCircuit && Array.isArray(rawCircuit.wires)
@@ -349,7 +336,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ mode: "ai", ...proposal });
     }
 
-    return NextResponse.json(buildDemoProposal(prompt));
+    throw new Error("Falta GEMINI_API_KEY en el entorno del servidor. MATHELEC requiere Gemini para interpretar mensajes y modificar circuitos.");
   } catch (error) {
     // Los errores de proveedor/configuración no son errores del texto enviado por el usuario.
     const message = error instanceof Error ? error.message : "";
