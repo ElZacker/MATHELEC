@@ -58,11 +58,17 @@ export function addComponent(
     ldr:"LDR", thermistor:"TH", potentiometer:"RV", zener_diode:"DZ",
     logic_gate_and:"U", logic_gate_or:"U", logic_gate_not:"U",
     ic_555:"U", ic_4017:"U", connector:"J",
+    cell:"BAT", ground_earth:"PE", voltage_rail:"VCC", variable_voltage_input:"VIN", voltage_source_dc:"VDC", voltage_regulator:"U",
+    rail:"J", terminal_block:"X", sil_socket:"J", dil_socket:"U", push_to_break:"PB", switch_spst:"SW", switch_spdt:"SW", switch_dpst:"SW", switch_dpdt:"SW",
+    phototransistor:"Q", opto_isolator:"U", crystal_oscillator:"Y", resistor_pack:"RN", transformer:"T", bridge_rectifier:"BR", jfet_n:"Q", jfet_p:"Q",
+    thyristor_scr:"SCR", triac:"TRIAC", logic_gate_nand:"U", logic_gate_nor:"U", logic_gate_xor:"U", logic_gate_xnor:"U", logic_gate_buffer:"U",
+    decoder_counter:"U", bicolor_led:"D", seven_segment:"DISP", buzzer:"BZ", multimeter:"XMM", voltmeter:"VM", ammeter:"AM", oscilloscope:"XSC",
+    logic_analyzer:"XLA", word_generator:"XWG", text_label:"TXT",
   };
   const prefix = prefixByType[type];
   const usedNumbers = circuit.components
     .filter((existing) => new RegExp("^" + prefix + "\\d+$").test(existing.label))
-    .map((existing) => Number(existing.label.match(/(\\d+)$/)?.[1] ?? 0))
+    .map((existing) => Number(existing.label.match(/(\d+)$/)?.[1] ?? 0))
     .filter(Number.isFinite);
   let nextNumber = 1;
   while (usedNumbers.includes(nextNumber)) nextNumber += 1;
