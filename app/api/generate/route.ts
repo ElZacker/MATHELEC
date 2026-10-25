@@ -166,9 +166,9 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
         signal: AbortSignal.timeout(20000),
       });
       if (repairResponse.ok) {
-        const repairPayload = await repairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] }[] }[] };
+        const repairPayload = await repairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
         const repairedRaw = repairPayload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim() ?? "";
-        const repairedCandidates = [repairedRaw, repairedRaw.replace(/^```(?:json)?\\s*/i, "").replace(/\\s*```$/, "").trim()];
+        const repairedCandidates = [repairedRaw, repairedRaw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()];
         const repairedStart = repairedRaw.indexOf("{");
         const repairedEnd = repairedRaw.lastIndexOf("}");
         if (repairedStart >= 0 && repairedEnd > repairedStart) repairedCandidates.push(repairedRaw.slice(repairedStart, repairedEnd + 1));
