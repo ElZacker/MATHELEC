@@ -506,11 +506,11 @@ function handleMoveComponent(
       setNotice("");
     };
     // Acciones sencillas y deterministas sobre el circuito existente.
-    const removeWords = /\\b(elimina|eliminar|borra|borrar|quita|quitar)\\b/.test(normalized);
-    const clearWords = /\\b(todo|todos|todas|el circuito|los componentes)\\b/.test(normalized);
-    if (removeWords && !/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i.test(normalized) &&
-        /\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\\b/.test(normalized)) {
-      const typeMatch = normalized.match(/\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\\b/);
+    const removeWords = /\b(elimina|eliminar|borra|borrar|quita|quitar)\b/.test(normalized);
+    const clearWords = /\b(todo|todos|todas|el circuito|los componentes)\b/.test(normalized);
+    if (removeWords && !/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/i.test(normalized) &&
+        /\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\b/.test(normalized)) {
+      const typeMatch = normalized.match(/\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\b/);
       const typeMap: Record<string, ComponentType> = { led: "led", diodo: "led", resistencia: "resistor", resistor: "resistor", bateria: "battery", pila: "battery", interruptor: "switch", tierra: "ground", masa: "ground" };
       const type = typeMatch ? typeMap[typeMatch[1]] : undefined;
       const matches = type ? circuit.components.filter(c => c.type === type) : [];
@@ -525,14 +525,14 @@ function handleMoveComponent(
         return;
       }
     }
-    if (/\\b(conecta|conectar|conectalos|conectalas|unilos|unilas|unir|cablea|cablear)\\b/.test(normalized) &&
+    if (/\b(conecta|conectar|conectalos|conectalas|unilos|unilas|unir|cablea|cablear)\b/.test(normalized) &&
         circuit.components.length >= 2) {
-      const refs = [...normalized.matchAll(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/gi)].map(m => m[1].toUpperCase());
+      const refs = [...normalized.matchAll(/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/gi)].map(m => m[1].toUpperCase());
       let pair = refs.length >= 2
         ? refs.slice(0, 2).map(ref => circuit.components.find(c => c.label.toUpperCase() === ref))
         : [];
       if (pair.length < 2 || !pair[0] || !pair[1]) {
-        const requestedTypes = [...normalized.matchAll(/\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor)\\b/g)].map(m => ({led:"led",diodo:"led",resistencia:"resistor",resistor:"resistor",bateria:"battery",pila:"battery",interruptor:"switch"} as Record<string, ComponentType>)[m[1]]);
+        const requestedTypes = [...normalized.matchAll(/\b(led|diodo|resistencia|resistor|bateria|pila|interruptor)\b/g)].map(m => ({led:"led",diodo:"led",resistencia:"resistor",resistor:"resistor",bateria:"battery",pila:"battery",interruptor:"switch"} as Record<string, ComponentType>)[m[1]]);
         if (requestedTypes.length >= 2) {
           pair = requestedTypes.slice(0,2).map(type => circuit.components.find(c => c.type === type));
         } else if (circuit.components.length === 2) pair = [circuit.components[0], circuit.components[1]];
@@ -551,8 +551,8 @@ function handleMoveComponent(
       }
     }
     // Desconectar un cable entre dos componentes existentes.
-    if (/\\b(desconecta|desconectar|separa|desunir)\\b/.test(normalized)) {
-      const refsForDisconnect = [...normalized.matchAll(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/gi)].map(m => m[1].toUpperCase());
+    if (/\b(desconecta|desconectar|separa|desunir)\b/.test(normalized)) {
+      const refsForDisconnect = [...normalized.matchAll(/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/gi)].map(m => m[1].toUpperCase());
       if (refsForDisconnect.length >= 2) {
         const a = circuit.components.find(c => c.label.toUpperCase() === refsForDisconnect[0]);
         const b = circuit.components.find(c => c.label.toUpperCase() === refsForDisconnect[1]);
@@ -570,20 +570,20 @@ function handleMoveComponent(
       return;
     }
 
-    const referenceMatch = normalized.match(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i);
+    const referenceMatch = normalized.match(/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/i);
     const reference = referenceMatch?.[1]?.toUpperCase();
     const target = reference
       ? circuit.components.find((component) => component.label.toUpperCase() === reference)
       : undefined;
 
-    if (/\\b(mueve|mover|mové|desplaza|desplazar)\\b/.test(normalized) && referenceMatch) {
+    if (/\b(mueve|mover|mové|desplaza|desplazar)\b/.test(normalized) && referenceMatch) {
       if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
       else {
         let dx = 0, dy = 0;
-        if (/\\b(izquierda|izquierd[a]?|left)\\b/.test(normalized)) dx = -35;
-        if (/\\b(derecha|derech[a]?|right)\\b/.test(normalized)) dx = 35;
-        if (/\\b(arriba|sube|subir|up)\\b/.test(normalized)) dy = -25;
-        if (/\\b(abajo|baja|bajar|down)\\b/.test(normalized)) dy = 25;
+        if (/\b(izquierda|izquierd[a]?|left)\b/.test(normalized)) dx = -35;
+        if (/\b(derecha|derech[a]?|right)\b/.test(normalized)) dx = 35;
+        if (/\b(arriba|sube|subir|up)\b/.test(normalized)) dy = -25;
+        if (/\b(abajo|baja|bajar|down)\b/.test(normalized)) dy = 25;
         if (dx === 0 && dy === 0) {
           replyToCommand("¿Hacia dónde querés mover " + reference + "? Podés decir «mové R1 a la izquierda», «a la derecha», «arriba» o «abajo».");
         } else {
@@ -596,7 +596,7 @@ function handleMoveComponent(
       }
       return;
     }
-    if (/\\b(elimina|eliminar|borra|borrar|quita|quitar)\\b/.test(normalized) && referenceMatch) {
+    if (/\b(elimina|eliminar|borra|borrar|quita|quitar)\b/.test(normalized) && referenceMatch) {
       if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
       else {
         const next = removeComponent(circuit, target.id);
@@ -606,7 +606,7 @@ function handleMoveComponent(
       }
       return;
     }
-    if (/\\b(rota|gira|rotar|girar)\\b/.test(normalized) && referenceMatch) {
+    if (/\b(rota|gira|rotar|girar)\b/.test(normalized) && referenceMatch) {
       if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
       else {
         const next = rotateComponent(circuit, target.id);
@@ -616,8 +616,8 @@ function handleMoveComponent(
       }
       return;
     }
-    if (/\\b(elimina|eliminar|borra|borrar|limpia|limpiar|vacia|vaciar)\\b/.test(normalized) &&
-        /\\b(todo|circuito|componentes)\\b/.test(normalized)) {
+    if (/\b(elimina|eliminar|borra|borrar|limpia|limpiar|vacia|vaciar)\b/.test(normalized) &&
+        /\b(todo|circuito|componentes)\b/.test(normalized)) {
       const next = createCircuit("Nuevo circuito");
       setCircuit(next);
       setValidationIssues(validateCircuit(next));
