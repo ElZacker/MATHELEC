@@ -504,6 +504,51 @@ function handleMoveComponent(
       setInput("");
       setNotice("");
     };
+    // Acciones sencillas y deterministas sobre el circuito existente.
+    const removeWords = /\\b(elimina|eliminar|borra|borrar|quita|quitar)\\b/.test(normalized);
+    const clearWords = /\\b(todo|todos|todas|el circuito|los componentes)\\b/.test(normalized);
+    if (removeWords && !/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i.test(normalized) &&
+        /\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\\b/.test(normalized)) {
+      const typeMatch = normalized.match(/\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\\b/);
+      const typeMap: Record<string, ComponentType> = { led: "led", diodo: "led", resistencia: "resistor", resistor: "resistor", bateria: "battery", pila: "battery", interruptor: "switch", tierra: "ground", masa: "ground" };
+      const type = typeMatch ? typeMap[typeMatch[1]] : undefined;
+      const matches = type ? circuit.components.filter(c => c.type === type) : [];
+      if (matches.length === 1) {
+        const next = removeComponent(circuit, matches[0].id);
+        setCircuit(next); setValidationIssues(validateCircuit(next));
+        replyToCommand("Listo, eliminé " + matches[0].label + " y cualquier cable conectado a ese componente.");
+        return;
+      }
+      if (matches.length > 1) {
+        replyToCommand("Hay varios componentes de ese tipo. Decime su referencia (por ejemplo, R1 o D1) para borrar el correcto.");
+        return;
+      }
+    }
+    if (/\\b(conecta|conectar|conectalos|conectalas|unilos|unilas|unir|cablea|cablear)\\b/.test(normalized) &&
+        circuit.components.length >= 2) {
+      const refs = [...normalized.matchAll(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/gi)].map(m => m[1].toUpperCase());
+      let pair = refs.length >= 2
+        ? refs.slice(0, 2).map(ref => circuit.components.find(c => c.label.toUpperCase() === ref))
+        : [];
+      if (pair.length < 2 || !pair[0] || !pair[1]) {
+        const requestedTypes = [...normalized.matchAll(/\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor)\\b/g)].map(m => ({led:"led",diodo:"led",resistencia:"resistor",resistor:"resistor",bateria:"battery",pila:"battery",interruptor:"switch"} as Record<string, ComponentType>)[m[1]]);
+        if (requestedTypes.length >= 2) {
+          pair = requestedTypes.slice(0,2).map(type => circuit.components.find(c => c.type === type));
+        } else if (circuit.components.length === 2) pair = [circuit.components[0], circuit.components[1]];
+      }
+      if (pair.length === 2 && pair[0] && pair[1]) {
+        const freeTerminal = (component: typeof circuit.components[number]) => component.terminals.find(t => !circuit.wires.some(w => (w.from.componentId === component.id && w.from.terminalId === t.id) || (w.to.componentId === component.id && w.to.terminalId === t.id)));
+        const a = freeTerminal(pair[0]), b = freeTerminal(pair[1]);
+        if (a && b) {
+          try {
+            const next = connectTerminals(circuit, pair[0].id, a.id, pair[1].id, b.id);
+            setCircuit(next); setValidationIssues(validateCircuit(next));
+            replyToCommand("Listo, conecté " + pair[0].label + " (" + a.name + ") con " + pair[1].label + " (" + b.name + "). Revisá la conexión en el esquema.");
+          } catch (error) { replyToCommand(error instanceof Error ? error.message : "No pude crear esa conexión."); }
+        } else replyToCommand("No encontré terminales libres en ambos componentes. Revisá el esquema o indicame qué terminales querés conectar.");
+        return;
+      }
+    }
     const referenceMatch = normalized.match(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i);
     const reference = referenceMatch?.[1]?.toUpperCase();
     const target = reference
@@ -557,6 +602,7 @@ function handleMoveComponent(
       });
       const data: {
         mode?: "demo" | "ai";
+        response?: string;
         title?: string; explanation?: string;
         components?: { type: ComponentType; x: number; y: number }[];
         wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
@@ -565,22 +611,10 @@ function handleMoveComponent(
       } = await response.json();
       if (!response.ok) throw new Error(data.error ?? "No se pudo generar la propuesta.");
 
-      let assistantText = [
-        data.title ?? "Propuesta recibida",
-        data.mode === "ai" ? "Modo IA: respuesta generada por el proveedor configurado." : "Modo demostración: todavía no se configuró una clave de IA.",
-        data.explanation ?? "",
-        data.confirmedRequirements?.length ? "Requisitos identificados:\n- " + data.confirmedRequirements.join("\n- ") : "",
-        data.assumptions?.length ? "Suposiciones:\n- " + data.assumptions.join("\n- ") : "",
-        data.missingInformation?.length ? "Datos pendientes:\n- " + data.missingInformation.join("\n- ") : "",
-        data.warnings?.length ? "Advertencias:\n- " + data.warnings.join("\n- ") : "",
-      ].filter(Boolean).join("\n\n");
-
+      let assistantText = data.response?.trim() || data.explanation?.trim() || "Listo. ¿Qué te gustaría hacer ahora?";
+      let nextCircuit = circuit;
+      const componentIds: string[] = [];
       if (data.components?.length) {
-        // La IA devuelve solo los componentes nuevos solicitados; el circuito actual se conserva.
-        let nextCircuit = circuit.components.length > 0
-          ? circuit
-          : createCircuit(content.slice(0, 60) || "Propuesta de circuito");
-        const componentIds: string[] = [];
         for (const item of data.components) {
           if (!["battery", "resistor", "led", "switch", "ground"].includes(item.type)) {
             throw new Error("La propuesta contiene un tipo de componente no admitido.");
@@ -588,20 +622,26 @@ function handleMoveComponent(
           nextCircuit = addComponent(nextCircuit, item.type, item.x, item.y);
           componentIds.push(nextCircuit.components[nextCircuit.components.length - 1].id);
         }
-        for (const wire of data.wires ?? []) {
+      }
+      if (data.wires?.length) {
+        for (const wire of data.wires) {
           const fromId = componentIds[wire.from.componentIndex];
           const toId = componentIds[wire.to.componentIndex];
-          if (!fromId || !toId) throw new Error("La propuesta contiene índices de conexión inválidos.");
+          if (!fromId || !toId) throw new Error("No pude aplicar una conexión porque la propuesta no identifica componentes nuevos válidos.");
           nextCircuit = connectTerminals(nextCircuit, fromId, wire.from.terminalId, toId, wire.to.terminalId);
         }
+      }
+      if (nextCircuit !== circuit) {
         const issues = validateCircuit(nextCircuit);
         setCircuit(nextCircuit);
         setValidationIssues(issues);
         setSelectedValidationIssue(null);
-        assistantText += "\n\nSe cargó una propuesta en el área de circuito. Revisá las advertencias antes de usarla.";
-        if (issues.length) assistantText += "\nEl verificador estructural encontró " + issues.length + " aviso(s).";
-      } else {
-        setNotice("La propuesta no incluyó componentes para dibujar.");
+      }
+      if (data.missingInformation?.length && !data.response) {
+        assistantText += "\\n\\nPara seguir, necesito aclarar: " + data.missingInformation.join("; ");
+      }
+      if (data.warnings?.length && data.components?.length) {
+        assistantText += "\\n\\nOjo: " + data.warnings.join(" ");
       }
 
       const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: assistantText };
