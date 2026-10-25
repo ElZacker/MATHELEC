@@ -18,6 +18,7 @@ type Proposal = {
   missingInformation: string[];
   warnings: string[];
   response: string;
+  actions?: Record<string, unknown>[];
 };
 
 const supportedTypes = new Set<string>(getAvailableComponentTypes());
@@ -57,7 +58,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 
   const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
   const circuitContext = JSON.stringify(currentCircuit);
-  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
+  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 12 componentes totales y 20 cables nuevos. No afirmes validación o simulación eléctrica. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
   // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
   // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
   const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
@@ -245,6 +246,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     title: typeof value.title === "string" ? value.title.slice(0, 120) : "Propuesta de circuito",
     explanation: typeof value.explanation === "string" ? value.explanation.slice(0, 1200) : "",
     components, wires,
+    actions: Array.isArray(value.actions) ? value.actions.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item)).slice(0, 20) : [],
     confirmedRequirements: stringList("confirmedRequirements"),
     assumptions: stringList("assumptions"),
     missingInformation: stringList("missingInformation"),
@@ -325,19 +327,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "El pedido no puede superar los 2000 caracteres." }, { status: 413 });
     }
 
-    // Saludos y despedidas comunes no necesitan una llamada al modelo: respuesta instantánea.
-    const normalizedPrompt = prompt.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[!¡?¿.,;:]+/g, "").trim();
-    if (/^(hola|holaa+|buenas|buen dia|buenas tardes|buenas noches|hey|ey|que tal|como va|chau|adios|hasta luego)$/.test(normalizedPrompt)) {
-      const response = /^(chau|adios|hasta luego)$/.test(normalizedPrompt)
-        ? "¡Nos vemos! Cuando quieras, seguimos con tus proyectos de electrónica."
-        : "¡Hola! ¿Qué vamos a crear hoy?";
-      return NextResponse.json({
-        mode: "ai", response, title: "Conversación", explanation: "",
-        components: [], wires: [], confirmedRequirements: [], assumptions: [],
-        missingInformation: [], warnings: [],
-      });
-    }
-
     if (process.env.GEMINI_API_KEY) {
       const rawCircuit = "currentCircuit" in body ? body.currentCircuit : null;
       const currentCircuit = rawCircuit && typeof rawCircuit === "object" && "components" in rawCircuit && Array.isArray(rawCircuit.components) && "wires" in rawCircuit && Array.isArray(rawCircuit.wires)
@@ -347,7 +336,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ mode: "ai", ...proposal });
     }
 
-    return NextResponse.json(buildDemoProposal(prompt));
+    throw new Error("Falta GEMINI_API_KEY en el entorno del servidor. MATHELEC requiere Gemini para interpretar mensajes y modificar circuitos.");
   } catch (error) {
     // Los errores de proveedor/configuración no son errores del texto enviado por el usuario.
     const message = error instanceof Error ? error.message : "";
