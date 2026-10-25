@@ -278,18 +278,18 @@ function buildDemoProposal(prompt: string): Proposal {
     if (match) requested.set(type, Math.max(1, Math.min(8, Number(match[1] || 1))));
   };
   // El modo demo reconoce también toda la biblioteca; no depende de Gemini para añadir tipos simples.
-  detect("battery", /\b(?:(\d+)\s*)?(?:baterias?|pilas|fuentes(?: de tension)?|fuente continua)\b/);
+  detect("battery", /\b(?:(\d+)\s*)?(?:baterias?|pilas|fuente continua|fuente de tension continua)\b/);
   detect("voltage_source_ac", /\b(?:(\d+)\s*)?(?:fuente(?:s)? de (?:tension )?altern(?:a|as)|corriente alterna|fuente ac|vac)\b/);
   detect("current_source", /\b(?:(\d+)\s*)?(?:fuente(?:s)? de corriente|current source)\b/);
   detect("resistor", /\b(?:(\d+)\s*)?(?:resistencias?|resistores?)\b/);
   detect("potentiometer", /\b(?:(\d+)\s*)?(?:potenciometros?|potenciómetros?|resistencias variables)\b/);
   detect("polarized_capacitor", /\b(?:(\d+)\s*)?(?:capacitores?|condensadores?) electroliticos?\b/);
-  detect("capacitor", /\b(?:(\d+)\s*)?(?:capacitores?|condensadores?)\b/);
+  detect("capacitor", /\b(?:(\d+)\s*)?(?:(?:capacitores?|condensadores?)(?!\s+electroliticos?))\b/);
   detect("inductor", /\b(?:(\d+)\s*)?(?:inductores?|bobinas?)\b/);
   detect("led", /\b(?:(\d+)\s*)?leds?\b/);
   detect("zener_diode", /\b(?:(\d+)\s*)?(?:diodos? zener|zener)\b/);
   detect("photodiode", /\b(?:(\d+)\s*)?(?:fotodiodos?)\b/);
-  detect("diode", /\b(?:(\d+)\s*)?diodos?\b/);
+  detect("diode", /\b(?:(\d+)\s*)?diodos?(?!\s+zener)\b/);
   detect("ldr", /\b(?:(\d+)\s*)?(?:ldr|fotoresistencias?|fotorresistencias?)\b/);
   detect("thermistor", /\b(?:(\d+)\s*)?(?:termistores?|thermistors?)\b/);
   detect("switch", /\b(?:(\d+)\s*)?(?:interruptores?|llaves|switches)\b/);
