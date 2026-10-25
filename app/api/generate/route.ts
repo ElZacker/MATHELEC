@@ -50,18 +50,19 @@ const terminalMap: Record<ComponentType, string[]> = {
   ground: ["gnd"],
 };
 
-async function buildAiProposal(prompt: string): Promise<Omit<Proposal, "mode">> {
+async function buildAiProposal(prompt: string, currentCircuit: { components: { type: string; label: string; position: { x: number; y: number } }[]; wires: { from: { componentId: string; terminalId: string }; to: { componentId: string; terminalId: string } }[] }): Promise<Omit<Proposal, "mode">> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("Falta GEMINI_API_KEY en el entorno del servidor.");
 
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const systemInstruction = `Sos un asistente para propuestas preliminares de circuitos. Devolvé solo JSON con las claves title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. components es una lista de {type,x,y}; wires es una lista de {from:{componentIndex,terminalId},to:{componentIndex,terminalId}}. Tipos permitidos: battery (terminales positive,negative), resistor (a,b), led (anode,cathode), switch (a,b), ground (gnd). No inventes componentes ni terminales. Si el pedido requiere un tipo no disponible, no lo sustituyas silenciosamente: devuelve components y wires vacíos y explica qué falta. No afirmes que el circuito está eléctricamente validado ni simulado. Las coordenadas deben estar entre x=30..410 e y=40..290. Propiedades predeterminadas: batería 9 V, resistencia 220 ohm, LED Vf 2 V/20 mA. Marcá supuestos, faltantes y advertencias. Máximo 12 componentes y 20 cables.`;
+  const circuitContext = JSON.stringify(currentCircuit);
+  const systemInstruction = `Sos Mathelect, asistente de edición precisa de circuitos. Devolvé solo JSON con title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. components y wires representan EXCLUSIVAMENTE elementos NUEVOS que el usuario pidió agregar, no el circuito completo. El circuito actual se proporciona en el mensaje del usuario: preservalo; jamás lo reconstruyas, reemplaces ni dupliques. Interpreta literalmente el alcance: “agregá un LED” significa agregar solo un LED; no agregues batería, resistencia, tierra ni cables salvo que también lo pidan explícitamente o soliciten que lo conectes. Si piden crear/diseñar/armar un circuito completo desde cero, podés proponer todos los componentes necesarios. Si piden conectar un componente nuevo al circuito existente pero no se puede determinar con seguridad a qué terminales, agrega solo el componente y explica qué conexión necesita aclaración; no inventes conexiones. Si el tipo de componente solicitado no está disponible (tipos admitidos: battery, resistor, led, switch, ground), devolvé components y wires vacíos y explica qué falta; nunca sustituyas silenciosamente. Terminales válidos: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. No inventes terminales. Las coordenadas deben estar entre x=30..410 e y=40..290. Valores por defecto solo cuando sean pertinentes y declaralos como supuestos. No afirmes que el circuito está validado ni simulado. Máximo 12 componentes NUEVOS y 20 cables NUEVOS. Si el pedido es ambiguo, no generes cambios: explica qué hay que aclarar.`;
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
       generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
     }),
     signal: AbortSignal.timeout(20000),
@@ -223,7 +224,11 @@ export async function POST(request: Request) {
     }
 
     if (process.env.GEMINI_API_KEY) {
-      const proposal = await buildAiProposal(prompt);
+      const rawCircuit = "currentCircuit" in body ? body.currentCircuit : null;
+      const currentCircuit = rawCircuit && typeof rawCircuit === "object" && "components" in rawCircuit && Array.isArray(rawCircuit.components) && "wires" in rawCircuit && Array.isArray(rawCircuit.wires)
+        ? rawCircuit as { components: { type: string; label: string; position: { x: number; y: number } }[]; wires: { from: { componentId: string; terminalId: string }; to: { componentId: string; terminalId: string } }[] }
+        : { components: [], wires: [] };
+      const proposal = await buildAiProposal(prompt, currentCircuit);
       return NextResponse.json({ mode: "ai", ...proposal });
     }
 
