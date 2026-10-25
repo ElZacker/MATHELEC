@@ -175,7 +175,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     const normalizedType = supportedTypes.has(rawType) ? rawType as ComponentType : typeAliases[rawType];
     const x = typeof component.x === "number" && Number.isFinite(component.x) ? component.x : 220;
     const y = typeof component.y === "number" && Number.isFinite(component.y) ? component.y : 165;
-    if (!normalizedType) throw new Error("Gemini propuso un tipo de componente no disponible. En esta versión se admiten batería, resistencia, LED, interruptor y tierra.");
+    if (!normalizedType) throw new Error("Gemini propuso un tipo de componente no disponible en la biblioteca.");
     return { type: normalizedType, x: Math.max(30, Math.min(410, x)), y: Math.max(40, Math.min(290, y)) };
   });
 
@@ -251,7 +251,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 function buildDemoProposal(prompt: string): Proposal {
   const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const wantsBlink = /\b(parpade|intermit|titil|555|temporiz|oscilador)\w*/.test(text);
-  const wantsRandom = /\b(aleatorio|aleatoria|al azar|sorpresa|random)\b/.test(text) && /\b(circuito|generame|genera|crear|crea|arma|armar)\b/.test(text);
+  const asksCapabilities = /\b(capacidades|que podes hacer|que puedes hacer|para que servis|que sabes hacer)\b/.test(text);\n  if (asksCapabilities) return { mode: "demo", title: "Qué puede hacer Mathelect", explanation: "Puedo proponer circuitos con la biblioteca, añadir componentes, definir conexiones, explicar componentes y señalar piezas que falten. La edición exacta depende de que el modelo Gemini esté configurado; sin la clave, el modo demostración reconoce solo algunas solicitudes. No ejecuto simulación eléctrica ni puedo garantizar el funcionamiento físico.", response: "Puedo ayudarte a diseñar circuitos con los componentes de la biblioteca, explicar cómo funcionan, proponer conexiones, agregar o quitar componentes, rotarlos, moverlos y ajustar propiedades admitidas. También puedo señalar piezas faltantes y sugerir alternativas disponibles. Si Gemini está configurado, puedo interpretar instrucciones en lenguaje natural con más flexibilidad; sin esa configuración, algunas funciones quedan limitadas al modo demostración. No simulo eléctricamente el circuito ni garantizo que sea seguro construirlo.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: [], warnings: ["Las capacidades de edición avanzada requieren configurar GEMINI_API_KEY; el modo demostración no es una IA general."] };\n  const wantsRandom = /\\b(aleatorio|aleatoria|al azar|sorpresa|random)\\b/.test(text) && /\\b(circuito|generame|genera|crear|crea|arma|armar)\\b/.test(text);
   if (wantsRandom) {
     const components: ProposalComponent[] = [
       { type: "battery", x: 75, y: 165 },
@@ -285,7 +285,7 @@ function buildDemoProposal(prompt: string): Proposal {
   if (wantsBlink) unsupported.push("temporizador NE555 u otro oscilador");
   if (wantsAlarm) unsupported.push("sensor de luz/etapa de control");
   if (wantsCounter) unsupported.push("integrado CD4017 y fuente de pulsos");
-  if (/\b(transistor|bc547|mosfet|capacitor|condensador|cd4017|555|ldr|fotoresistencia|potenciometro|bobina|inductor|motor|rele)\b/.test(text)) unsupported.push("componentes mencionados que no están en la biblioteca actual");
+  if (/\b(bc547)\b/.test(text)) unsupported.push("BC547 (no hay modelo específico; alternativa: transistor NPN genérico)");
   if (expanded.length === 0) return { mode: "demo", response: "No reconocí componentes disponibles en el modo demostración.", title: "No reconocí componentes disponibles", explanation: "El modo demostración usa palabras clave y no tiene comprensión general como un modelo de IA. No sustituiré componentes faltantes por otros.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: ["Disponibles: batería/fuente, resistencia, LED/diodo, interruptor y tierra/masa.", ...(unsupported.length ? ["Faltan: " + unsupported.join("; ") + "."] : ["Indicá componentes y función del circuito."])], warnings: ["MODO DEMOSTRACIÓN: no se consultó un modelo de IA."] };
   const positions = [{x:75,y:80},{x:220,y:55},{x:360,y:90},{x:365,y:220},{x:220,y:265},{x:75,y:220},{x:145,y:135},{x:290,y:150},{x:145,y:235},{x:285,y:235},{x:215,y:145},{x:75,y:145}];
   const components: ProposalComponent[] = expanded.map((type, index) => ({ type, ...positions[index] }));
@@ -298,7 +298,7 @@ function buildDemoProposal(prompt: string): Proposal {
     wires.push({ from: { componentIndex: ri, terminalId: "b" }, to: { componentIndex: li, terminalId: "anode" } });
     wires.push({ from: { componentIndex: li, terminalId: "cathode" }, to: { componentIndex: bi, terminalId: "negative" } });
   }
-  const names: Record<ComponentType, string> = { battery: "batería/fuente", resistor: "resistencia", led: "LED/diodo", switch: "interruptor", ground: "tierra/masa" };
+  const names: Partial<Record<ComponentType, string>> = { battery: "batería", resistor: "resistencia", led: "LED", diode: "diodo", switch: "interruptor", ground: "tierra", capacitor: "capacitor", polarized_capacitor: "capacitor polarizado", inductor: "inductor", npn_transistor: "transistor NPN", pnp_transistor: "transistor PNP", mosfet_n: "MOSFET N", mosfet_p: "MOSFET P", op_amp: "amplificador operacional", voltage_source_ac: "fuente CA", current_source: "fuente de corriente", fuse: "fusible", motor: "motor", lamp: "lámpara", push_button: "pulsador", relay: "relé", photodiode: "fotodiodo", ldr: "LDR", thermistor: "termistor", potentiometer: "potenciómetro", zener_diode: "diodo Zener", logic_gate_and: "puerta AND", logic_gate_or: "puerta OR", logic_gate_not: "puerta NOT", ic_555: "NE555", ic_4017: "CD4017", connector: "conector" };
   const confirmedRequirements = [...requested.entries()].map(([type, count]) => String(count) + " " + names[type] + (count > 1 ? "s" : ""));
   const missingInformation: string[] = [];
   if (wantsBlink) missingInformation.push("Falta un temporizador/oscilador para hacer parpadear el LED; no está disponible en la biblioteca.");
