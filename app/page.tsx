@@ -557,7 +557,7 @@ function handleMoveComponent(
       });
       const data: {
         mode?: "demo" | "ai";
-        title?: string; explanation?: string;
+        response?: string; title?: string; explanation?: string;
         components?: { type: ComponentType; x: number; y: number }[];
         wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
         confirmedRequirements?: string[]; assumptions?: string[];
@@ -565,9 +565,8 @@ function handleMoveComponent(
       } = await response.json();
       if (!response.ok) throw new Error(data.error ?? "No se pudo generar la propuesta.");
 
-      let assistantText = [
+      let assistantText = data.response?.trim() || [
         data.title ?? "Propuesta recibida",
-        data.mode === "ai" ? "Modo IA: respuesta generada por el proveedor configurado." : "Modo demostración: todavía no se configuró una clave de IA.",
         data.explanation ?? "",
         data.confirmedRequirements?.length ? "Requisitos identificados:\n- " + data.confirmedRequirements.join("\n- ") : "",
         data.assumptions?.length ? "Suposiciones:\n- " + data.assumptions.join("\n- ") : "",
