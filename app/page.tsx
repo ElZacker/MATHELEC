@@ -554,7 +554,7 @@ function handleMoveComponent(
             const aliases: Record<string, ComponentType> = { battery: "battery", bateria: "battery", "batería": "battery", pila: "battery", resistor: "resistor", resistencia: "resistor", led: "led", diodo: "diode", switch: "switch", interruptor: "switch", ground: "ground", tierra: "ground", masa: "ground", capacitor: "capacitor", condensador: "capacitor", "capacitor electrolitico": "polarized_capacitor", bobina: "inductor", inductor: "inductor", transistor: "npn_transistor", npn: "npn_transistor", pnp: "pnp_transistor", mosfet: "mosfet_n", operacional: "op_amp", "amplificador operacional": "op_amp", fusible: "fuse", motor: "motor", lampara: "lamp", lámpara: "lamp", pulsador: "push_button", rele: "relay", relé: "relay", fotodiodo: "photodiode", ldr: "ldr", termistor: "thermistor", potenciometro: "potentiometer", potenciómetro: "potentiometer", zener: "zener_diode", "puerta and": "logic_gate_and", "puerta or": "logic_gate_or", "puerta not": "logic_gate_not", ne555: "ic_555", "555": "ic_555", cd4017: "ic_4017", conector: "connector", fuente: "voltage_source_ac" };
             const componentType = typeof action.componentType === "string" ? aliases[action.componentType.toLowerCase()] : undefined;
             if (!componentType) throw new Error("Tipo de componente no disponible.");
-            if (nextCircuit.components.length >= 12) throw new Error("Se alcanzó el límite de 12 componentes.");
+            if (nextCircuit.components.length >= 30) throw new Error("Se alcanzó el límite de 30 componentes.");
             const x = typeof action.x === "number" && Number.isFinite(action.x) ? action.x : 220;
             const y = typeof action.y === "number" && Number.isFinite(action.y) ? action.y : 165;
             nextCircuit = addComponent(nextCircuit, componentType, Math.max(30, Math.min(410, x)), Math.max(40, Math.min(290, y)));
@@ -593,6 +593,7 @@ function handleMoveComponent(
       }
       const componentIds: string[] = [];
       if (data.components?.length) {
+        if (nextCircuit.components.length + data.components.length > 30) throw new Error("La propuesta supera el límite de 30 componentes.");
         for (const item of data.components) {
           if (!getAvailableComponentTypes().includes(item.type)) {
             throw new Error("La propuesta contiene un tipo de componente no admitido.");
@@ -1020,38 +1021,28 @@ function handleMoveComponent(
 
   
 
-<div className="component-actions">
-  <button type="button" onClick={() => handleAddComponent("battery")}>
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="7" y="5" width="10" height="14" rx="2" />
-      <path d="M10 3v2M14 3v2M10 10h4M12 8v4M10 15h4" />
-    </svg>
-    <span>Batería</span>
-  </button>
-
-  <button type="button" onClick={() => handleAddComponent("resistor")}>
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M2 12h4l2-4 4 8 4-8 2 4h4" />
-    </svg>
-    <span>Resistencia</span>
-  </button>
-
-  <button type="button" onClick={() => handleAddComponent("led")}>
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8 9a4 4 0 0 1 8 0c0 2-2 3-2 5h-4c0-2-2-3-2-5Z" />
-      <path d="M10 17h4M10 20h4M17 4l2-2M19 8h3M5 5 3 3" />
-    </svg>
-    <span>LED</span>
-  </button>
-
-  <button type="button" onClick={() => handleAddComponent("switch")}>
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="5" cy="15" r="2" />
-      <circle cx="19" cy="15" r="2" />
-      <path d="M7 14l9-7" />
-    </svg>
-    <span>Interruptor</span>
-  </button>
+<div className="component-library">
+  {([
+    ["Fuentes", [["Batería", "battery"], ["Fuente CA", "voltage_source_ac"], ["Fuente de corriente", "current_source"], ["Tierra", "ground"]]],
+    ["Pasivos", [["Resistencia", "resistor"], ["Potenciómetro", "potentiometer"], ["Capacitor", "capacitor"], ["Capacitor polarizado", "polarized_capacitor"], ["Inductor", "inductor"]]],
+    ["Diodos y sensores", [["LED", "led"], ["Diodo", "diode"], ["Zener", "zener_diode"], ["Fotodiodo", "photodiode"], ["LDR", "ldr"], ["Termistor", "thermistor"]]],
+    ["Control y protección", [["Interruptor", "switch"], ["Pulsador", "push_button"], ["Fusible", "fuse"], ["Relé", "relay"]]],
+    ["Semiconductores", [["Transistor NPN", "npn_transistor"], ["Transistor PNP", "pnp_transistor"], ["MOSFET N", "mosfet_n"], ["MOSFET P", "mosfet_p"], ["Amplificador operacional", "op_amp"]]],
+    ["Lógica e integrados", [["Puerta AND", "logic_gate_and"], ["Puerta OR", "logic_gate_or"], ["Puerta NOT", "logic_gate_not"], ["NE555", "ic_555"], ["CD4017", "ic_4017"]]],
+    ["Salidas y conexión", [["Motor", "motor"], ["Lámpara", "lamp"], ["Conector", "connector"]]]
+  ] as [string, [string, ComponentType][]][]).map(([category, items]) => (
+    <section className="component-library-group" key={category}>
+      <strong>{category}</strong>
+      <div className="component-actions">
+        {items.map(([label, type]) => (
+          <button key={type} type="button" onClick={() => handleAddComponent(type)}>
+            <span className="component-button-symbol" aria-hidden="true">{({battery:"＋", voltage_source_ac:"∿", current_source:"↗", ground:"⏚", resistor:"Ω", potentiometer:"↗", capacitor:"Ⅱ", polarized_capacitor:"＋Ⅱ", inductor:"∿", led:"◉", diode:"▷", zener_diode:"▷", photodiode:"☼", ldr:"☼", thermistor:"♨", switch:"／", push_button:"●", fuse:"▱", relay:"K", npn_transistor:"NPN", pnp_transistor:"PNP", mosfet_n:"N", mosfet_p:"P", op_amp:"△", logic_gate_and:"&", logic_gate_or:"≥1", logic_gate_not:"¬", ic_555:"555", ic_4017:"4017", motor:"M", lamp:"☼", connector:"J"} as Record<ComponentType, string>)[type]}</span>
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  ))}
 </div>
 
 
