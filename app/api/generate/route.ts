@@ -55,12 +55,12 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("Falta GEMINI_API_KEY en el entorno del servidor.");
 
-  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
   const circuitContext = JSON.stringify(currentCircuit);
   const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
   // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
   // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
-  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
   const modelsToTry = [...new Set([model, fallbackModel])];
   let response: Response | undefined;
   let lastTransientError: unknown;
@@ -318,6 +318,19 @@ export async function POST(request: Request) {
     }
     if (prompt.length > 2000) {
       return NextResponse.json({ error: "El pedido no puede superar los 2000 caracteres." }, { status: 413 });
+    }
+
+    // Saludos y despedidas comunes no necesitan una llamada al modelo: respuesta instantánea.
+    const normalizedPrompt = prompt.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[!¡?¿.,;:]+/g, "").trim();
+    if (/^(hola|holaa+|buenas|buen dia|buenas tardes|buenas noches|hey|ey|que tal|como va|chau|adios|hasta luego)$/.test(normalizedPrompt)) {
+      const response = /^(chau|adios|hasta luego)$/.test(normalizedPrompt)
+        ? "¡Nos vemos! Cuando quieras, seguimos con tus proyectos de electrónica."
+        : "¡Hola! ¿Qué vamos a crear hoy?";
+      return NextResponse.json({
+        mode: "ai", response, title: "Conversación", explanation: "",
+        components: [], wires: [], confirmedRequirements: [], assumptions: [],
+        missingInformation: [], warnings: [],
+      });
     }
 
     if (process.env.GEMINI_API_KEY) {
