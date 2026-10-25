@@ -595,7 +595,8 @@ function handleMoveComponent(
           } else if (action.type === "update_properties") {
             const target = findByReference(action.reference);
             if (!target || !action.properties || typeof action.properties !== "object" || Array.isArray(action.properties)) throw new Error("Propiedades inválidas.");
-            const props = Object.fromEntries(Object.entries(action.properties as Record<string, unknown>).filter(([key, value]) => ["voltage", "resistance", "forwardVoltage", "state", "name"].includes(key) && ["string", "number", "boolean"].includes(typeof value))) as Record<string, string | number | boolean>;
+            const allowedPropertyKeys = new Set(["voltage", "resistance", "tolerance", "unit", "color", "forwardVoltage", "maxCurrent", "closed", "capacitance", "inductance", "current", "frequency", "currentRating", "coilVoltage", "normallyOpen", "zenerVoltage", "pins", "description", "state", "name"]);
+            const props = Object.fromEntries(Object.entries(action.properties as Record<string, unknown>).filter(([key, value]) => allowedPropertyKeys.has(key) && ["string", "number", "boolean"].includes(typeof value) && (typeof value !== "number" || Number.isFinite(value)))) as Record<string, string | number | boolean>;
             nextCircuit = { ...nextCircuit, components: nextCircuit.components.map((item) => item.id === target.id ? { ...item, properties: { ...item.properties, ...props } } : item), updatedAt: new Date().toISOString() };
           } else actionWarnings.push("Gemini devolvió una acción no compatible y se omitió.");
         } catch (error) { actionWarnings.push(error instanceof Error ? error.message : "Se omitió una acción inválida."); }
