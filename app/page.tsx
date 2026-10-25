@@ -601,7 +601,12 @@ function handleMoveComponent(
         } catch (error) { actionWarnings.push(error instanceof Error ? error.message : "Se omitió una acción inválida."); }
       }
       const componentIds: string[] = [];
-      if (data.components?.length) {
+      // Las ediciones incrementales se aplican mediante actions. No aplicar además
+      // components/wires en la misma respuesta: eso duplicaba, por ejemplo, un LED.
+      const hasIncrementalMutation = (data.actions ?? []).some((action) =>
+        ["add_component", "rotate_component", "move_component", "delete_component", "connect", "disconnect", "clear_circuit", "update_properties"].includes(String(action.type)),
+      );
+      if (data.components?.length && !hasIncrementalMutation) {
         if (nextCircuit.components.length + data.components.length > 30) throw new Error("La propuesta supera el límite de 30 componentes.");
         for (const item of data.components) {
           if (!getAvailableComponentTypes().includes(item.type)) {
@@ -611,7 +616,7 @@ function handleMoveComponent(
           componentIds.push(nextCircuit.components[nextCircuit.components.length - 1].id);
         }
       }
-      if (data.wires?.length) {
+      if (data.wires?.length && !hasIncrementalMutation) {
         for (const wire of data.wires) {
           const fromId = componentIds[wire.from.componentIndex];
           const toId = componentIds[wire.to.componentIndex];
