@@ -50,6 +50,49 @@ const starterIdeas = [
 
 
 
+
+function ComponentGlyph({ type }: { type: ComponentType }) {
+  const line = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const body = (() => {
+    switch (type) {
+      case "battery": case "cell": return <><path d="M-27 0H-6M-6 -13V13M4 -7V7M4 0H27"/><text x="-1" y="-15" fontSize="7" fill="currentColor" stroke="none">+</text></>;
+      case "ground": case "ground_earth": return <><path d="M0 -17V0M-14 0H14M-9 6H9M-4 12H4"/>{type === "ground_earth" && <path d="M-12 -7L-8 -3M8 -3L12 -7"/>}</>;
+      case "resistor": return <path d="M-28 0H-17L-12 -7L-5 7L2 -7L9 7L14 0H28"/>;
+      case "resistor_pack": return <><rect x="-15" y="-18" width="30" height="36" rx="2"/><path d="M-27 0H-15M15 -12H27M15 -4H27M15 4H27M15 12H27M0 -18V-25"/></>;
+      case "capacitor": case "polarized_capacitor": return <><path d="M-28 0H-5M-5 -14V14M5 -14V14M5 0H28"/>{type === "polarized_capacitor" && <text x="-1" y="-17" fontSize="9" fill="currentColor" stroke="none">+</text>}</>;
+      case "inductor": return <path d="M-28 0H-20C-20 -13 -10 -13 -10 0S0 13 0 0S10 -13 10 0S20 13 20 0H28"/>;
+      case "transformer": return <><path d="M-28 -10H-20M-28 10H-20M20 -10H28M20 10H28"/><path d="M-20 -12C-8 -12 -8 -6 -20 -6S-8 0 -20 0S-8 6 -20 6S-8 12 -20 12M20 -12C8 -12 8 -6 20 -6S8 0 20 0S8 6 20 6S8 12 20 12"/><path d="M-3 -17V17M3 -17V17"/></>;
+      case "led": case "diode": case "zener_diode": case "photodiode": return <><path d="M-28 0H-10L9 -12V12L-10 0M9 -14V14H28"/>{type === "zener_diode" && <path d="M5 -14H12V-8"/>}{type === "led" && <><path d="M-3 -16L5 -24M5 -24H0M5 -24V-19M6 -12L14 -20M14 -20H9M14 -20V-15"/></>}{type === "photodiode" && <><path d="M-2 -24L-8 -18M-8 -18H-2M-8 -18V-12M10 -24L4 -18M4 -18H10M4 -18V-12"/></>}</>;
+      case "bicolor_led": return <><path d="M-28 -9H-10L4 -17V-1L-10 -9M4 -19V1H28M-28 9H-10L4 1V17L-10 9M4 -1V19H28"/><path d="M-3 -22L3 -28M9 -22L15 -28M-3 22L3 28M9 22L15 28"/></>;
+      case "bridge_rectifier": return <><path d="M0 -18L18 0L0 18L-18 0Z"/><path d="M-28 -12L-18 0M-28 12L-18 0M18 0H28M0 -18V-25M0 18V25"/><text x="-3" y="-2" fontSize="7" fill="currentColor" stroke="none">~</text></>;
+      case "npn_transistor": case "pnp_transistor": case "phototransistor": return <><circle cx="1" cy="0" r="16"/><path d="M-27 0H-8M-8 -12V12M-8 -8L8 -16H23M-8 8L8 16H23"/>{type === "pnp_transistor" ? <path d="M3 10L8 16L1 16"/> : <path d="M1 10L8 16L1 17"/>}{type === "phototransistor" && <><path d="M-20 -22L-10 -12M-10 -12H-17M-10 -12V-19M-17 17L-7 7M-7 7H-14M-7 7V14"/></>}</>;
+      case "mosfet_n": case "mosfet_p": case "jfet_n": case "jfet_p": return <><path d="M-27 0H-12M-12 -14V14M-4 -14V14M-4 -10L12 -17H26M-4 10L12 17H26"/><path d={type.endsWith("_p") ? "M-17 0L-11 -4V4Z" : "M-5 0L1 -4V4Z"}/></>;
+      case "op_amp": return <><path d="M-19 -19L20 0L-19 19Z M-28 -9H-19M-28 9H-19M20 0H28"/><text x="-15" y="-5" fontSize="8" fill="currentColor" stroke="none">−</text><text x="-15" y="13" fontSize="8" fill="currentColor" stroke="none">+</text></>;
+      case "voltage_source_ac": case "voltage_source_dc": case "variable_voltage_input": case "current_source": return <><path d="M-28 0H-17M17 0H28"/><circle cx="0" cy="0" r="17"/>{type === "voltage_source_ac" ? <path d="M-10 0Q-5 -9 0 0T10 0"/> : type === "current_source" ? <path d="M0 9V-8M-5 -3L0 -8L5 -3"/> : <><path d="M0 -8V8M-4 -4H4"/>{type === "variable_voltage_input" && <path d="M-12 -18L-4 -10M-4 -10H-10M-4 -10V-16"/>}</>}</>;
+      case "voltage_regulator": return <><rect x="-16" y="-16" width="32" height="32" rx="2"/><path d="M-28 -9H-16M16 -9H28M0 16V25"/><text x="0" y="3" fontSize="8" textAnchor="middle" fill="currentColor" stroke="none">78xx</text></>;
+      case "voltage_rail": return <><path d="M0 20V-8M-10 -8H10M-6 -14H6"/><text x="0" y="31" fontSize="8" textAnchor="middle" fill="currentColor" stroke="none">V+</text></>;
+      case "switch": case "switch_spst": case "switch_spdt": case "switch_dpst": case "switch_dpdt": case "push_button": case "push_to_break": return <><path d="M-28 0H-10M10 0H28"/><circle cx="-10" cy="0" r="2"/><circle cx="10" cy="0" r="2"/><path d={type === "push_to_break" ? "M-8 3L8 -10" : "M-8 -2L7 -12"}/>{type === "push_button" || type === "push_to_break" ? <path d="M0 -22V-15M-6 -22H6"/> : null}{type === "switch_spdt" && <path d="M10 0L22 12"/>}{type === "switch_dpst" || type === "switch_dpdt" ? <><path d="M-28 12H-10M10 12H28M-8 10L7 0"/></> : null}</>;
+      case "fuse": return <><path d="M-28 0H-15M15 0H28"/><rect x="-15" y="-7" width="30" height="14" rx="2"/><path d="M-10 0H10"/></>;
+      case "relay": return <><rect x="-23" y="-10" width="20" height="20"/><path d="M-19 -7L-7 7M-19 7L-7 -7M-28 -5H-23M-28 5H-23M0 0L14 -10H28"/></>;
+      case "motor": return <><path d="M-28 0H-17M17 0H28"/><circle cx="0" cy="0" r="17"/><text x="0" y="4" fontSize="11" textAnchor="middle" fill="currentColor" stroke="none">M</text></>;
+      case "lamp": return <><path d="M-28 0H-17M17 0H28"/><circle cx="0" cy="0" r="17"/><path d="M-9 -9L9 9M9 -9L-9 9"/></>;
+      case "buzzer": return <><path d="M-28 0H-16M12 0H28"/><path d="M-16 -13V13L-4 8H12V-8H-4Z"/><path d="M17 -7Q25 0 17 7M21 -12Q33 0 21 12"/></>;
+      case "logic_gate_and": case "logic_gate_nand": case "logic_gate_or": case "logic_gate_nor": case "logic_gate_xor": case "logic_gate_xnor": case "logic_gate_not": case "logic_gate_buffer": return <><path d="M-28 -8H-17M-28 8H-17M17 0H28"/>{type.includes("or") || type.includes("xor") ? <path d="M-17 -15Q-7 -15 1 0Q-7 15 -17 15Q-7 0 -17 -15"/> : type === "logic_gate_not" || type === "logic_gate_buffer" ? <path d="M-17 -15L12 0L-17 15Z"/> : <path d="M-17 -15H-3A15 15 0 0 1 -3 15H-17Z"/>}{type.includes("nand") || type.includes("nor") || type.includes("xnor") || type === "logic_gate_not" ? <circle cx="16" cy="0" r="3"/> : null}{type.includes("xor") ? <path d="M-22 -15Q-12 0 -22 15"/> : null}</>;
+      case "ic_555": case "ic_4017": case "decoder_counter": case "dil_socket": case "voltmeter": case "ammeter": case "multimeter": case "oscilloscope": case "logic_analyzer": case "word_generator": return <><rect x="-19" y="-17" width="38" height="34" rx="2"/><path d="M-28 -12H-19M-28 -4H-19M-28 4H-19M-28 12H-19M19 -12H28M19 -4H28M19 4H28M19 12H28"/><text x="0" y="3" fontSize={type === "ic_4017" ? "7" : "8"} textAnchor="middle" fill="currentColor" stroke="none">{({"ic_555":"555","ic_4017":"4017","decoder_counter":"DEC","dil_socket":"DIL","voltmeter":"V","ammeter":"A","multimeter":"DMM","oscilloscope":"OSC","logic_analyzer":"LA","word_generator":"WG"} as Record<string,string>)[type]}</text></>;
+      case "seven_segment": return <><rect x="-13" y="-20" width="26" height="40" rx="2"/><path d="M-7 -14H7M-7 0H7M-7 14H7M-8 -12V-2M8 -12V-2M-8 2V12M8 2V12"/></>;
+      case "transformer": return <><path d="M-28 -10H-20M-28 10H-20M20 -10H28M20 10H28"/><path d="M-20 -12C-8 -12 -8 -6 -20 -6S-8 0 -20 0S-8 6 -20 6S-8 12 -20 12M20 -12C8 -12 8 -6 20 -6S8 0 20 0S8 6 20 6S8 12 20 12M-3 -17V17M3 -17V17"/></>;
+      case "crystal_oscillator": return <><path d="M-28 0H-10M10 0H28M-10 -12V12M10 -12V12M-5 -12V12M5 -12V12"/></>;
+      case "text_label": return <><path d="M-28 -15H28V15H-28Z"/><text x="0" y="4" fontSize="10" textAnchor="middle" fill="currentColor" stroke="none">T</text></>;
+      case "rail": case "terminal_block": case "sil_socket": case "connector": return <><rect x="-16" y="-16" width="32" height="32" rx="2"/><path d="M-28 -10H-16M-28 0H-16M-28 10H-16M16 -10H28M16 0H28M16 10H28"/></>;
+      case "opto_isolator": return <><rect x="-20" y="-16" width="40" height="32"/><path d="M-28 -8H-20M-28 8H-20M20 -8H28M20 8H28M-14 -7L-2 0L-14 7Z M-2 0H0M3 -8V8M6 -8L14 -14M6 8L14 14"/></>;
+      case "thyristor_scr": case "triac": return <><path d="M-28 -10H-10L8 0L-10 10Z M8 -12V12M8 0H28M-28 12H-12L-5 5"/></>;
+      case "text_label": return <text x="0" y="4" fontSize="10" textAnchor="middle" fill="currentColor" stroke="none">T</text>;
+      default: return <><rect x="-16" y="-13" width="32" height="26" rx="2"/><path d="M-28 0H-16M16 0H28"/><text x="0" y="3" fontSize="8" textAnchor="middle" fill="currentColor" stroke="none">{type.slice(0,3).toUpperCase()}</text></>;
+    }
+  })();
+  return <svg className="component-button-symbol-svg" viewBox="-32 -30 64 60" aria-hidden="true" {...line}>{body}</svg>;
+}
+
 function CircuitPreview({
   circuit,
   onMove,
@@ -1148,20 +1191,22 @@ function handleMoveComponent(
 
 <div className="component-library">
   {([
-    ["Fuentes", [["Batería", "battery"], ["Fuente CA", "voltage_source_ac"], ["Fuente de corriente", "current_source"], ["Tierra", "ground"]]],
-    ["Pasivos", [["Resistencia", "resistor"], ["Potenciómetro", "potentiometer"], ["Capacitor", "capacitor"], ["Capacitor polarizado", "polarized_capacitor"], ["Inductor", "inductor"]]],
-    ["Diodos y sensores", [["LED", "led"], ["Diodo", "diode"], ["Zener", "zener_diode"], ["Fotodiodo", "photodiode"], ["LDR", "ldr"], ["Termistor", "thermistor"]]],
-    ["Control y protección", [["Interruptor", "switch"], ["Pulsador", "push_button"], ["Fusible", "fuse"], ["Relé", "relay"]]],
-    ["Semiconductores", [["Transistor NPN", "npn_transistor"], ["Transistor PNP", "pnp_transistor"], ["MOSFET N", "mosfet_n"], ["MOSFET P", "mosfet_p"], ["Amplificador operacional", "op_amp"]]],
-    ["Lógica e integrados", [["Puerta AND", "logic_gate_and"], ["Puerta OR", "logic_gate_or"], ["Puerta NOT", "logic_gate_not"], ["NE555", "ic_555"], ["CD4017", "ic_4017"]]],
-    ["Salidas y conexión", [["Motor", "motor"], ["Lámpara", "lamp"], ["Conector", "connector"]]]
+    ["Fuentes y tierra", [["Batería", "battery"], ["Celda", "cell"], ["Fuente CC", "voltage_source_dc"], ["Fuente CA", "voltage_source_ac"], ["Entrada variable", "variable_voltage_input"], ["Fuente de corriente", "current_source"], ["Regulador 78xx", "voltage_regulator"], ["Rail V+", "voltage_rail"], ["Tierra", "ground"], ["Tierra PE", "ground_earth"]]],
+    ["Pasivos", [["Resistencia", "resistor"], ["Array de resistencias", "resistor_pack"], ["Potenciómetro", "potentiometer"], ["Capacitor", "capacitor"], ["Capacitor polarizado", "polarized_capacitor"], ["Inductor", "inductor"], ["Transformador", "transformer"], ["Cristal de cuarzo", "crystal_oscillator"]]],
+    ["Diodos y rectificación", [["LED", "led"], ["LED bicolor", "bicolor_led"], ["Diodo", "diode"], ["Zener", "zener_diode"], ["Fotodiodo", "photodiode"], ["Puente rectificador", "bridge_rectifier"]]],
+    ["Interruptores y conectores", [["Interruptor", "switch"], ["SPST", "switch_spst"], ["SPDT", "switch_spdt"], ["DPST", "switch_dpst"], ["DPDT", "switch_dpdt"], ["Pulsador NA", "push_button"], ["Pulsador NC", "push_to_break"], ["Fusible", "fuse"], ["Relé", "relay"], ["Rail", "rail"], ["Terminales", "terminal_block"], ["Zócalo SIL", "sil_socket"], ["Zócalo DIL", "dil_socket"], ["Conector", "connector"]]],
+    ["Transistores y control", [["Transistor NPN", "npn_transistor"], ["Transistor PNP", "pnp_transistor"], ["Fototransistor", "phototransistor"], ["JFET N", "jfet_n"], ["JFET P", "jfet_p"], ["MOSFET N", "mosfet_n"], ["MOSFET P", "mosfet_p"], ["SCR", "thyristor_scr"], ["TRIAC", "triac"], ["Optoacoplador", "opto_isolator"]]],
+    ["Lógica e integrados", [["AND", "logic_gate_and"], ["NAND", "logic_gate_nand"], ["OR", "logic_gate_or"], ["NOR", "logic_gate_nor"], ["XOR", "logic_gate_xor"], ["XNOR", "logic_gate_xnor"], ["NOT", "logic_gate_not"], ["Buffer", "logic_gate_buffer"], ["NE555", "ic_555"], ["CD4017", "ic_4017"], ["Decodificador/contador", "decoder_counter"], ["Regulador", "voltage_regulator"], ["Amplificador operacional", "op_amp"]]],
+    ["Salidas y actuadores", [["Display 7 segmentos", "seven_segment"], ["Zumbador", "buzzer"], ["Motor CC", "motor"], ["Lámpara", "lamp"]]],
+    ["Instrumentos virtuales", [["Multímetro", "multimeter"], ["Voltímetro", "voltmeter"], ["Amperímetro", "ammeter"], ["Osciloscopio", "oscilloscope"], ["Analizador lógico", "logic_analyzer"], ["Generador de palabras", "word_generator"]]],
+    ["Documentación", [["Etiqueta de texto", "text_label"]]]
   ] as [string, [string, ComponentType][]][]).map(([category, items]) => (
     <section className="component-library-group" key={category}>
       <strong>{category}</strong>
       <div className="component-actions">
         {items.map(([label, type]) => (
-          <button key={type} type="button" onClick={() => handleAddComponent(type)}>
-            <span className="component-button-symbol" aria-hidden="true">{({battery:"＋", voltage_source_ac:"∿", current_source:"↗", ground:"⏚", resistor:"Ω", potentiometer:"↗", capacitor:"Ⅱ", polarized_capacitor:"＋Ⅱ", inductor:"∿", led:"◉", diode:"▷", zener_diode:"▷", photodiode:"☼", ldr:"☼", thermistor:"♨", switch:"／", push_button:"●", fuse:"▱", relay:"K", npn_transistor:"NPN", pnp_transistor:"PNP", mosfet_n:"N", mosfet_p:"P", op_amp:"△", logic_gate_and:"&", logic_gate_or:"≥1", logic_gate_not:"¬", ic_555:"555", ic_4017:"4017", motor:"M", lamp:"☼", connector:"J"} as Record<ComponentType, string>)[type]}</span>
+          <button key={type} type="button" onClick={() => handleAddComponent(type)} title={label}>
+            <ComponentGlyph type={type} />
             <span>{label}</span>
           </button>
         ))}
