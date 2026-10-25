@@ -61,7 +61,7 @@ export function addComponent(
   };
   const prefix = prefixByType[type];
   const usedNumbers = circuit.components
-    .filter((existing) => existing.type === type)
+    .filter((existing) => existing.label.startsWith(prefix))
     .map((existing) => Number(existing.label.match(/(\d+)$/)?.[1] ?? 0))
     .filter(Number.isFinite);
   let nextNumber = 1;
