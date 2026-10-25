@@ -133,9 +133,32 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const raw = candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!raw) throw new Error("Gemini devolvió una respuesta vacía. Puede que el pedido haya sido bloqueado o que se haya agotado la cuota.");
 
+  // Algunos modelos envuelven el JSON en bloques Markdown o agregan texto alrededor.
+  // Extraemos el objeto completo antes de fallar, sin hacer una segunda llamada lenta al modelo.
+  const candidatesToParse = [
+    raw,
+    raw.replace(/^\`\`\`(?:json)?\s*/i, "").replace(/\s*\`\`\`$/, "").trim(),
+  ];
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidatesToParse.push(raw.slice(firstBrace, lastBrace + 1));
+  }
   let parsed: unknown;
-  try { parsed = JSON.parse(raw); } catch { throw new Error("La respuesta de Gemini no era JSON válido."); }
-  if (typeof parsed !== "object" || parsed === null) throw new Error("La propuesta de Gemini no tiene un objeto válido.");
+  let parseSucceeded = false;
+  for (const candidate of candidatesToParse) {
+    try {
+      parsed = JSON.parse(candidate);
+      parseSucceeded = true;
+      break;
+    } catch {
+      // Probar la siguiente representación candidata.
+    }
+  }
+  if (!parseSucceeded) {
+    throw new Error("Gemini devolvió una respuesta incompleta o mal formada. Volvé a intentarlo; no se modificó el circuito.");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("La propuesta de Gemini no tiene un objeto válido.");
 
   const value = parsed as Record<string, unknown>;
   const componentsRaw = value.components;
