@@ -58,16 +58,42 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const circuitContext = JSON.stringify(currentCircuit);
   const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo, como un buen asistente general. Respondé primero en el campo response con una contestación breve y humana: saludos se contestan como saludos, preguntas se contestan como preguntas. No muestres títulos robóticos, modo IA, listas de metadatos ni advertencias genéricas en cada turno. Además devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 4096, responseMimeType: "application/json" },
-    }),
-    signal: AbortSignal.timeout(20000),
+  // Gemini 3.8 Flash puede tardar más de 20 s en períodos de alta demanda.
+  // Reintentamos solo fallos transitorios; nunca hacemos fallback silencioso a modo demo.
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const requestBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
+    generationConfig: {
+      maxOutputTokens: 2048,
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: "LOW" },
+    },
   });
+
+  let response: Response | undefined;
+  let lastTransientError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Server-Timeout": "60" },
+        body: requestBody,
+        signal: AbortSignal.timeout(65000),
+      });
+      if (response.status !== 503 && response.status !== 504) break;
+      if (attempt === 2) break;
+      lastTransientError = new Error(`Gemini respondió HTTP ${response.status}`);
+    } catch (error) {
+      lastTransientError = error;
+      const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+      if (!timedOut || attempt === 2) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800 * 2 ** attempt));
+  }
+  if (!response) {
+    throw lastTransientError instanceof Error ? lastTransientError : new Error("No se recibió respuesta de Gemini.");
+  }
 
   if (!response.ok) {
     let providerMessage = "";
