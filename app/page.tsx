@@ -510,6 +510,36 @@ function handleMoveComponent(
       setNotice("");
     };
     // Acciones sencillas y deterministas sobre el circuito existente.
+    // Agregar componentes no requiere IA: se aplica directamente y preserva todo lo que ya existe.
+    const addVerb = /\\b(agrega|agregá|agregar|añade|anade|añadir|pone|pon|poner|sum[aá]|incorpora|incorporar)\\b/.test(normalized);
+    const componentWords: [RegExp, ComponentType][] = [
+      /\\b(leds?|diodos?)\\b/, "led",
+      /\\b(resistencias?|resistores?)\\b/, "resistor",
+      /\\b(baterias?|pilas|fuentes?)\\b/, "battery",
+      /\\b(interruptores?|llaves|switches)\\b/, "switch",
+      /\\b(tierras|masas|grounds?|gnds?)\\b/, "ground",
+    ];
+    if (addVerb) {
+      const requestedTypes = componentWords.filter(([pattern]) => pattern.test(normalized)).map(([, type]) => type);
+      if (requestedTypes.length > 0) {
+        let next = circuit;
+        const added: string[] = [];
+        for (const type of requestedTypes) {
+          const countMatch = normalized.match(new RegExp("\\\\b(\\\\d+)\\\\s*(?:" + ({led:"leds?",resistor:"resistencias?|resistores?",battery:"baterias?|pilas|fuentes?",switch:"interruptores?|llaves|switches",ground:"tierras|masas|grounds?|gnds?"} as Record<ComponentType,string>)[type] + ")\\\\b"));
+          const count = Math.min(4, Math.max(1, Number(countMatch?.[1] ?? 1)));
+          for (let i = 0; i < count && next.components.length < 12; i++) {
+            const index = next.components.length;
+            next = addComponent(next, type, 70 + (index % 4) * 95, 70 + Math.floor(index / 4) * 90);
+            added.push(next.components[next.components.length - 1].label);
+          }
+        }
+        if (next !== circuit) {
+          setCircuit(next); setValidationIssues(validateCircuit(next)); setSelectedValidationIssue(null);
+          replyToCommand("Listo, agregué " + added.join(", ") + " al circuito existente. Conservé los componentes y cables que ya tenías; todavía no conecté automáticamente los nuevos componentes.");
+        } else replyToCommand("El circuito alcanzó el límite de 12 componentes de esta versión.");
+        return;
+      }
+    }
     const removeWords = /\b(elimina|eliminar|borra|borrar|quita|quitar)\b/.test(normalized);
     const clearWords = /\b(todo|todos|todas|el circuito|los componentes)\b/.test(normalized);
     if (removeWords && !/\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\b/i.test(normalized) &&
