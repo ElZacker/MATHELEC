@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { memo, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import {
   addComponent,
@@ -23,6 +23,18 @@ type Message = {
   role: "user" | "assistant";
   text: string;
 };
+
+const ChatMessage = memo(function ChatMessage({ message }: { message: Message }) {
+  return (
+    <article className={`message message-${message.role}`}>
+      <div className={`message-avatar ${message.role === "user" ? "user-message-avatar" : ""}`}>{message.role === "assistant" ? <>M<span>.</span></> : "T"}</div>
+      <div className="message-body">
+        <div className="message-author">{message.role === "assistant" ? "Mathelec" : "Vos"}</div>
+        <p>{message.text}</p>
+      </div>
+    </article>
+  );
+});
 
 type Chat = {
   id: string;
@@ -563,7 +575,7 @@ function handleMoveComponent(
     if (!isGenerating || generationStartedAt === null) return;
     const updateElapsed = () => setGenerationElapsed((Date.now() - generationStartedAt) / 1000);
     updateElapsed();
-    const interval = window.setInterval(updateElapsed, 100);
+    const interval = window.setInterval(updateElapsed, 250);
     return () => window.clearInterval(interval);
   }, [isGenerating, generationStartedAt]);
 
@@ -1034,13 +1046,7 @@ function handleMoveComponent(
             ) : (
               <div className="message-list">
                 {activeChat?.messages.map((message) => (
-                  <article key={message.id} className={`message message-${message.role}`}>
-                    <div className={`message-avatar ${message.role === "user" ? "user-message-avatar" : ""}`}>{message.role === "assistant" ? <>M<span>.</span></> : "T"}</div>
-                    <div className="message-body">
-                      <div className="message-author">{message.role === "assistant" ? "Mathelec" : "Vos"}</div>
-                      <p>{message.text}</p>
-                    </div>
-                  </article>
+                  <ChatMessage key={message.id} message={message} />
                 ))}
                 {isGenerating && <div className="thinking-indicator" role="status" aria-live="polite">
                   <img className="thinking-logo" src="/mathelec-logo.png" alt="" />
