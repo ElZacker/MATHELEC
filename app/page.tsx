@@ -557,6 +557,7 @@ function handleMoveComponent(
       });
       const data: {
         mode?: "demo" | "ai";
+        response?: string;
         title?: string; explanation?: string;
         components?: { type: ComponentType; x: number; y: number }[];
         wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
@@ -565,22 +566,10 @@ function handleMoveComponent(
       } = await response.json();
       if (!response.ok) throw new Error(data.error ?? "No se pudo generar la propuesta.");
 
-      let assistantText = [
-        data.title ?? "Propuesta recibida",
-        data.mode === "ai" ? "Modo IA: respuesta generada por el proveedor configurado." : "Modo demostración: todavía no se configuró una clave de IA.",
-        data.explanation ?? "",
-        data.confirmedRequirements?.length ? "Requisitos identificados:\n- " + data.confirmedRequirements.join("\n- ") : "",
-        data.assumptions?.length ? "Suposiciones:\n- " + data.assumptions.join("\n- ") : "",
-        data.missingInformation?.length ? "Datos pendientes:\n- " + data.missingInformation.join("\n- ") : "",
-        data.warnings?.length ? "Advertencias:\n- " + data.warnings.join("\n- ") : "",
-      ].filter(Boolean).join("\n\n");
-
+      let assistantText = data.response?.trim() || data.explanation?.trim() || "Listo. ¿Qué te gustaría hacer ahora?";
+      let nextCircuit = circuit;
+      const componentIds: string[] = [];
       if (data.components?.length) {
-        // La IA devuelve solo los componentes nuevos solicitados; el circuito actual se conserva.
-        let nextCircuit = circuit.components.length > 0
-          ? circuit
-          : createCircuit(content.slice(0, 60) || "Propuesta de circuito");
-        const componentIds: string[] = [];
         for (const item of data.components) {
           if (!["battery", "resistor", "led", "switch", "ground"].includes(item.type)) {
             throw new Error("La propuesta contiene un tipo de componente no admitido.");
@@ -588,20 +577,26 @@ function handleMoveComponent(
           nextCircuit = addComponent(nextCircuit, item.type, item.x, item.y);
           componentIds.push(nextCircuit.components[nextCircuit.components.length - 1].id);
         }
-        for (const wire of data.wires ?? []) {
+      }
+      if (data.wires?.length) {
+        for (const wire of data.wires) {
           const fromId = componentIds[wire.from.componentIndex];
           const toId = componentIds[wire.to.componentIndex];
-          if (!fromId || !toId) throw new Error("La propuesta contiene índices de conexión inválidos.");
+          if (!fromId || !toId) throw new Error("No pude aplicar una conexión porque la propuesta no identifica componentes nuevos válidos.");
           nextCircuit = connectTerminals(nextCircuit, fromId, wire.from.terminalId, toId, wire.to.terminalId);
         }
+      }
+      if (nextCircuit !== circuit) {
         const issues = validateCircuit(nextCircuit);
         setCircuit(nextCircuit);
         setValidationIssues(issues);
         setSelectedValidationIssue(null);
-        assistantText += "\n\nSe cargó una propuesta en el área de circuito. Revisá las advertencias antes de usarla.";
-        if (issues.length) assistantText += "\nEl verificador estructural encontró " + issues.length + " aviso(s).";
-      } else {
-        setNotice("La propuesta no incluyó componentes para dibujar.");
+      }
+      if (data.missingInformation?.length && !data.response) {
+        assistantText += "\\n\\nPara seguir, necesito aclarar: " + data.missingInformation.join("; ");
+      }
+      if (data.warnings?.length && data.components?.length) {
+        assistantText += "\\n\\nOjo: " + data.warnings.join(" ");
       }
 
       const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: assistantText };
