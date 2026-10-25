@@ -277,12 +277,122 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
 
           {!["battery", "resistor", "led", "switch", "ground"].includes(component.type) && (
             <>
-              <rect x="-24" y="-17" width="48" height="34" rx={["ic_555", "ic_4017", "op_amp", "logic_gate_and", "logic_gate_or", "logic_gate_not"].includes(component.type) ? 3 : 9} fill="#10291c" stroke="#45f59a" />
-              <text x="0" y="4" fill="#b8ffd2" stroke="none" textAnchor="middle" fontSize="10" fontWeight="700">
+              {["capacitor", "polarized_capacitor"].includes(component.type) ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-5" y2="0" />
+                  <line x1="-5" y1="-15" x2="-5" y2="15" />
+                  <line x1="5" y1="-15" x2="5" y2="15" />
+                  <line x1="5" y1="0" x2="28" y2="0" />
+                  {component.type === "polarized_capacitor" && <text x="-1" y="-19" fill="#b8ffd2" stroke="none" fontSize="9">+</text>}
+                </g>
+              ) : component.type === "inductor" ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-20" y2="0" />
+                  <path d="M-20 0 a5 8 0 0 1 10 0 a5 8 0 0 1 10 0 a5 8 0 0 1 10 0 a5 8 0 0 1 10 0" fill="none" />
+                  <line x1="20" y1="0" x2="28" y2="0" />
+                </g>
+              ) : ["diode", "zener_diode", "photodiode"].includes(component.type) ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-9" y2="0" />
+                  <path d="M-9 -12 L10 0 L-9 12 Z" />
+                  <line x1="10" y1="-14" x2="10" y2="14" />
+                  <line x1="10" y1="0" x2="28" y2="0" />
+                  {component.type === "zener_diode" && <path d="M7 -14 L13 -14 L13 -9" fill="none" />}
+                  {component.type === "photodiode" && <g><path d="M-5 -20 L-1 -16 M-1 -16 L-7 -16 M-1 -16 L-1 -22" /><path d="M5 -24 L9 -20 M9 -20 L3 -20 M9 -20 L9 -26" /></g>}
+                </g>
+              ) : ["voltage_source_ac", "current_source"].includes(component.type) ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-17" y2="0" />
+                  <circle cx="0" cy="0" r="17" />
+                  <line x1="17" y1="0" x2="28" y2="0" />
+                  {component.type === "voltage_source_ac" ? <path d="M-10 0 Q-5 -9 0 0 T10 0" fill="none" /> : <path d="M0 9 L0 -8 M-5 -3 L0 -8 L5 -3" fill="none" />}
+                </g>
+              ) : ["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(component.type) ? (
+                <g>
+                  <circle cx="2" cy="0" r="17" />
+                  <line x1="-25" y1="0" x2="-8" y2="0" />
+                  <line x1="-8" y1="-12" x2="-8" y2="12" />
+                  <line x1="-8" y1="-7" x2="5" y2="-16" />
+                  <line x1="5" y1="-16" x2="22" y2="-16" />
+                  <line x1="-8" y1="7" x2="5" y2="16" />
+                  <line x1="5" y1="16" x2="22" y2="16" />
+                  {["npn_transistor", "pnp_transistor"].includes(component.type) && <path d={component.type === "npn_transistor" ? "M1 11 L8 16 L1 17" : "M2 17 L8 16 L5 10"} fill="none" />}
+                </g>
+              ) : component.type === "op_amp" ? (
+                <g>
+                  <path d="M-18 -20 L20 0 L-18 20 Z" />
+                  <line x1="-28" y1="-10" x2="-18" y2="-10" />
+                  <line x1="-28" y1="10" x2="-18" y2="10" />
+                  <line x1="20" y1="0" x2="28" y2="0" />
+                  <text x="-13" y="-6" fill="#b8ffd2" stroke="none" fontSize="9">−</text>
+                  <text x="-13" y="14" fill="#b8ffd2" stroke="none" fontSize="9">+</text>
+                </g>
+              ) : ["logic_gate_and", "logic_gate_or", "logic_gate_not"].includes(component.type) ? (
+                <g>
+                  {component.type === "logic_gate_and" && <path d="M-18 -16 L0 -16 A16 16 0 0 1 0 16 L-18 16 Z" />}
+                  {component.type === "logic_gate_or" && <path d="M-18 -16 Q-3 -16 7 0 Q-3 16 -18 16 Q-8 0 -18 -16 M7 0 L21 0" />}
+                  {component.type === "logic_gate_not" && <g><path d="M-17 -15 L10 0 L-17 15 Z" /><circle cx="15" cy="0" r="4" /></g>}
+                  <line x1="-28" y1="-8" x2="-18" y2="-8" />
+                  {component.type !== "logic_gate_not" && <line x1="-28" y1="8" x2="-18" y2="8" />}
+                  {component.type !== "logic_gate_not" && <line x1="16" y1="0" x2="28" y2="0" />}
+                  {component.type === "logic_gate_not" && <line x1="19" y1="0" x2="28" y2="0" />}
+                </g>
+              ) : ["ic_555", "ic_4017"].includes(component.type) ? (
+                <g>
+                  <rect x="-18" y="-17" width="36" height="34" rx="2" fill="#10291c" />
+                  {[-12, -4, 4, 12].map((y) => <g key={y}><line x1="-28" y1={y} x2="-18" y2={y} /><line x1="18" y1={y} x2="28" y2={y} /></g>)}
+                  <text x="0" y="3" fill="#b8ffd2" stroke="none" textAnchor="middle" fontSize="9" fontWeight="700">{component.type === "ic_555" ? "555" : "4017"}</text>
+                </g>
+              ) : ["motor", "lamp"].includes(component.type) ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-17" y2="0" />
+                  <circle cx="0" cy="0" r="17" />
+                  <line x1="17" y1="0" x2="28" y2="0" />
+                  {component.type === "motor" ? <text x="0" y="4" fill="#b8ffd2" stroke="none" textAnchor="middle" fontSize="11">M</text> : <path d="M-9 -9 L9 9 M9 -9 L-9 9" />}
+                </g>
+              ) : ["fuse", "connector"].includes(component.type) ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-15" y2="0" />
+                  <rect x="-15" y="-8" width="30" height="16" rx={component.type === "fuse" ? 2 : 1} />
+                  <line x1="15" y1="0" x2="28" y2="0" />
+                  {component.type === "connector" && <g><line x1="-7" y1="-4" x2="-7" y2="4" /><line x1="7" y1="-4" x2="7" y2="4" /></g>}
+                </g>
+              ) : ["push_button", "switch"].includes(component.type) ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-10" y2="0" />
+                  <circle cx="-10" cy="0" r="3" />
+                  <circle cx="10" cy="0" r="3" />
+                  <line x1="-7" y1="-2" x2="7" y2="-13" />
+                  <line x1="10" y1="0" x2="28" y2="0" />
+                  {component.type === "push_button" && <line x1="0" y1="-21" x2="0" y2="-14" />}
+                </g>
+              ) : component.type === "relay" ? (
+                <g>
+                  <rect x="-20" y="-10" width="18" height="20" rx="2" />
+                  <path d="M-17 -7 l12 14 M-17 0 l12 -7 M-17 7 l12 -14" />
+                  <line x1="-28" y1="-6" x2="-20" y2="-6" />
+                  <line x1="-28" y1="6" x2="-20" y2="6" />
+                  <line x1="0" y1="0" x2="14" y2="-10" />
+                  <circle cx="0" cy="0" r="2" />
+                  <line x1="14" y1="-10" x2="28" y2="-10" />
+                </g>
+              ) : ["ldr", "thermistor", "potentiometer"].includes(component.type) ? (
+                <g>
+                  <line x1="-28" y1="0" x2="-17" y2="0" />
+                  <rect x="-17" y="-10" width="34" height="20" rx="2" />
+                  <line x1="17" y1="0" x2="28" y2="0" />
+                  {component.type === "ldr" && <g><path d="M-12 -18 L-4 -10 M-4 -10 L-11 -10 M-4 -10 L-4 -17" /><path d="M0 -18 L8 -10 M8 -10 L1 -10 M8 -10 L8 -17" /></g>}
+                  {component.type === "thermistor" && <path d="M-10 8 L10 -8 M2 -8 L10 -8 L10 0" />}
+                  {component.type === "potentiometer" && <g><line x1="0" y1="-22" x2="0" y2="-5" /><path d="M-5 -10 L0 -5 L5 -10" /></g>}
+                </g>
+              ) : (
+                <rect x="-24" y="-17" width="48" height="34" rx="9" fill="#10291c" stroke="#45f59a" />
+              )}
+              <text x="0" y="4" fill="#b8ffd2" stroke="none" textAnchor="middle" fontSize="9" fontWeight="700">
                 {({ diode: "D", capacitor: "C", polarized_capacitor: "C+", inductor: "L", npn_transistor: "NPN", pnp_transistor: "PNP", mosfet_n: "NMOS", mosfet_p: "PMOS", op_amp: "A", voltage_source_ac: "~V", current_source: "I", fuse: "F", motor: "M", lamp: "LP", push_button: "PB", relay: "K", photodiode: "PD", ldr: "LDR", thermistor: "TH", potentiometer: "RV", zener_diode: "DZ", logic_gate_and: "&", logic_gate_or: "≥1", logic_gate_not: "¬", ic_555: "555", ic_4017: "4017", connector: "J" } as Partial<Record<ComponentType, string>>)[component.type] ?? "?"}
               </text>
             </>
-          )}
+          )}}
 
           <text
             x="0"
