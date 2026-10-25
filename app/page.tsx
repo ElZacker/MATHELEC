@@ -392,7 +392,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
                 {({ diode: "D", capacitor: "C", polarized_capacitor: "C+", inductor: "L", npn_transistor: "NPN", pnp_transistor: "PNP", mosfet_n: "NMOS", mosfet_p: "PMOS", op_amp: "A", voltage_source_ac: "~V", current_source: "I", fuse: "F", motor: "M", lamp: "LP", push_button: "PB", relay: "K", photodiode: "PD", ldr: "LDR", thermistor: "TH", potentiometer: "RV", zener_diode: "DZ", logic_gate_and: "&", logic_gate_or: "≥1", logic_gate_not: "¬", ic_555: "555", ic_4017: "4017", connector: "J" } as Partial<Record<ComponentType, string>>)[component.type] ?? "?"}
               </text>
             </>
-          )}}
+          )}
 
           <text
             x="0"
