@@ -510,15 +510,6 @@ function handleMoveComponent(
       return;
     }
 
-    const normalized = content.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es");
-    const replyToCommand = (text: string) => {
-      const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: content };
-      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text };
-      setChats((current) => current.map((chat) => chat.id === activeChat.id
-        ? { ...chat, messages: [...chat.messages, userMessage, assistantMessage] } : chat));
-      setInput("");
-      setNotice("");
-    };
     // Todas las instrucciones, incluidas las ediciones del circuito, se interpretan con Gemini.
     const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: content };
     setChats((current) => current.map((chat) => chat.id === activeChat.id ? {
@@ -528,6 +519,7 @@ function handleMoveComponent(
     } : chat));
     setInput("");
     setNotice("");
+    // eslint-disable-next-line react-hooks/purity -- starts timing only after the user submits a message.
     const startedAt = Date.now();
     setGenerationStartedAt(startedAt);
     setGenerationElapsed(0);
@@ -640,6 +632,7 @@ function handleMoveComponent(
         assistantText += "\\n\\nOjo: " + data.warnings.join(" ");
       }
 
+      // eslint-disable-next-line react-hooks/purity -- measures elapsed time for the completed user request.
       const elapsedSeconds = (Date.now() - startedAt) / 1000;
       assistantText += `\n\nTiempo de respuesta: ${elapsedSeconds < 10 ? elapsedSeconds.toFixed(1) : Math.round(elapsedSeconds)} s`;
       const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: assistantText };
