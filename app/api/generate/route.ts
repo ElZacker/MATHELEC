@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAvailableComponentTypes } from "@/lib/circuits/components";
+import { getAvailableComponentTypes, getComponentDefinition } from "@/lib/circuits/components";
 import type { ComponentType } from "@/lib/circuits/types";
 
 type ProposalComponent = { type: ComponentType; x: number; y: number };
@@ -44,13 +44,7 @@ function checkRateLimit(request: Request): boolean {
 }
 
 
-const terminalMap: Record<ComponentType, string[]> = {
-  battery: ["positive", "negative"],
-  resistor: ["a", "b"],
-  led: ["anode", "cathode"],
-  switch: ["a", "b"],
-  ground: ["gnd"],
-};
+const terminalMap = Object.fromEntries(getAvailableComponentTypes().map((type) => [type, getComponentDefinition(type).terminals.map((terminal) => terminal.id)])) as Record<ComponentType, string[]>;
 
 async function buildAiProposal(prompt: string, currentCircuit: { components: { type: string; label: string; position: { x: number; y: number } }[]; wires: { from: { componentId: string; terminalId: string }; to: { componentId: string; terminalId: string } }[] }): Promise<Omit<Proposal, "mode">> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -58,7 +52,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 
   const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
   const circuitContext = JSON.stringify(currentCircuit);
-  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 12 componentes totales y 20 cables nuevos. No afirmes validación o simulación eléctrica. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
+  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Si preguntan cuáles son tus capacidades, respondé de forma concreta y honesta: podés explicar electrónica, proponer circuitos con los 31 tipos disponibles, añadir uno o varios componentes, conectar y desconectar cables, rotar/mover/eliminar componentes, cambiar propiedades admitidas, explicar errores y sugerir sustitutos; no podés simular eléctricamente ni garantizar que un circuito funcione, y no debes afirmar capacidades inexistentes. Si piden un circuito aleatorio, no rechaces el pedido: elegí un circuito didáctico pequeño y coherente con componentes disponibles, explicá qué hace y devolvé componentes y conexiones válidas. En pedidos singulares como “agrega otro LED”, ejecutá exactamente una unidad salvo que indiquen una cantidad distinta; no dupliques acciones. Para desconectar, usa una acción disconnect por cada pareja de componentes conectada que el usuario indique, sin tocar cables no relacionados. Si solicitan un componente inexistente, explicá cuál falta y ofrecé la alternativa más cercana disponible, sin inventar que existe. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 30 componentes totales y 40 cables nuevos. No afirmes validación o simulación eléctrica. Tipos y terminales disponibles (fuente de verdad): ${JSON.stringify(Object.fromEntries(getAvailableComponentTypes().map((type) => [type, getComponentDefinition(type).terminals.map((terminal) => ({ id: terminal.id, name: terminal.name }))])))}. Usá únicamente estos tipos y terminales. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 30 componentes totales y 40 cables nuevos. Respeta la cantidad exacta solicitada; “otro/un/una” significa exactamente uno. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
   // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
   // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
   const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
@@ -76,7 +70,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
       generationConfig: {
         // Reservar pocos tokens para acciones simples reduce la latencia; las consultas técnicas
         // reciben más espacio para explicar sin imponer respuestas largas a cada turno.
-        maxOutputTokens: /\\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\\b/i.test(prompt) ? 1536 : prompt.length < 90 ? 512 : 1024,
+        maxOutputTokens: /\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\b/i.test(prompt) ? 1536 : prompt.length < 90 ? 512 : 1024,
         responseMimeType: "application/json",
         thinkingConfig: { thinkingLevel: "LOW" },
       },
@@ -165,7 +159,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const componentsRaw = value.components;
   const wiresRaw = value.wires;
   if (!Array.isArray(componentsRaw) || !Array.isArray(wiresRaw) ||
-      componentsRaw.length > 12 || wiresRaw.length > 20) {
+      componentsRaw.length > 30 || wiresRaw.length > 40) {
     throw new Error("La propuesta excede los límites o no contiene listas válidas.");
   }
 
@@ -181,7 +175,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     const normalizedType = supportedTypes.has(rawType) ? rawType as ComponentType : typeAliases[rawType];
     const x = typeof component.x === "number" && Number.isFinite(component.x) ? component.x : 220;
     const y = typeof component.y === "number" && Number.isFinite(component.y) ? component.y : 165;
-    if (!normalizedType) throw new Error("Gemini propuso un tipo de componente no disponible. En esta versión se admiten batería, resistencia, LED, interruptor y tierra.");
+    if (!normalizedType) throw new Error("Gemini propuso un tipo de componente no disponible en la biblioteca.");
     return { type: normalizedType, x: Math.max(30, Math.min(410, x)), y: Math.max(40, Math.min(290, y)) };
   });
 
@@ -257,6 +251,24 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 function buildDemoProposal(prompt: string): Proposal {
   const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const wantsBlink = /\b(parpade|intermit|titil|555|temporiz|oscilador)\w*/.test(text);
+  const asksCapabilities = /\b(capacidades|que podes hacer|que puedes hacer|para que servis|que sabes hacer)\b/.test(text);
+  if (asksCapabilities) return { mode: "demo", title: "Qué puede hacer Mathelect", explanation: "Puedo proponer circuitos con la biblioteca, añadir componentes, definir conexiones, explicar componentes y señalar piezas que falten. La edición exacta depende de que el modelo Gemini esté configurado; sin la clave, el modo demostración reconoce solo algunas solicitudes. No ejecuto simulación eléctrica ni puedo garantizar el funcionamiento físico.", response: "Puedo ayudarte a diseñar circuitos con los componentes de la biblioteca, explicar cómo funcionan, proponer conexiones, agregar o quitar componentes, rotarlos, moverlos y ajustar propiedades admitidas. También puedo señalar piezas faltantes y sugerir alternativas disponibles. Si Gemini está configurado, puedo interpretar instrucciones en lenguaje natural con más flexibilidad; sin esa configuración, algunas funciones quedan limitadas al modo demostración. No simulo eléctricamente el circuito ni garantizo que sea seguro construirlo.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: [], warnings: ["Las capacidades de edición avanzada requieren configurar GEMINI_API_KEY; el modo demostración no es una IA general."] };
+  const wantsRandom = /\b(aleatorio|aleatoria|al azar|sorpresa|random)\b/.test(text) && /\b(circuito|generame|genera|crear|crea|arma|armar)\b/.test(text);
+  if (wantsRandom) {
+    const components: ProposalComponent[] = [
+      { type: "battery", x: 75, y: 165 },
+      { type: "resistor", x: 220, y: 95 },
+      { type: "led", x: 365, y: 165 },
+      { type: "switch", x: 220, y: 245 },
+    ];
+    const wires: ProposalWire[] = [
+      { from: { componentIndex: 0, terminalId: "positive" }, to: { componentIndex: 1, terminalId: "a" } },
+      { from: { componentIndex: 1, terminalId: "b" }, to: { componentIndex: 2, terminalId: "anode" } },
+      { from: { componentIndex: 2, terminalId: "cathode" }, to: { componentIndex: 3, terminalId: "a" } },
+      { from: { componentIndex: 3, terminalId: "b" }, to: { componentIndex: 0, terminalId: "negative" } },
+    ];
+    return { mode: "demo", title: "Circuito sorpresa: LED con interruptor", explanation: "Circuito didáctico en serie: la batería alimenta la resistencia limitadora, el LED y el interruptor. Cerrá el interruptor para completar el lazo. Es una demostración conceptual, no una simulación.", response: "¡Dale! Armé un circuito sorpresa con batería, resistencia, LED e interruptor, con un lazo de conexiones completo. Revisá los valores y la polaridad antes de construirlo.", components, wires, confirmedRequirements: ["Fuente continua", "Resistencia limitadora", "LED polarizado", "Interruptor en serie"], assumptions: ["La batería usa el valor predeterminado de 9 V y la resistencia 220 Ω."], missingInformation: [], warnings: ["MODO DEMOSTRACIÓN: no se consultó Gemini ni se simuló el circuito eléctricamente."] };
+  }
   const wantsAlarm = /\b(alarma|sensor de luz|ldr|fotoresist)\b/.test(text);
   const wantsCounter = /\b(contador|cd4017|decada)\b/.test(text);
   const asksForAction = /\b(agrega|agregá|añade|anade|pon|pone|quiero|necesito|crea|crear|arma|armar|diseña|disena|genera|generar|circuito|conecta|conectar)\b/.test(text);
@@ -265,19 +277,44 @@ function buildDemoProposal(prompt: string): Proposal {
     const match = text.match(pattern);
     if (match) requested.set(type, Math.max(1, Math.min(8, Number(match[1] || 1))));
   };
-  detect("battery", /\b(?:(\d+)\s*)?(?:baterias?|pilas|fuentes)\b/);
+  // El modo demo reconoce también toda la biblioteca; no depende de Gemini para añadir tipos simples.
+  detect("battery", /\b(?:(\d+)\s*)?(?:baterias?|pilas|fuente continua|fuente de tension continua)\b/);
+  detect("voltage_source_ac", /\b(?:(\d+)\s*)?(?:fuente(?:s)? de (?:tension )?altern(?:a|as)|corriente alterna|fuente ac|vac)\b/);
+  detect("current_source", /\b(?:(\d+)\s*)?(?:fuente(?:s)? de corriente|current source)\b/);
   detect("resistor", /\b(?:(\d+)\s*)?(?:resistencias?|resistores?)\b/);
-  detect("led", /\b(?:(\d+)\s*)?(?:leds?|diodos?)\b/);
+  detect("potentiometer", /\b(?:(\d+)\s*)?(?:potenciometros?|potenciómetros?|resistencias variables)\b/);
+  detect("polarized_capacitor", /\b(?:(\d+)\s*)?(?:capacitores?|condensadores?) electroliticos?\b/);
+  detect("capacitor", /\b(?:(\d+)\s*)?(?:(?:capacitores?|condensadores?)(?!\s+electroliticos?))\b/);
+  detect("inductor", /\b(?:(\d+)\s*)?(?:inductores?|bobinas?)\b/);
+  detect("led", /\b(?:(\d+)\s*)?leds?\b/);
+  detect("zener_diode", /\b(?:(\d+)\s*)?(?:diodos? zener|zener)\b/);
+  detect("photodiode", /\b(?:(\d+)\s*)?(?:fotodiodos?)\b/);
+  detect("diode", /\b(?:(\d+)\s*)?diodos?(?!\s+zener)\b/);
+  detect("ldr", /\b(?:(\d+)\s*)?(?:ldr|fotoresistencias?|fotorresistencias?)\b/);
+  detect("thermistor", /\b(?:(\d+)\s*)?(?:termistores?|thermistors?)\b/);
   detect("switch", /\b(?:(\d+)\s*)?(?:interruptores?|llaves|switches)\b/);
+  detect("push_button", /\b(?:(\d+)\s*)?(?:pulsadores?|botones de (?:presion|pulsacion))\b/);
+  detect("fuse", /\b(?:(\d+)\s*)?(?:fusibles?)\b/);
+  detect("relay", /\b(?:(\d+)\s*)?(?:reles?|relays?)\b/);
+  detect("npn_transistor", /\b(?:(\d+)\s*)?(?:transistores? npn|npn)\b/);
+  detect("pnp_transistor", /\b(?:(\d+)\s*)?(?:transistores? pnp|pnp)\b/);
+  detect("mosfet_n", /\b(?:(\d+)\s*)?mosfet(?:s)?\s*(?:canal )?n\b/);
+  detect("mosfet_p", /\b(?:(\d+)\s*)?mosfet(?:s)?\s*(?:canal )?p\b/);
+  detect("op_amp", /\b(?:(\d+)\s*)?(?:amplificadores? operacionales?|op ?amps?)\b/);
+  detect("logic_gate_and", /\b(?:(\d+)\s*)?(?:compuertas? and|puertas? and|and gate)\b/);
+  detect("logic_gate_or", /\b(?:(\d+)\s*)?(?:compuertas? or|puertas? or|or gate)\b/);
+  detect("logic_gate_not", /\b(?:(\d+)\s*)?(?:compuertas? not|puertas? not|inversores? logicos?)\b/);
+  detect("ic_555", /\b(?:(\d+)\s*)?(?:ne ?555|ic ?555|temporizadores? 555)\b/);
+  detect("ic_4017", /\b(?:(\d+)\s*)?(?:cd ?4017|ic ?4017)\b/);
+  detect("motor", /\b(?:(\d+)\s*)?(?:motores?|motors?)\b/);
+  detect("lamp", /\b(?:(\d+)\s*)?(?:lamparas?|bombillas?|focos?)\b/);
+  detect("connector", /\b(?:(\d+)\s*)?(?:conectores?|terminales de conexion)\b/);
   detect("ground", /\b(?:(\d+)\s*)?(?:tierras|masas|grounds?|gnds?)\b/);
-  const expanded = [...requested.entries()].flatMap(([type, count]) => Array.from({ length: count }, () => type)).slice(0, 12);
+  const expanded = [...requested.entries()].flatMap(([type, count]) => Array.from({ length: count }, () => type)).slice(0, 30);
   const unsupported: string[] = [];
-  if (wantsBlink) unsupported.push("temporizador NE555 u otro oscilador");
-  if (wantsAlarm) unsupported.push("sensor de luz/etapa de control");
-  if (wantsCounter) unsupported.push("integrado CD4017 y fuente de pulsos");
-  if (/\b(transistor|bc547|mosfet|capacitor|condensador|cd4017|555|ldr|fotoresistencia|potenciometro|bobina|inductor|motor|rele)\b/.test(text)) unsupported.push("componentes mencionados que no están en la biblioteca actual");
+  if (/\b(bc547)\b/.test(text)) unsupported.push("BC547 (no hay modelo específico; alternativa: transistor NPN genérico)");
   if (expanded.length === 0) return { mode: "demo", response: "No reconocí componentes disponibles en el modo demostración.", title: "No reconocí componentes disponibles", explanation: "El modo demostración usa palabras clave y no tiene comprensión general como un modelo de IA. No sustituiré componentes faltantes por otros.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: ["Disponibles: batería/fuente, resistencia, LED/diodo, interruptor y tierra/masa.", ...(unsupported.length ? ["Faltan: " + unsupported.join("; ") + "."] : ["Indicá componentes y función del circuito."])], warnings: ["MODO DEMOSTRACIÓN: no se consultó un modelo de IA."] };
-  const positions = [{x:75,y:80},{x:220,y:55},{x:360,y:90},{x:365,y:220},{x:220,y:265},{x:75,y:220},{x:145,y:135},{x:290,y:150},{x:145,y:235},{x:285,y:235},{x:215,y:145},{x:75,y:145}];
+  const positions = Array.from({ length: 30 }, (_, index) => ({ x: 55 + (index % 6) * 70, y: 55 + Math.floor(index / 6) * 48 }));
   const components: ProposalComponent[] = expanded.map((type, index) => ({ type, ...positions[index] }));
   const hasBattery = expanded.includes("battery"), hasResistor = expanded.includes("resistor"), hasLed = expanded.includes("led");
   const simpleLed = asksForAction && hasBattery && hasResistor && hasLed && !wantsBlink && !wantsAlarm && !wantsCounter;
@@ -288,12 +325,12 @@ function buildDemoProposal(prompt: string): Proposal {
     wires.push({ from: { componentIndex: ri, terminalId: "b" }, to: { componentIndex: li, terminalId: "anode" } });
     wires.push({ from: { componentIndex: li, terminalId: "cathode" }, to: { componentIndex: bi, terminalId: "negative" } });
   }
-  const names: Record<ComponentType, string> = { battery: "batería/fuente", resistor: "resistencia", led: "LED/diodo", switch: "interruptor", ground: "tierra/masa" };
+  const names: Partial<Record<ComponentType, string>> = { battery: "batería", resistor: "resistencia", led: "LED", diode: "diodo", switch: "interruptor", ground: "tierra", capacitor: "capacitor", polarized_capacitor: "capacitor polarizado", inductor: "inductor", npn_transistor: "transistor NPN", pnp_transistor: "transistor PNP", mosfet_n: "MOSFET N", mosfet_p: "MOSFET P", op_amp: "amplificador operacional", voltage_source_ac: "fuente CA", current_source: "fuente de corriente", fuse: "fusible", motor: "motor", lamp: "lámpara", push_button: "pulsador", relay: "relé", photodiode: "fotodiodo", ldr: "LDR", thermistor: "termistor", potentiometer: "potenciómetro", zener_diode: "diodo Zener", logic_gate_and: "puerta AND", logic_gate_or: "puerta OR", logic_gate_not: "puerta NOT", ic_555: "NE555", ic_4017: "CD4017", connector: "conector" };
   const confirmedRequirements = [...requested.entries()].map(([type, count]) => String(count) + " " + names[type] + (count > 1 ? "s" : ""));
   const missingInformation: string[] = [];
-  if (wantsBlink) missingInformation.push("Falta un temporizador/oscilador para hacer parpadear el LED; no está disponible en la biblioteca.");
-  if (wantsAlarm) missingInformation.push("Faltan sensor de luz y etapa de control para una alarma funcional.");
-  if (wantsCounter) missingInformation.push("Faltan CD4017 y fuente de pulsos para un contador digital.");
+  if (wantsBlink) missingInformation.push("El NE555 está disponible, pero el modo demostración no construye automáticamente la topología completa de un oscilador. Con Gemini configurado, pedí el circuito astable con sus conexiones.");
+  if (wantsAlarm) missingInformation.push("La biblioteca incluye LDR y transistores, pero el modo demostración no genera automáticamente la topología completa de una alarma. Con Gemini configurado, especificá el comportamiento esperado.");
+  if (wantsCounter) missingInformation.push("El CD4017 está disponible, pero el modo demostración no diseña automáticamente un contador completo ni su fuente de pulsos. Con Gemini configurado, pedí el circuito por etapas.");
   if (!simpleLed) missingInformation.push("No se dedujeron conexiones porque el pedido no define una topología compatible con las reglas de demostración.");
   if (unsupported.length) missingInformation.push("Componentes no disponibles: " + unsupported.join("; ") + ".");
   return { mode: "demo", response: simpleLed ? "Preparé una demostración de un circuito LED básico." : "Reconocí algunos componentes para una demostración.", title: simpleLed ? "Propuesta de circuito LED básico" : "Componentes reconocidos según tu pedido", explanation: simpleLed ? "Lazo cerrado batería-resistencia-LED. Revisá valores y polaridad." : "Se colocaron los componentes reconocidos en una distribución no lineal, sin inventar conexiones.", components, wires, confirmedRequirements, assumptions: simpleLed ? ["Valores predeterminados: batería 9 V, resistencia 220 Ω, LED Vf 2 V."] : [], missingInformation, warnings: ["MODO DEMOSTRACIÓN: el reconocimiento por palabras clave no equivale a una IA general.", "No hay simulación eléctrica; revisá la propuesta antes de construirla."] };
@@ -336,7 +373,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ mode: "ai", ...proposal });
     }
 
-    throw new Error("Falta GEMINI_API_KEY en el entorno del servidor. MATHELEC requiere Gemini para interpretar mensajes y modificar circuitos.");
+    return NextResponse.json(buildDemoProposal(prompt));
   } catch (error) {
     // Los errores de proveedor/configuración no son errores del texto enviado por el usuario.
     const message = error instanceof Error ? error.message : "";

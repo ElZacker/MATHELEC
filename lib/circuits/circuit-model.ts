@@ -12,7 +12,7 @@ function makeId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function updateTimestamp(circuit: Circuit): string {
+function updateTimestamp(): string {
   return new Date().toISOString();
 }
 
@@ -50,15 +50,18 @@ export function addComponent(
 
   // Asignar referencias únicas y secuenciales por tipo: R1, R2, R3; D1, D2; BAT1...
   const prefixByType: Record<ComponentType, string> = {
-    battery: "BAT",
-    resistor: "R",
-    led: "D",
-    switch: "SW",
-    ground: "GND",
+    battery:"BAT", resistor:"R", led:"D", switch:"SW", ground:"GND",
+    diode:"D", capacitor:"C", polarized_capacitor:"C", inductor:"L",
+    npn_transistor:"Q", pnp_transistor:"Q", mosfet_n:"Q", mosfet_p:"Q",
+    op_amp:"U", voltage_source_ac:"VAC", current_source:"I", fuse:"F",
+    motor:"M", lamp:"LP", push_button:"PB", relay:"K", photodiode:"PD",
+    ldr:"LDR", thermistor:"TH", potentiometer:"RV", zener_diode:"DZ",
+    logic_gate_and:"U", logic_gate_or:"U", logic_gate_not:"U",
+    ic_555:"U", ic_4017:"U", connector:"J",
   };
   const prefix = prefixByType[type];
   const usedNumbers = circuit.components
-    .filter((existing) => existing.type === type)
+    .filter((existing) => new RegExp("^" + prefix + "\\d+$").test(existing.label))
     .map((existing) => Number(existing.label.match(/(\\d+)$/)?.[1] ?? 0))
     .filter(Number.isFinite);
   let nextNumber = 1;
@@ -68,7 +71,7 @@ export function addComponent(
   return {
     ...circuit,
     components: [...circuit.components, component],
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -99,7 +102,7 @@ export function removeComponent(
     ...circuit,
     components,
     wires,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -125,7 +128,7 @@ export function moveComponent(
         ? { ...component, position: { x, y } }
         : component,
     ),
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -157,7 +160,7 @@ export function rotateComponent(
   return {
     ...circuit,
     components,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -204,7 +207,7 @@ export function updateComponentProperties(
   return {
     ...circuit,
     components,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -296,7 +299,7 @@ export function connectTerminals(
   return {
     ...circuit,
     wires: [...circuit.wires, wire],
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -316,6 +319,6 @@ export function disconnectWire(
   return {
     ...circuit,
     wires,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
