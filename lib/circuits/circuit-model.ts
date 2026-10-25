@@ -50,11 +50,14 @@ export function addComponent(
 
   // Asignar referencias únicas y secuenciales por tipo: R1, R2, R3; D1, D2; BAT1...
   const prefixByType: Record<ComponentType, string> = {
-    battery: "BAT",
-    resistor: "R",
-    led: "D",
-    switch: "SW",
-    ground: "GND",
+    battery:"BAT", resistor:"R", led:"D", switch:"SW", ground:"GND",
+    diode:"D", capacitor:"C", polarized_capacitor:"C", inductor:"L",
+    npn_transistor:"Q", pnp_transistor:"Q", mosfet_n:"Q", mosfet_p:"Q",
+    op_amp:"U", voltage_source_ac:"VAC", current_source:"I", fuse:"F",
+    motor:"M", lamp:"LP", push_button:"PB", relay:"K", photodiode:"PD",
+    ldr:"LDR", thermistor:"TH", potentiometer:"RV", zener_diode:"DZ",
+    logic_gate_and:"U", logic_gate_or:"U", logic_gate_not:"U",
+    ic_555:"U", ic_4017:"U", connector:"J",
   };
   const prefix = prefixByType[type];
   const usedNumbers = circuit.components
