@@ -17,6 +17,7 @@ type Proposal = {
   assumptions: string[];
   missingInformation: string[];
   warnings: string[];
+  response: string;
 };
 
 const supportedTypes = new Set<string>(getAvailableComponentTypes());
@@ -56,7 +57,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const circuitContext = JSON.stringify(currentCircuit);
-  const systemInstruction = `Sos Mathelect, asistente de edición precisa de circuitos. Devolvé solo JSON con title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. components y wires representan EXCLUSIVAMENTE elementos NUEVOS que el usuario pidió agregar, no el circuito completo. El circuito actual se proporciona en el mensaje del usuario: preservalo; jamás lo reconstruyas, reemplaces ni dupliques. Interpreta literalmente el alcance: “agregá un LED” significa agregar solo un LED; no agregues batería, resistencia, tierra ni cables salvo que también lo pidan explícitamente o soliciten que lo conectes. Si piden crear/diseñar/armar un circuito completo desde cero, podés proponer todos los componentes necesarios. Si piden conectar un componente nuevo al circuito existente pero no se puede determinar con seguridad a qué terminales, agrega solo el componente y explica qué conexión necesita aclaración; no inventes conexiones. Si el tipo de componente solicitado no está disponible (tipos admitidos: battery, resistor, led, switch, ground), devolvé components y wires vacíos y explica qué falta; nunca sustituyas silenciosamente. Terminales válidos: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. No inventes terminales. Las coordenadas deben estar entre x=30..410 e y=40..290. Valores por defecto solo cuando sean pertinentes y declaralos como supuestos. No afirmes que el circuito está validado ni simulado. Máximo 12 componentes NUEVOS y 20 cables NUEVOS. Si el pedido es ambiguo, no generes cambios: explica qué hay que aclarar.`;
+  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo, como un buen asistente general. Respondé primero en el campo response con una contestación breve y humana: saludos se contestan como saludos, preguntas se contestan como preguntas. No muestres títulos robóticos, modo IA, listas de metadatos ni advertencias genéricas en cada turno. Además devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -140,6 +141,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     return Array.isArray(entry) ? entry.filter((item): item is string => typeof item === "string").slice(0, 10) : [];
   };
   return {
+    response: typeof value.response === "string" ? value.response.slice(0, 2000) : (typeof value.explanation === "string" ? value.explanation.slice(0, 1200) : "Listo. ¿Qué te gustaría hacer con el circuito?"),
     title: typeof value.title === "string" ? value.title.slice(0, 120) : "Propuesta de circuito",
     explanation: typeof value.explanation === "string" ? value.explanation.slice(0, 1200) : "",
     components, wires,
