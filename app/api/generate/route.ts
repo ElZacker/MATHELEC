@@ -251,6 +251,22 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 function buildDemoProposal(prompt: string): Proposal {
   const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const wantsBlink = /\b(parpade|intermit|titil|555|temporiz|oscilador)\w*/.test(text);
+  const wantsRandom = /\b(aleatorio|aleatoria|al azar|sorpresa|random)\b/.test(text) && /\b(circuito|generame|genera|crear|crea|arma|armar)\b/.test(text);
+  if (wantsRandom) {
+    const components: ProposalComponent[] = [
+      { type: "battery", x: 75, y: 165 },
+      { type: "resistor", x: 220, y: 95 },
+      { type: "led", x: 365, y: 165 },
+      { type: "switch", x: 220, y: 245 },
+    ];
+    const wires: ProposalWire[] = [
+      { from: { componentIndex: 0, terminalId: "positive" }, to: { componentIndex: 1, terminalId: "a" } },
+      { from: { componentIndex: 1, terminalId: "b" }, to: { componentIndex: 2, terminalId: "anode" } },
+      { from: { componentIndex: 2, terminalId: "cathode" }, to: { componentIndex: 3, terminalId: "a" } },
+      { from: { componentIndex: 3, terminalId: "b" }, to: { componentIndex: 0, terminalId: "negative" } },
+    ];
+    return { mode: "demo", title: "Circuito sorpresa: LED con interruptor", explanation: "Circuito didáctico en serie: la batería alimenta la resistencia limitadora, el LED y el interruptor. Cerrá el interruptor para completar el lazo. Es una demostración conceptual, no una simulación.", response: "¡Dale! Armé un circuito sorpresa con batería, resistencia, LED e interruptor, con un lazo de conexiones completo. Revisá los valores y la polaridad antes de construirlo.", components, wires, confirmedRequirements: ["Fuente continua", "Resistencia limitadora", "LED polarizado", "Interruptor en serie"], assumptions: ["La batería usa el valor predeterminado de 9 V y la resistencia 220 Ω."], missingInformation: [], warnings: ["MODO DEMOSTRACIÓN: no se consultó Gemini ni se simuló el circuito eléctricamente."] };
+  }
   const wantsAlarm = /\b(alarma|sensor de luz|ldr|fotoresist)\b/.test(text);
   const wantsCounter = /\b(contador|cd4017|decada)\b/.test(text);
   const asksForAction = /\b(agrega|agregá|añade|anade|pon|pone|quiero|necesito|crea|crear|arma|armar|diseña|disena|genera|generar|circuito|conecta|conectar)\b/.test(text);
@@ -330,7 +346,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ mode: "ai", ...proposal });
     }
 
-    throw new Error("Falta GEMINI_API_KEY en el entorno del servidor. MATHELEC requiere Gemini para interpretar mensajes y modificar circuitos.");
+    return NextResponse.json(buildDemoProposal(prompt));
   } catch (error) {
     // Los errores de proveedor/configuración no son errores del texto enviado por el usuario.
     const message = error instanceof Error ? error.message : "";
