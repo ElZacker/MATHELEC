@@ -452,3 +452,35 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .project-file-actions button:active {
   transform: translateY(1px);
 }
+
+
+/* Estado de pensamiento de Mathelect */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 8px 48px;
+  padding: 12px 14px;
+  border: 1px solid rgba(69,245,154,.18);
+  border-radius: 12px;
+  background: rgba(15,25,18,.82);
+  color: var(--muted);
+}
+.thinking-logo {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  object-fit: contain;
+  animation: mathelec-logo-spin 1.6s linear infinite;
+  filter: drop-shadow(0 0 7px rgba(69,245,154,.24));
+}
+.thinking-copy { display: grid; min-width: 0; gap: 4px; }
+.thinking-copy strong { color: var(--green-soft); font-size: 11px; font-weight: 650; }
+.thinking-copy span { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.thinking-indicator time { margin-left: auto; color: var(--green); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+@keyframes mathelec-logo-spin { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .thinking-indicator { margin-left: 0; padding: 10px; gap: 9px; }
+  .thinking-logo { width: 27px; height: 27px; flex-basis: 27px; }
+  .thinking-copy span { font-size: 9px; }
+}
