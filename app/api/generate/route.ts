@@ -171,12 +171,17 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const components: ProposalComponent[] = componentsRaw.map((item) => {
     if (typeof item !== "object" || item === null) throw new Error("Componente inválido en la propuesta.");
     const component = item as Record<string, unknown>;
-    if (typeof component.type !== "string" || !supportedTypes.has(component.type) ||
-        typeof component.x !== "number" || !Number.isFinite(component.x) ||
-        typeof component.y !== "number" || !Number.isFinite(component.y)) {
-      throw new Error("Gemini propuso un componente o coordenada no permitidos.");
-    }
-    return { type: component.type as ComponentType, x: Math.max(30, Math.min(410, component.x)), y: Math.max(40, Math.min(290, component.y)) };
+    const rawType = typeof component.type === "string" ? component.type.trim().toLowerCase() : "";
+    const typeAliases: Record<string, ComponentType> = {
+      bateria: "battery", "batería": "battery", pila: "battery", fuente: "battery",
+      resistencia: "resistor", resistor: "resistor", led: "led", diodo: "led",
+      interruptor: "switch", llave: "switch", tierra: "ground", masa: "ground",
+    };
+    const normalizedType = supportedTypes.has(rawType) ? rawType as ComponentType : typeAliases[rawType];
+    const x = typeof component.x === "number" && Number.isFinite(component.x) ? component.x : 220;
+    const y = typeof component.y === "number" && Number.isFinite(component.y) ? component.y : 165;
+    if (!normalizedType) throw new Error("Gemini propuso un tipo de componente no disponible. En esta versión se admiten batería, resistencia, LED, interruptor y tierra.");
+    return { type: normalizedType, x: Math.max(30, Math.min(410, x)), y: Math.max(40, Math.min(290, y)) };
   });
 
   const wireWarnings: string[] = [];
@@ -358,7 +363,9 @@ export async function POST(request: Request) {
             ? "Gemini tardó demasiado en responder. Probá nuevamente en unos segundos."
             : error instanceof TypeError
               ? "No se pudo conectar con Gemini desde el servidor. Revisá la conexión a Internet y reiniciá npm run dev."
-              : "Falló la generación por un error inesperado. Reiniciá npm run dev y volvé a probar.";
+              : message && !message.toLowerCase().includes("api key") && !message.toLowerCase().includes("authorization")
+                ? "No se pudo completar la propuesta: " + message.slice(0, 220)
+                : "Falló la generación por un error inesperado. Revisá la terminal donde corre npm run dev para ver el detalle.";
     return NextResponse.json(
       {
         error: isProviderFailure
