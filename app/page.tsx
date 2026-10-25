@@ -790,10 +790,12 @@ function handleMoveComponent(
       }
       if (actionWarnings.length) assistantText += "\n\nAcciones no aplicadas: " + actionWarnings.join(" ");
       if (data.missingInformation?.length && !data.response) {
-        assistantText += "\\n\\nPara seguir, necesito aclarar: " + data.missingInformation.join("; ");
+        assistantText += "\n\nPara seguir, necesito aclarar: " + data.missingInformation.join("; ");
       }
-      if (data.warnings?.length && data.components?.length) {
-        assistantText += "\\n\\nOjo: " + data.warnings.join(" ");
+      const uniqueWarnings = [...new Set((data.warnings ?? []).filter((warning) => typeof warning === "string" && warning.trim()))];
+      const unseenWarnings = uniqueWarnings.filter((warning) => !assistantText.includes(warning));
+      if (unseenWarnings.length && data.components?.length) {
+        assistantText += "\n\nOjo: " + unseenWarnings.join(" ");
       }
 
       // eslint-disable-next-line react-hooks/purity -- measures elapsed time for the completed user request.
