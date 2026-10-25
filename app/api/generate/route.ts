@@ -70,7 +70,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
       generationConfig: {
         // Reservar pocos tokens para acciones simples reduce la latencia; las consultas técnicas
         // reciben más espacio para explicar sin imponer respuestas largas a cada turno.
-        maxOutputTokens: /\\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\\b/i.test(prompt) ? 1536 : prompt.length < 90 ? 512 : 1024,
+        maxOutputTokens: /\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\b/i.test(prompt) ? 1536 : prompt.length < 90 ? 512 : 1024,
         responseMimeType: "application/json",
         thinkingConfig: { thinkingLevel: "LOW" },
       },
@@ -253,7 +253,7 @@ function buildDemoProposal(prompt: string): Proposal {
   const wantsBlink = /\b(parpade|intermit|titil|555|temporiz|oscilador)\w*/.test(text);
   const asksCapabilities = /\b(capacidades|que podes hacer|que puedes hacer|para que servis|que sabes hacer)\b/.test(text);
   if (asksCapabilities) return { mode: "demo", title: "Qué puede hacer Mathelect", explanation: "Puedo proponer circuitos con la biblioteca, añadir componentes, definir conexiones, explicar componentes y señalar piezas que falten. La edición exacta depende de que el modelo Gemini esté configurado; sin la clave, el modo demostración reconoce solo algunas solicitudes. No ejecuto simulación eléctrica ni puedo garantizar el funcionamiento físico.", response: "Puedo ayudarte a diseñar circuitos con los componentes de la biblioteca, explicar cómo funcionan, proponer conexiones, agregar o quitar componentes, rotarlos, moverlos y ajustar propiedades admitidas. También puedo señalar piezas faltantes y sugerir alternativas disponibles. Si Gemini está configurado, puedo interpretar instrucciones en lenguaje natural con más flexibilidad; sin esa configuración, algunas funciones quedan limitadas al modo demostración. No simulo eléctricamente el circuito ni garantizo que sea seguro construirlo.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: [], warnings: ["Las capacidades de edición avanzada requieren configurar GEMINI_API_KEY; el modo demostración no es una IA general."] };
-  const wantsRandom = /\\b(aleatorio|aleatoria|al azar|sorpresa|random)\\b/.test(text) && /\\b(circuito|generame|genera|crear|crea|arma|armar)\\b/.test(text);
+  const wantsRandom = /\b(aleatorio|aleatoria|al azar|sorpresa|random)\b/.test(text) && /\b(circuito|generame|genera|crear|crea|arma|armar)\b/.test(text);
   if (wantsRandom) {
     const components: ProposalComponent[] = [
       { type: "battery", x: 75, y: 165 },
