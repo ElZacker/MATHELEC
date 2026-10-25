@@ -12,7 +12,7 @@ function makeId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-function updateTimestamp(circuit: Circuit): string {
+function updateTimestamp(): string {
   return new Date().toISOString();
 }
 
@@ -71,7 +71,7 @@ export function addComponent(
   return {
     ...circuit,
     components: [...circuit.components, component],
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -102,7 +102,7 @@ export function removeComponent(
     ...circuit,
     components,
     wires,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -128,7 +128,7 @@ export function moveComponent(
         ? { ...component, position: { x, y } }
         : component,
     ),
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -160,7 +160,7 @@ export function rotateComponent(
   return {
     ...circuit,
     components,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -207,7 +207,7 @@ export function updateComponentProperties(
   return {
     ...circuit,
     components,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -299,7 +299,7 @@ export function connectTerminals(
   return {
     ...circuit,
     wires: [...circuit.wires, wire],
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
 
@@ -319,6 +319,6 @@ export function disconnectWire(
   return {
     ...circuit,
     wires,
-    updatedAt: updateTimestamp(circuit),
+    updatedAt: updateTimestamp(),
   };
 }
