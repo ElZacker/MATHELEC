@@ -57,7 +57,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 
   const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const circuitContext = JSON.stringify(currentCircuit);
-  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo, como un buen asistente general. Respondé primero en el campo response con una contestación breve y humana: saludos se contestan como saludos, preguntas se contestan como preguntas. No muestres títulos robóticos, modo IA, listas de metadatos ni advertencias genéricas en cada turno. Además devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
+  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
   // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
   // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
   const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
@@ -73,7 +73,9 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
       generationConfig: {
-        maxOutputTokens: 2048,
+        // Reservar pocos tokens para acciones simples reduce la latencia; las consultas técnicas
+        // reciben más espacio para explicar sin imponer respuestas largas a cada turno.
+        maxOutputTokens: /\\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\\b/i.test(prompt) ? 1536 : prompt.length < 90 ? 512 : 1024,
         responseMimeType: "application/json",
         thinkingConfig: { thinkingLevel: "LOW" },
       },
@@ -218,7 +220,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     confirmedRequirements: stringList("confirmedRequirements"),
     assumptions: stringList("assumptions"),
     missingInformation: stringList("missingInformation"),
-    warnings: [...stringList("warnings"), ...wireWarnings, "Propuesta generada por IA; requiere revisión humana y validación eléctrica independiente."],
+    warnings: [...stringList("warnings"), ...wireWarnings],
   };
 }
 
