@@ -86,7 +86,6 @@ function ComponentGlyph({ type }: { type: ComponentType }) {
       case "rail": case "terminal_block": case "sil_socket": case "connector": return <><rect x="-16" y="-16" width="32" height="32" rx="2"/><path d="M-28 -10H-16M-28 0H-16M-28 10H-16M16 -10H28M16 0H28M16 10H28"/></>;
       case "opto_isolator": return <><rect x="-20" y="-16" width="40" height="32"/><path d="M-28 -8H-20M-28 8H-20M20 -8H28M20 8H28M-14 -7L-2 0L-14 7Z M-2 0H0M3 -8V8M6 -8L14 -14M6 8L14 14"/></>;
       case "thyristor_scr": case "triac": return <><path d="M-28 -10H-10L8 0L-10 10Z M8 -12V12M8 0H28M-28 12H-12L-5 5"/></>;
-      case "text_label": return <text x="0" y="4" fontSize="10" textAnchor="middle" fill="currentColor" stroke="none">T</text>;
       default: return <><rect x="-16" y="-13" width="32" height="26" rx="2"/><path d="M-28 0H-16M16 0H28"/><text x="0" y="3" fontSize="8" textAnchor="middle" fill="currentColor" stroke="none">{type.slice(0,3).toUpperCase()}</text></>;
     }
   })();
