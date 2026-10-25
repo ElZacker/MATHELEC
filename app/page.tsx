@@ -504,6 +504,51 @@ function handleMoveComponent(
       setInput("");
       setNotice("");
     };
+    // Acciones sencillas y deterministas sobre el circuito existente.
+    const removeWords = /\\b(elimina|eliminar|borra|borrar|quita|quitar)\\b/.test(normalized);
+    const clearWords = /\\b(todo|todos|todas|el circuito|los componentes)\\b/.test(normalized);
+    if (removeWords && !/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i.test(normalized) &&
+        /\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\\b/.test(normalized)) {
+      const typeMatch = normalized.match(/\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor|tierra|masa)\\b/);
+      const typeMap: Record<string, ComponentType> = { led: "led", diodo: "led", resistencia: "resistor", resistor: "resistor", bateria: "battery", pila: "battery", interruptor: "switch", tierra: "ground", masa: "ground" };
+      const type = typeMatch ? typeMap[typeMatch[1]] : undefined;
+      const matches = type ? circuit.components.filter(c => c.type === type) : [];
+      if (matches.length === 1) {
+        const next = removeComponent(circuit, matches[0].id);
+        setCircuit(next); setValidationIssues(validateCircuit(next));
+        replyToCommand("Listo, eliminé " + matches[0].label + " y cualquier cable conectado a ese componente.");
+        return;
+      }
+      if (matches.length > 1) {
+        replyToCommand("Hay varios componentes de ese tipo. Decime su referencia (por ejemplo, R1 o D1) para borrar el correcto.");
+        return;
+      }
+    }
+    if (/\\b(conecta|conectar|conectalos|conectalas|unilos|unilas|unir|cablea|cablear)\\b/.test(normalized) &&
+        circuit.components.length >= 2) {
+      const refs = [...normalized.matchAll(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/gi)].map(m => m[1].toUpperCase());
+      let pair = refs.length >= 2
+        ? refs.slice(0, 2).map(ref => circuit.components.find(c => c.label.toUpperCase() === ref))
+        : [];
+      if (pair.length < 2 || !pair[0] || !pair[1]) {
+        const requestedTypes = [...normalized.matchAll(/\\b(led|diodo|resistencia|resistor|bateria|pila|interruptor)\\b/g)].map(m => ({led:"led",diodo:"led",resistencia:"resistor",resistor:"resistor",bateria:"battery",pila:"battery",interruptor:"switch"} as Record<string, ComponentType>)[m[1]]);
+        if (requestedTypes.length >= 2) {
+          pair = requestedTypes.slice(0,2).map(type => circuit.components.find(c => c.type === type));
+        } else if (circuit.components.length === 2) pair = [circuit.components[0], circuit.components[1]];
+      }
+      if (pair.length === 2 && pair[0] && pair[1]) {
+        const freeTerminal = (component: typeof circuit.components[number]) => component.terminals.find(t => !circuit.wires.some(w => (w.from.componentId === component.id && w.from.terminalId === t.id) || (w.to.componentId === component.id && w.to.terminalId === t.id)));
+        const a = freeTerminal(pair[0]), b = freeTerminal(pair[1]);
+        if (a && b) {
+          try {
+            const next = connectTerminals(circuit, pair[0].id, a.id, pair[1].id, b.id);
+            setCircuit(next); setValidationIssues(validateCircuit(next));
+            replyToCommand("Listo, conecté " + pair[0].label + " (" + a.name + ") con " + pair[1].label + " (" + b.name + "). Revisá la conexión en el esquema.");
+          } catch (error) { replyToCommand(error instanceof Error ? error.message : "No pude crear esa conexión."); }
+        } else replyToCommand("No encontré terminales libres en ambos componentes. Revisá el esquema o indicame qué terminales querés conectar.");
+        return;
+      }
+    }
     const referenceMatch = normalized.match(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i);
     const reference = referenceMatch?.[1]?.toUpperCase();
     const target = reference
