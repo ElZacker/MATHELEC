@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import {
   addComponent,
@@ -28,12 +28,6 @@ type Chat = {
   title: string;
   messages: Message[];
 };
-
-const welcomeMessage = (): Message => ({
-  id: "welcome",
-  role: "assistant",
-  text: "¡Hola! Soy Mathelect, tu espacio de trabajo para electrónica. Describí el circuito que querés diseñar o adjuntá un archivo para comenzar. La generación y validación electrónica mediante IA todavía no está conectada.",
-});
 
 const starterIdeas = [
   "Diseñar un LED intermitente con un NE555",
@@ -336,11 +330,13 @@ export default function Home() {
   const [chats, setChats] = useState<Chat[]>(() => [{
     id: "chat-inicial",
     title: "Nuevo proyecto",
-    messages: [welcomeMessage()],
+    messages: [],
   }]);
   const [activeChatId, setActiveChatId] = useState("chat-inicial");
   const [input, setInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
+  const [generationElapsed, setGenerationElapsed] = useState(0);
   
 const [circuit, setCircuit] = useState<Circuit>(() => ({
   id: "circuit-principal",
@@ -443,16 +439,24 @@ function handleMoveComponent(
   const messageEnd = useRef<HTMLDivElement>(null);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? chats[0];
 
+  useEffect(() => {
+    if (!isGenerating || generationStartedAt === null) return;
+    const updateElapsed = () => setGenerationElapsed((Date.now() - generationStartedAt) / 1000);
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 100);
+    return () => window.clearInterval(interval);
+  }, [isGenerating, generationStartedAt]);
+
+  useEffect(() => {
+    messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chats, isGenerating, activeChatId]);
+
   function newChat() {
     const id = crypto.randomUUID();
     const chat: Chat = {
       id,
       title: "Nuevo proyecto",
-      messages: [{
-        id: crypto.randomUUID(),
-        role: "assistant",
-        text: "Nuevo espacio listo. Contame qué circuito querés diseñar o adjuntá un archivo. El análisis real se conectará en una etapa posterior.",
-      }],
+      messages: [],
     };
     setChats((current) => [chat, ...current]);
     setActiveChatId(id);
@@ -633,6 +637,9 @@ function handleMoveComponent(
     } : chat));
     setInput("");
     setNotice("");
+    const startedAt = Date.now();
+    setGenerationStartedAt(startedAt);
+    setGenerationElapsed(0);
     setIsGenerating(true);
 
     try {
@@ -685,15 +692,18 @@ function handleMoveComponent(
         assistantText += "\\n\\nOjo: " + data.warnings.join(" ");
       }
 
+      const elapsedSeconds = (Date.now() - startedAt) / 1000;
+      assistantText += `\n\nTiempo de respuesta: ${elapsedSeconds < 10 ? elapsedSeconds.toFixed(1) : Math.round(elapsedSeconds)} s`;
       const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: assistantText };
       setChats((current) => current.map((chat) => chat.id === activeChat.id
         ? { ...chat, messages: [...chat.messages, assistantMessage] } : chat));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Ocurrió un error inesperado.";
       setChats((current) => current.map((chat) => chat.id === activeChat.id
-        ? { ...chat, messages: [...chat.messages, { id: crypto.randomUUID(), role: "assistant", text: "No se pudo generar la propuesta: " + errorMessage }] } : chat));
+        ? { ...chat, messages: [...chat.messages, { id: crypto.randomUUID(), role: "assistant", text: "No se pudo generar la propuesta: " + errorMessage + `\n\nTiempo hasta el error: ${((Date.now() - startedAt) / 1000).toFixed(1)} s` }] } : chat));
     } finally {
       setIsGenerating(false);
+      setGenerationStartedAt(null);
       requestAnimationFrame(() => messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
     }
   }
@@ -955,7 +965,7 @@ function handleMoveComponent(
 
         <div className="conversation">
           <div className="conversation-scroll" key={activeChat?.id}>
-            {activeChat && activeChat.messages.length <= 1 ? (
+            {activeChat && activeChat.messages.length === 0 ? (
               <div className="welcome-chat">
                 <div className="welcome-symbol"><span>ϟ</span><i /></div>
                 <div className="welcome-eyebrow">TU LABORATORIO DIGITAL</div>
@@ -981,6 +991,11 @@ function handleMoveComponent(
                     </div>
                   </article>
                 ))}
+                {isGenerating && <div className="thinking-indicator" role="status" aria-live="polite">
+                  <img className="thinking-logo" src="/mathelec-logo.png" alt="" />
+                  <div className="thinking-copy"><strong>Mathelect está trabajando</strong><span>Analizando tu pedido y preparando el circuito…</span></div>
+                  <time>{generationElapsed.toFixed(1)} s</time>
+                </div>}
                 <div ref={messageEnd} />
               </div>
             )}
@@ -1016,7 +1031,7 @@ function handleMoveComponent(
                 </div>
               </div>
             </form>
-            <p className="composer-disclaimer">{isGenerating ? "Preparando una propuesta de demostración..." : "Generador en modo demostración. Verificá las advertencias antes de construir un circuito."}</p>
+            <p className="composer-disclaimer">{isGenerating ? "Preparando respuesta…" : "Revisá las conexiones antes de construir un circuito."}</p>
           </div>
         </div>
       </section>
