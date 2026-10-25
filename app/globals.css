@@ -500,6 +500,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .component-library-group .component-actions button { min-width: 0; min-height: 76px !important; padding: 9px 5px !important; gap: 7px !important; background: linear-gradient(145deg, #163c2a, #10271d) !important; border-color: rgba(69,245,154,.25) !important; font-size: 11px !important; overflow-wrap: anywhere; }
 .component-library-group .component-actions button:hover { background: #1b6841 !important; border-color: #45f59a !important; }
 .component-button-symbol { display: flex; align-items: center; justify-content: center; min-height: 25px; color: #8af7b7 !important; font-size: 21px; font-weight: 750; line-height: 1; }
+.component-button-symbol-svg { display: block; width: 46px; height: 36px; flex: 0 0 36px; color: #8af7b7; overflow: visible; }
+.component-actions button > span:last-child { text-align: center; line-height: 1.25; }
 @media (max-width: 520px) {
   .component-library-group { padding: 9px; }
   .component-library-group .component-actions { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
