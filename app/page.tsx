@@ -9,6 +9,7 @@ import {
   disconnectWire,
   removeComponent,
   rotateComponent,
+  moveComponent,
 } from "@/lib/circuits/circuit-model";
 
 
@@ -549,12 +550,52 @@ function handleMoveComponent(
         return;
       }
     }
+    // Desconectar un cable entre dos componentes existentes.
+    if (/\\b(desconecta|desconectar|separa|desunir)\\b/.test(normalized)) {
+      const refsForDisconnect = [...normalized.matchAll(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/gi)].map(m => m[1].toUpperCase());
+      if (refsForDisconnect.length >= 2) {
+        const a = circuit.components.find(c => c.label.toUpperCase() === refsForDisconnect[0]);
+        const b = circuit.components.find(c => c.label.toUpperCase() === refsForDisconnect[1]);
+        const wire = a && b ? circuit.wires.find(w =>
+          (w.from.componentId === a.id && w.to.componentId === b.id) ||
+          (w.from.componentId === b.id && w.to.componentId === a.id)) : undefined;
+        if (wire) {
+          const next = disconnectWire(circuit, wire.id);
+          setCircuit(next); setValidationIssues(validateCircuit(next));
+          replyToCommand("Listo, desconecté " + refsForDisconnect[0] + " de " + refsForDisconnect[1] + ".");
+        } else replyToCommand("No encontré un cable directo entre esas dos referencias. No cambié el circuito.");
+        return;
+      }
+      replyToCommand("Decime las dos referencias que querés desconectar, por ejemplo: «desconectá R1 de D1».");
+      return;
+    }
+
     const referenceMatch = normalized.match(/\\b(bat\\d+|r\\d+|d\\d+|sw\\d+|gnd\\d+)\\b/i);
     const reference = referenceMatch?.[1]?.toUpperCase();
     const target = reference
       ? circuit.components.find((component) => component.label.toUpperCase() === reference)
       : undefined;
 
+    if (/\\b(mueve|mover|mové|desplaza|desplazar)\\b/.test(normalized) && referenceMatch) {
+      if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
+      else {
+        let dx = 0, dy = 0;
+        if (/\\b(izquierda|izquierd[a]?|left)\\b/.test(normalized)) dx = -35;
+        if (/\\b(derecha|derech[a]?|right)\\b/.test(normalized)) dx = 35;
+        if (/\\b(arriba|sube|subir|up)\\b/.test(normalized)) dy = -25;
+        if (/\\b(abajo|baja|bajar|down)\\b/.test(normalized)) dy = 25;
+        if (dx === 0 && dy === 0) {
+          replyToCommand("¿Hacia dónde querés mover " + reference + "? Podés decir «mové R1 a la izquierda», «a la derecha», «arriba» o «abajo».");
+        } else {
+          const next = moveComponent(circuit, target.id,
+            Math.max(15, Math.min(425, target.position.x + dx)),
+            Math.max(15, Math.min(315, target.position.y + dy)));
+          setCircuit(next); setValidationIssues(validateCircuit(next));
+          replyToCommand("Moví " + reference + " en el esquema.");
+        }
+      }
+      return;
+    }
     if (/\\b(elimina|eliminar|borra|borrar|quita|quitar)\\b/.test(normalized) && referenceMatch) {
       if (!target) replyToCommand("No encontré el componente " + reference + ". No modifiqué el circuito.");
       else {
