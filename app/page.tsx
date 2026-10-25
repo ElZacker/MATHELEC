@@ -14,6 +14,7 @@ import {
 
 
 import { validateCircuit } from "@/lib/circuits/validation";
+import { getAvailableComponentTypes } from "@/lib/circuits/components";
 import { importSpiceNetlist } from "@/lib/circuits/import-spice";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
@@ -550,7 +551,7 @@ function handleMoveComponent(
       for (const action of data.actions ?? []) {
         try {
           if (action.type === "add_component") {
-            const aliases: Record<string, ComponentType> = { battery: "battery", bateria: "battery", "batería": "battery", pila: "battery", resistor: "resistor", resistencia: "resistor", led: "led", diodo: "led", switch: "switch", interruptor: "switch", ground: "ground", tierra: "ground", masa: "ground" };
+            const aliases: Record<string, ComponentType> = { battery: "battery", bateria: "battery", "batería": "battery", pila: "battery", resistor: "resistor", resistencia: "resistor", led: "led", diodo: "diode", switch: "switch", interruptor: "switch", ground: "ground", tierra: "ground", masa: "ground", capacitor: "capacitor", condensador: "capacitor", "capacitor electrolitico": "polarized_capacitor", bobina: "inductor", inductor: "inductor", transistor: "npn_transistor", npn: "npn_transistor", pnp: "pnp_transistor", mosfet: "mosfet_n", operacional: "op_amp", "amplificador operacional": "op_amp", fusible: "fuse", motor: "motor", lampara: "lamp", lámpara: "lamp", pulsador: "push_button", rele: "relay", relé: "relay", fotodiodo: "photodiode", ldr: "ldr", termistor: "thermistor", potenciometro: "potentiometer", potenciómetro: "potentiometer", zener: "zener_diode", "puerta and": "logic_gate_and", "puerta or": "logic_gate_or", "puerta not": "logic_gate_not", ne555: "ic_555", "555": "ic_555", cd4017: "ic_4017", conector: "connector", fuente: "voltage_source_ac" };
             const componentType = typeof action.componentType === "string" ? aliases[action.componentType.toLowerCase()] : undefined;
             if (!componentType) throw new Error("Tipo de componente no disponible.");
             if (nextCircuit.components.length >= 12) throw new Error("Se alcanzó el límite de 12 componentes.");
@@ -593,7 +594,7 @@ function handleMoveComponent(
       const componentIds: string[] = [];
       if (data.components?.length) {
         for (const item of data.components) {
-          if (!["battery", "resistor", "led", "switch", "ground"].includes(item.type)) {
+          if (!getAvailableComponentTypes().includes(item.type)) {
             throw new Error("La propuesta contiene un tipo de componente no admitido.");
           }
           nextCircuit = addComponent(nextCircuit, item.type, item.x, item.y);
@@ -726,7 +727,7 @@ function handleMoveComponent(
       const parsed: unknown = JSON.parse(await file.text());
       if (!parsed || typeof parsed !== "object") throw new Error("El archivo no contiene un objeto de proyecto.");
       const candidate = parsed as Partial<Circuit>;
-      const validTypes: ComponentType[] = ["battery", "resistor", "led", "switch", "ground"];
+      const validTypes = getAvailableComponentTypes();
       if (
         candidate.version !== 1 ||
         typeof candidate.id !== "string" ||
