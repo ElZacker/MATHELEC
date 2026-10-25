@@ -61,70 +61,7 @@ export function addComponent(
   };
   const prefix = prefixByType[type];
   const usedNumbers = circuit.components
-    .filter((existing) => new RegExp(`^${prefix}\\d+
-import type {
-  Circuit,
-  CircuitComponent,
-  CircuitWire,
-  ComponentType,
-} from "./types";
-
-import { createComponent } from "./components";
-
-function makeId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
-}
-
-function updateTimestamp(circuit: Circuit): string {
-  return new Date().toISOString();
-}
-
-/** Crea un circuito vacío. */
-export function createCircuit(
-  name = "Nuevo circuito",
-  id = makeId("circuit"),
-): Circuit {
-  const now = new Date().toISOString();
-
-  return {
-    id,
-    name,
-    version: 1,
-    components: [],
-    wires: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-/** Agrega un componente al circuito. */
-export function addComponent(
-  circuit: Circuit,
-  type: ComponentType,
-  x = 100,
-  y = 100,
-  id = makeId(type),
-): Circuit {
-  if (circuit.components.some((component) => component.id === id)) {
-    throw new Error(`Ya existe un componente con el ID "${id}".`);
-  }
-
-  const component = createComponent(type, id, x, y);
-
-  // Asignar referencias únicas y secuenciales por tipo: R1, R2, R3; D1, D2; BAT1...
-  const prefixByType: Record<ComponentType, string> = {
-    battery:"BAT", resistor:"R", led:"D", switch:"SW", ground:"GND",
-    diode:"D", capacitor:"C", polarized_capacitor:"C", inductor:"L",
-    npn_transistor:"Q", pnp_transistor:"Q", mosfet_n:"Q", mosfet_p:"Q",
-    op_amp:"U", voltage_source_ac:"VAC", current_source:"I", fuse:"F",
-    motor:"M", lamp:"LP", push_button:"PB", relay:"K", photodiode:"PD",
-    ldr:"LDR", thermistor:"TH", potentiometer:"RV", zener_diode:"DZ",
-    logic_gate_and:"U", logic_gate_or:"U", logic_gate_not:"U",
-    ic_555:"U", ic_4017:"U", connector:"J",
-  };
-  const prefix = prefixByType[type];
-  const usedNumbers = circuit.components
-    ).test(existing.label))
+    .filter((existing) => new RegExp("^" + prefix + "\\d+$").test(existing.label))
     .map((existing) => Number(existing.label.match(/(\d+)$/)?.[1] ?? 0))
     .filter(Number.isFinite);
   let nextNumber = 1;
