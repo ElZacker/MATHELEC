@@ -114,21 +114,51 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     return { type: component.type as ComponentType, x: Math.max(30, Math.min(410, component.x)), y: Math.max(40, Math.min(290, component.y)) };
   });
 
-  const wires: ProposalWire[] = wiresRaw.map((item) => {
-    if (typeof item !== "object" || item === null) throw new Error("Conexión inválida en la propuesta.");
+  const wireWarnings: string[] = [];
+  const normalizeTerminal = (type: ComponentType, terminalId: string): string | null => {
+    const allowed = terminalMap[type];
+    if (allowed.includes(terminalId)) return terminalId;
+    const aliases: Record<string, string> = {
+      plus: "positive", vcc: "positive", minus: "negative",
+      ground: "gnd", left: "a", input: "a", start: "a",
+      right: "b", output: "b", end: "b",
+    };
+    const alias = aliases[terminalId.toLowerCase()];
+    if (alias && allowed.includes(alias)) return alias;
+    if (allowed.length === 2 && terminalId.toLowerCase() === "a") return allowed[0];
+    if (allowed.length === 2 && terminalId.toLowerCase() === "b") return allowed[1];
+    if (allowed.length === 2 && terminalId.toLowerCase() === "positive") return allowed[0];
+    if (allowed.length === 2 && terminalId.toLowerCase() === "negative") return allowed[1];
+    return null;
+  };
+  const wires: ProposalWire[] = [];
+  for (const item of wiresRaw) {
+    if (typeof item !== "object" || item === null) {
+      wireWarnings.push("Se omitió una conexión con formato inválido.");
+      continue;
+    }
     const wire = item as Record<string, unknown>;
-    const parseEnd = (end: unknown) => {
-      if (typeof end !== "object" || end === null) throw new Error("Terminal inválido en la propuesta.");
+    const parseEnd = (end: unknown): { componentIndex: number; terminalId: string } | null => {
+      if (typeof end !== "object" || end === null) return null;
       const terminal = end as Record<string, unknown>;
-      if (!Number.isInteger(terminal.componentIndex) || typeof terminal.terminalId !== "string") throw new Error("Referencia de terminal inválida.");
+      if (!Number.isInteger(terminal.componentIndex) || typeof terminal.terminalId !== "string") return null;
       const index = terminal.componentIndex as number;
-      if (index < 0 || index >= components.length || !terminalMap[components[index].type].includes(terminal.terminalId)) throw new Error("Gemini hizo referencia a un terminal que no existe.");
-      return { componentIndex: index, terminalId: terminal.terminalId };
+      if (index < 0 || index >= components.length) return null;
+      const terminalId = normalizeTerminal(components[index].type, terminal.terminalId);
+      if (!terminalId) return null;
+      return { componentIndex: index, terminalId };
     };
     const from = parseEnd(wire.from), to = parseEnd(wire.to);
-    if (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId) throw new Error("Gemini propuso conectar un terminal consigo mismo.");
-    return { from, to };
-  });
+    if (!from || !to) {
+      wireWarnings.push("Se omitió un cable porque la IA indicó un terminal que no existe; el resto de la propuesta se conservó.");
+      continue;
+    }
+    if (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId) {
+      wireWarnings.push("Se omitió una conexión que intentaba conectar un terminal consigo mismo.");
+      continue;
+    }
+    wires.push({ from, to });
+  }
 
   const connectionKeys = new Set<string>();
   for (const wire of wires) {
@@ -148,7 +178,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     confirmedRequirements: stringList("confirmedRequirements"),
     assumptions: stringList("assumptions"),
     missingInformation: stringList("missingInformation"),
-    warnings: [...stringList("warnings"), "Propuesta generada por IA; requiere revisión humana y validación eléctrica independiente."],
+    warnings: [...stringList("warnings"), ...wireWarnings, "Propuesta generada por IA; requiere revisión humana y validación eléctrica independiente."],
   };
 }
 
