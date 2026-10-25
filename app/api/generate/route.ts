@@ -192,11 +192,12 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("La propuesta de Gemini no tiene un objeto válido.");
 
   const value = parsed as Record<string, unknown>;
-  const componentsRaw = value.components;
-  const wiresRaw = value.wires;
-  if (!Array.isArray(componentsRaw) || !Array.isArray(wiresRaw) ||
-      componentsRaw.length > 30 || wiresRaw.length > 40) {
-    throw new Error("La propuesta excede los límites o no contiene listas válidas.");
+  // En ediciones incrementales Gemini puede omitir listas vacías; normalizarlas
+  // evita descartar una acción válida solo porque no incluyó components/wires.
+  const componentsRaw = Array.isArray(value.components) ? value.components : [];
+  const wiresRaw = Array.isArray(value.wires) ? value.wires : [];
+  if (componentsRaw.length > 30 || wiresRaw.length > 40) {
+    throw new Error("La propuesta excede los límites de componentes o conexiones.");
   }
 
   const components: ProposalComponent[] = componentsRaw.map((item) => {
