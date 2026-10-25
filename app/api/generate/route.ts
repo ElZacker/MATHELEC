@@ -55,7 +55,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("Falta GEMINI_API_KEY en el entorno del servidor.");
 
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const circuitContext = JSON.stringify(currentCircuit);
   const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo, como un buen asistente general. Respondé primero en el campo response con una contestación breve y humana: saludos se contestan como saludos, preguntas se contestan como preguntas. No muestres títulos robóticos, modo IA, listas de metadatos ni advertencias genéricas en cada turno. Además devolvé JSON con response, title, explanation, components, wires, confirmedRequirements, assumptions, missingInformation y warnings. El circuito actual se incluye como contexto y debe preservarse salvo que el usuario pida explícitamente modificarlo. components y wires son elementos nuevos únicamente. Para conectar o borrar elementos existentes, describí claramente en response qué se necesita; no afirmes que lo hiciste si el formato no permite ejecutar esa acción. Tipos disponibles: battery, resistor, led, switch, ground. Terminales: battery positive/negative, resistor a/b, led anode/cathode, switch a/b, ground gnd. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 12 componentes nuevos y 20 cables nuevos. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. `;
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
@@ -64,7 +64,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
-      generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
+      generationConfig: { temperature: 0.2, maxOutputTokens: 4096, responseMimeType: "application/json" },
     }),
     signal: AbortSignal.timeout(20000),
   });
