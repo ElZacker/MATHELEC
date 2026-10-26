@@ -27,7 +27,7 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
   voltage_source_ac: { type:"voltage_source_ac", label:"VAC1", properties:{ voltage:5, frequency:50, unit:"V RMS" }, terminals:polarized("＋","−") },
   current_source: { type:"current_source", label:"I1", properties:{ current:0.01, unit:"A" }, terminals:pair("＋","−") },
   fuse: { type:"fuse", label:"F1", properties:{ currentRating:1, unit:"A" }, terminals:pair() },
-  motor: { type:"motor", label:"M1", properties:{ voltage:6 }, terminals:polarized("+","−") },
+  motor: { type:"motor", label:"M1", properties:{ voltage:6, resistance:12, inductance:20, inductanceUnit:"mH", mechanicalTimeConstantMs:250 }, terminals:polarized("+","−") },
   lamp: { type:"lamp", label:"LP1", properties:{ voltage:6 }, terminals:pair() },
   push_button: { type:"push_button", label:"PB1", properties:{ normallyOpen:true }, terminals:pair() },
   relay: { type:"relay", label:"K1", properties:{ coilVoltage:5 }, terminals:[t("coil1","Bobina 1",-28,-8),t("coil2","Bobina 2",-28,8),t("common","Común",28,-14),t("normally_open","NA",28,0),t("normally_closed","NC",28,14)] },
