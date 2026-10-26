@@ -359,15 +359,70 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
       connected.add(`${wire.from.componentIndex}:${wire.from.terminalId}`);
       connected.add(`${wire.to.componentIndex}:${wire.to.terminalId}`);
     }
-    const openTerminals = components.flatMap((component, componentIndex) => {
+    let openTerminals = components.flatMap((component, componentIndex) => {
       const definition = getComponentDefinition(component.type);
       if (definition.terminals.length !== 2) return [];
       return definition.terminals
         .filter((terminal) => !connected.has(`${componentIndex}:${terminal.id}`))
-        .map((terminal) => `${component.type} #${componentIndex + 1}, terminal ${terminal.name || terminal.id}`);
+        .map((terminal) => ({ componentIndex, terminalId: terminal.id, description: `${component.type} #${componentIndex + 1}, terminal ${terminal.name || terminal.id}` }));
     });
     if (openTerminals.length > 0) {
-      throw new Error(`El circuito propuesto quedó incompleto. No se aplicó porque hay terminales sin conectar: ${openTerminals.join(", ")}. Pedí a Mathelect que lo complete o especificá las conexiones.`);
+      // Repair only after the first proposal fails the structural check. This avoids
+      // adding a second model call to already-complete circuits.
+      try {
+        const repairEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+        const repairResponse = await fetch(repairEndpoint, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: "Sos un verificador de netlists electrónicos. Corregí conexiones faltantes sin cambiar componentes ni inventar terminales. No agregues cables redundantes ni cortocircuitos intencionales salvo que el diseño lo requiera explícitamente. Respondé solo JSON." }] },
+            contents: [{ role: "user", parts: [{ text: `El circuito está incompleto. Devolvé un objeto JSON {"wires":[...]} con la lista COMPLETA de conexiones corregidas, incluyendo estas conexiones existentes: ${JSON.stringify(wires)}. Terminales abiertos: ${JSON.stringify(openTerminals)}. Pedido original: ${prompt}. Componentes y terminales reales: ${JSON.stringify(components.map((item,index)=>({componentIndex:index,type:item.type,terminals:terminalMap[item.type]})))}. Conectá los terminales requeridos y conservá una topología eléctricamente coherente.` }] }],
+            generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: "LOW" } },
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (repairResponse.ok) {
+          const repairPayload = await repairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+          const repairRaw = repairPayload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim() ?? "";
+          const repaired = JSON.parse(repairRaw) as { wires?: unknown[] };
+          const repairedWires: ProposalWire[] = [];
+          for (const item of Array.isArray(repaired.wires) ? repaired.wires : []) {
+            if (!item || typeof item !== "object") continue;
+            const wire = item as Record<string, unknown>;
+            const parseEnd = (end: unknown) => {
+              if (!end || typeof end !== "object") return null;
+              const value = end as Record<string, unknown>;
+              if (!Number.isInteger(value.componentIndex) || typeof value.terminalId !== "string") return null;
+              const componentIndex = value.componentIndex as number;
+              if (componentIndex < 0 || componentIndex >= components.length) return null;
+              const terminalId = normalizeTerminal(components[componentIndex].type, value.terminalId);
+              return terminalId ? { componentIndex, terminalId } : null;
+            };
+            const from = parseEnd(wire.from), to = parseEnd(wire.to);
+            if (!from || !to || (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId)) continue;
+            const key = [`${from.componentIndex}:${from.terminalId}`, `${to.componentIndex}:${to.terminalId}`].sort().join("<->");
+            if (!repairedWires.some((existing) => [`${existing.from.componentIndex}:${existing.from.terminalId}`, `${existing.to.componentIndex}:${existing.to.terminalId}`].sort().join("<->") === key)) repairedWires.push({ from, to });
+          }
+          if (repairedWires.length) {
+            wires.splice(0, wires.length, ...repairedWires);
+            const connectedAfterRepair = new Set<string>();
+            for (const wire of wires) {
+              connectedAfterRepair.add(`${wire.from.componentIndex}:${wire.from.terminalId}`);
+              connectedAfterRepair.add(`${wire.to.componentIndex}:${wire.to.terminalId}`);
+            }
+            openTerminals = components.flatMap((component, componentIndex) => {
+              const definition = getComponentDefinition(component.type);
+              if (definition.terminals.length !== 2) return [];
+              return definition.terminals.filter((terminal) => !connectedAfterRepair.has(`${componentIndex}:${terminal.id}`))
+                .map((terminal) => ({ componentIndex, terminalId: terminal.id, description: `${component.type} #${componentIndex + 1}, terminal ${terminal.name || terminal.id}` }));
+            });
+          }
+        }
+      } catch {
+        // Fall through to a clear error rather than applying an incomplete circuit.
+      }
+      if (openTerminals.length > 0) {
+        throw new Error(`El circuito propuesto quedó incompleto. No se aplicó porque siguen abiertos: ${openTerminals.map((item) => item.description).join(", ")}. Pedí a Mathelect que lo complete o especificá las conexiones.`);
+      }
     }
   }
 
