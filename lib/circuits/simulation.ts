@@ -26,7 +26,7 @@ function unsupported(summary: string): SimulationResult {
 
 /** Resuelve un punto de operación aproximado para un único lazo serie DC. */
 export function runDcSimulation(circuit: Circuit): SimulationResult {
-  if (circuit.components.length < 3 || circuit.components.length > 4) return unsupported("Se necesita fuente DC, resistencia, LED y, opcionalmente, un interruptor. Este modelo no resuelve todavía otras topologías; no se muestran mediciones ficticias.").replace("x","x");
+  if (circuit.components.length < 3 || circuit.components.length > 4) return unsupported("Se necesita fuente DC, resistencia, LED y, opcionalmente, un interruptor. Este modelo no resuelve todavía otras topologías; no se muestran mediciones ficticias.");
   if (circuit.wires.length !== circuit.components.length) return unsupported("El lazo no parece cerrado: la cantidad de cables no coincide con un único circuito serie. Revisá terminales abiertos, cables faltantes o conexiones adicionales.");
   const sources = circuit.components.filter((item) => ["battery", "cell", "voltage_source_dc"].includes(item.type));
   const resistors = circuit.components.filter((item) => item.type === "resistor");
