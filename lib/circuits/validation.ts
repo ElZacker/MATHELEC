@@ -231,7 +231,22 @@ export function validateCircuit(
     );
   }
 
-  // 4. Avisar sobre componentes sin ninguna conexión.
+  // 4. Detectar terminales individuales sin conexión (no solo componentes aislados).
+  // En componentes de dos terminales esto es un error de circuito incompleto;
+  // en componentes multipin puede ser intencional y se informa como advertencia.
+  for (const component of circuit.components) {
+    for (const terminal of component.terminals) {
+      if (connectedTerminals.has(`${component.id}:${terminal.id}`)) continue;
+      issues.push({
+        severity: component.terminals.length === 2 ? "error" : "warning",
+        code: "UNCONNECTED_TERMINAL",
+        message: `${component.label}: el terminal «${terminal.name || terminal.id}» no está conectado a ningún cable.`,
+        componentIds: [component.id],
+      });
+    }
+  }
+
+  // 5. Avisar sobre componentes sin ninguna conexión.
   for (const component of circuit.components) {
     const hasConnection = component.terminals.some(
       (terminal) =>
@@ -250,7 +265,7 @@ export function validateCircuit(
     }
   }
 
-  // 5. Reglas eléctricas preliminares para circuitos con batería, LED y resistencia.
+  // 6. Reglas eléctricas preliminares para circuitos con batería, LED y resistencia.
   // Son heurísticas: no analizan nodos completos ni reemplazan una simulación.
   const batteries = circuit.components.filter((component) => component.type === "battery");
   const leds = circuit.components.filter((component) => component.type === "led");
