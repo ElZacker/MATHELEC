@@ -7,6 +7,8 @@ export type SimulationResult = {
   measurements: { label: string; value: string }[];
   disclaimer: string;
   activeComponentIds?: string[];
+  oscillation?: { periodMs: number; highMs: number; componentIds: string[] };
+  sequencer?: { stepMs: number; steps: { label: string; componentIds: string[] }[] };
 };
 
 type Branch = { component: CircuitComponent; a: string; b: string; kind: "resistor" | "source" | "diode"; value: number; resistance?: number };
@@ -38,6 +40,242 @@ function solveLinear(matrix: number[][], vector: number[]): number[] | null {
   return a.map((row) => row[n]);
 }
 
+
+type NetTopology = {
+  nodeFor: (componentId: string, terminalId: string) => string;
+  connected: (componentId: string, terminalId: string) => boolean;
+};
+function createNetTopology(circuit: Circuit): NetTopology {
+  const parent = new Map<string, string>();
+  for (const component of circuit.components) for (const terminal of component.terminals) {
+    const key = \`\${component.id}:\${terminal.id}\`;
+    parent.set(key, key);
+  }
+  const find = (key: string): string => {
+    const p = parent.get(key);
+    if (!p) return key;
+    if (p === key) return p;
+    const root = find(p);
+    parent.set(key, root);
+    return root;
+  };
+  for (const wire of circuit.wires) {
+    const a = \`\${wire.from.componentId}:\${wire.from.terminalId}\`;
+    const b = \`\${wire.to.componentId}:\${wire.to.terminalId}\`;
+    if (!parent.has(a) || !parent.has(b)) continue;
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+  return {
+    nodeFor: (componentId, terminalId) => find(\`\${componentId}:\${terminalId}\`),
+    connected: (componentId, terminalId) => circuit.wires.some((wire) =>
+      (wire.from.componentId === componentId && wire.from.terminalId === terminalId) ||
+      (wire.to.componentId === componentId && wire.to.terminalId === terminalId)),
+  };
+}
+function componentTerminalNode(topology: NetTopology, component: CircuitComponent, terminalId: string): string {
+  return topology.nodeFor(component.id, terminalId);
+}
+function capacitorFarads(component: CircuitComponent): number {
+  const value = finiteProperty(component, "capacitance", 100);
+  const unit = String(component.properties.unit ?? "nF").toLowerCase();
+  const scale: Record<string, number> = { f: 1, mf: 1e-3, uf: 1e-6, "µf": 1e-6, nf: 1e-9, "µnf": 1e-9, pf: 1e-12 };
+  return value * (scale[unit] ?? 1e-9);
+}
+function branchTerminals(component: CircuitComponent) {
+  const a = component.terminals.find((terminal) => terminal.id === "a") ?? component.terminals[0];
+  const b = component.terminals.find((terminal) => terminal.id === "b") ?? component.terminals[1];
+  return a && b ? { a, b } : null;
+}
+function resistorAcross(circuit: Circuit, topology: NetTopology, nodeA: string, nodeB: string): CircuitComponent | undefined {
+  return circuit.components.find((component) => {
+    if (component.type !== "resistor") return false;
+    const terminals = branchTerminals(component);
+    if (!terminals) return false;
+    const a = componentTerminalNode(topology, component, terminals.a.id);
+    const b = componentTerminalNode(topology, component, terminals.b.id);
+    return (a === nodeA && b === nodeB) || (a === nodeB && b === nodeA);
+  });
+}
+function ledLoadsFromNode(circuit: Circuit, topology: NetTopology, outputNode: string, returnNode: string): string[] {
+  const ids: string[] = [];
+  for (const led of circuit.components.filter((component) => component.type === "led")) {
+    const anode = led.terminals.find((terminal) => terminal.id === "anode");
+    const cathode = led.terminals.find((terminal) => terminal.id === "cathode");
+    if (!anode || !cathode || componentTerminalNode(topology, led, cathode.id) !== returnNode) continue;
+    const anodeNode = componentTerminalNode(topology, led, anode.id);
+    const seriesResistor = circuit.components.some((component) => {
+      if (component.type !== "resistor") return false;
+      const terminals = branchTerminals(component);
+      if (!terminals) return false;
+      const a = componentTerminalNode(topology, component, terminals.a.id);
+      const b = componentTerminalNode(topology, component, terminals.b.id);
+      return (a === outputNode && b === anodeNode) || (b === outputNode && a === anodeNode);
+    });
+    if (seriesResistor) ids.push(led.id);
+  }
+  return ids;
+}
+type Astable555Params = { periodMs: number; highMs: number; lowMs: number; sourceVoltage: number; ledIds: string[] };
+function getAstable555Params(circuit: Circuit): Astable555Params | null {
+  const timer = circuit.components.find((component) => component.type === "ic_555");
+  const source = circuit.components.find((component) => ["battery", "cell", "voltage_source_dc"].includes(component.type));
+  if (!timer || !source) return null;
+  const topology = createNetTopology(circuit);
+  const requiredPins = ["vcc", "gnd", "reset", "trigger", "threshold", "discharge", "control", "output"];
+  if (requiredPins.some((pin) => !topology.connected(timer.id, pin))) return null;
+  const plus = source.terminals.find((terminal) => ["positive", "a"].includes(terminal.id));
+  const minus = source.terminals.find((terminal) => ["negative", "b"].includes(terminal.id));
+  if (!plus || !minus) return null;
+  const vccNode = topology.nodeFor(timer.id, "vcc");
+  const returnNode = topology.nodeFor(timer.id, "gnd");
+  const sourcePositive = topology.nodeFor(source.id, plus.id);
+  const sourceNegative = topology.nodeFor(source.id, minus.id);
+  const dischargeNode = topology.nodeFor(timer.id, "discharge");
+  const thresholdNode = topology.nodeFor(timer.id, "threshold");
+  if (vccNode !== sourcePositive || returnNode !== sourceNegative ||
+      topology.nodeFor(timer.id, "reset") !== sourcePositive ||
+      topology.nodeFor(timer.id, "trigger") !== thresholdNode ||
+      topology.nodeFor(timer.id, "control") !== sourceNegative) return null;
+  const ra = resistorAcross(circuit, topology, sourcePositive, dischargeNode);
+  const rb = resistorAcross(circuit, topology, dischargeNode, thresholdNode);
+  const capacitor = circuit.components.find((component) => {
+    if (component.type !== "capacitor" && component.type !== "polarized_capacitor") return false;
+    const terminals = branchTerminals(component);
+    if (!terminals) return false;
+    const a = topology.nodeFor(component.id, terminals.a.id);
+    const b = topology.nodeFor(component.id, terminals.b.id);
+    return (a === thresholdNode && b === sourceNegative) || (b === thresholdNode && a === sourceNegative);
+  });
+  if (!ra || !rb || !capacitor) return null;
+  const resistanceA = finiteProperty(ra, "resistance", 0);
+  const resistanceB = finiteProperty(rb, "resistance", 0);
+  const capacitance = capacitorFarads(capacitor);
+  const voltage = finiteProperty(source, "voltage", 0);
+  if (resistanceA <= 0 || resistanceB <= 0 || capacitance <= 0 || voltage <= 0) return null;
+  const highMs = 0.693 * (resistanceA + resistanceB) * capacitance * 1000;
+  const lowMs = 0.693 * resistanceB * capacitance * 1000;
+  const periodMs = highMs + lowMs;
+  if (![highMs, lowMs, periodMs].every(Number.isFinite) || periodMs <= 0) return null;
+  const ledIds = ledLoadsFromNode(circuit, topology, topology.nodeFor(timer.id, "output"), sourceNegative);
+  return { periodMs, highMs, lowMs, sourceVoltage: voltage, ledIds };
+}
+function simulateAstable555(circuit: Circuit): SimulationResult {
+  const timer = circuit.components.find((component) => component.type === "ic_555");
+  const params = getAstable555Params(circuit);
+  if (!timer || !params) return unsupported("El NE555 no tiene una topología astable completa reconocible. Revisá VCC, GND, RESET, TRIG, THR, DISCH, CTRL, las dos resistencias y el capacitor.");
+  return {
+    supported: true, title: "Simulación temporal del NE555",
+    summary: params.ledIds.length
+      ? "Se reconoció un astable NE555. La salida se alterna y el LED conectado a OUT se anima según los tiempos calculados."
+      : "Se reconoció un astable NE555. La onda cuadrada se calcula con un modelo funcional ideal; no se encontró un LED indicador conectado directamente a OUT.",
+    measurements: [
+      { label: "Frecuencia estimada", value: \`\${(1000 / params.periodMs).toFixed(2)} Hz\` },
+      { label: "Período", value: \`\${params.periodMs.toFixed(1)} ms\` },
+      { label: "Salida alta (Ton)", value: \`\${params.highMs.toFixed(1)} ms\` },
+      { label: "Salida baja (Toff)", value: \`\${params.lowMs.toFixed(1)} ms\` },
+    ],
+    activeComponentIds: params.ledIds, oscillation: { periodMs: params.periodMs, highMs: params.highMs, componentIds: params.ledIds },
+    disclaimer: "Modelo temporal analítico del astable ideal. No incluye saturación real del transistor interno, tolerancias, fuga del capacitor ni retardos; no sustituye una simulación de fabricante.",
+  };
+}
+function simulate4017Sequence(circuit: Circuit): SimulationResult {
+  const counter = circuit.components.find((component) => component.type === "ic_4017");
+  if (!counter) return unsupported("No se encontró un CD4017.");
+  const timerParams = getAstable555Params(circuit);
+  if (!timerParams) return unsupported("El CD4017 necesita un reloj conectado. En esta versión se reconoce un NE555 astable conectado a CLK.");
+  const topology = createNetTopology(circuit);
+  const timer = circuit.components.find((component) => component.type === "ic_555")!;
+  const source = circuit.components.find((component) => ["battery", "cell", "voltage_source_dc"].includes(component.type))!;
+  const plus = source.terminals.find((terminal) => ["positive", "a"].includes(terminal.id))!;
+  const minus = source.terminals.find((terminal) => ["negative", "b"].includes(terminal.id))!;
+  const positiveNode = topology.nodeFor(source.id, plus.id);
+  const returnNode = topology.nodeFor(source.id, minus.id);
+  if (topology.nodeFor(counter.id, "vdd") !== positiveNode || topology.nodeFor(counter.id, "vss") !== returnNode ||
+      topology.nodeFor(counter.id, "enable") !== returnNode || topology.nodeFor(counter.id, "reset") !== returnNode ||
+      topology.nodeFor(counter.id, "clock") !== topology.nodeFor(timer.id, "output")) {
+    return unsupported("El CD4017 tiene conexiones de alimentación, ENABLE, RESET o CLK incompatibles con el secuenciador de esta versión.");
+  }
+  const steps = ["q0","q1","q2","q3","q4","q5"].map((pin, index) => {
+    const node = topology.nodeFor(counter.id, pin);
+    const componentIds = ledLoadsFromNode(circuit, topology, node, returnNode);
+    return { label: \`Q\${index}\`, componentIds };
+  });
+  if (!steps.some((step) => step.componentIds.length)) return unsupported("El CD4017 no tiene LED conectados a sus salidas Q0–Q5 mediante resistencias serie.");
+  return {
+    supported: true, title: "Simulación secuencial del CD4017",
+    summary: "El contador avanza una salida por cada ciclo del reloj NE555. Las salidas Q0–Q5 se animan secuencialmente; el modelo es digital ideal.",
+    measurements: [
+      { label: "Reloj de entrada", value: \`\${(1000 / timerParams.periodMs).toFixed(2)} Hz\` },
+      { label: "Tiempo por paso", value: \`\${timerParams.periodMs.toFixed(1)} ms\` },
+      { label: "Estados simulados", value: String(steps.length) },
+    ],
+    activeComponentIds: steps[0].componentIds,
+    sequencer: { stepMs: timerParams.periodMs, steps },
+    disclaimer: "Modelo funcional digital de seis salidas. No representa retardos, consumo, todos los pines físicos del CD4017 ni los estados eléctricos analógicos.",
+  };
+}
+function simulateCombinationalLogic(circuit: Circuit): SimulationResult {
+  const gateTypes = new Set(["logic_gate_and","logic_gate_or","logic_gate_not","logic_gate_nand","logic_gate_nor","logic_gate_xor","logic_gate_xnor","logic_gate_buffer"]);
+  const gates = circuit.components.filter((component) => gateTypes.has(component.type));
+  if (!gates.length) return unsupported("No se encontraron puertas lógicas compatibles.");
+  const allowed = new Set([...gateTypes,"battery","cell","voltage_source_dc","resistor","led","ground","ground_earth"]);
+  const unsupportedTypes = circuit.components.filter((component) => !allowed.has(component.type));
+  if (unsupportedTypes.length) return unsupported("La prueba lógica contiene elementos sin modelo digital en este análisis: " + unsupportedTypes.map((component) => component.label).join(", ") + ".");
+  const topology = createNetTopology(circuit);
+  const source = circuit.components.find((component) => ["battery","cell","voltage_source_dc"].includes(component.type));
+  if (!source) return unsupported("La lógica necesita una fuente de referencia. Conectá una fuente DC, VCC y GND.");
+  const plus = source.terminals.find((terminal) => ["positive","a"].includes(terminal.id));
+  const minus = source.terminals.find((terminal) => ["negative","b"].includes(terminal.id));
+  if (!plus || !minus) return unsupported("No se reconocen los terminales de alimentación digital.");
+  const highNode = topology.nodeFor(source.id, plus.id), lowNode = topology.nodeFor(source.id, minus.id);
+  const values = new Map<string, boolean>();
+  const outputPins = gates.map((gate) => ({ gate, node: topology.nodeFor(gate.id, "y") }));
+  const inputValue = (node: string): boolean | null => {
+    if (node === highNode) return true;
+    if (node === lowNode) return false;
+    const driven = outputPins.find((pin) => pin.node === node);
+    return driven ? values.get(driven.gate.id) ?? null : null;
+  };
+  for (let pass = 0; pass <= gates.length; pass++) {
+    let changed = false;
+    for (const gate of gates) {
+      const inputPins = gate.type === "logic_gate_not" || gate.type === "logic_gate_buffer" ? ["a"] : ["a","b"];
+      const inputStates = inputPins.map((pin) => inputValue(topology.nodeFor(gate.id, pin)));
+      if (inputStates.some((value) => value === null)) continue;
+      const a = inputStates[0] === true, b = inputStates[1] === true;
+      let out: boolean;
+      switch (gate.type) {
+        case "logic_gate_and": out = a && b; break;
+        case "logic_gate_or": out = a || b; break;
+        case "logic_gate_not": out = !a; break;
+        case "logic_gate_nand": out = !(a && b); break;
+        case "logic_gate_nor": out = !(a || b); break;
+        case "logic_gate_xor": out = a !== b; break;
+        case "logic_gate_xnor": out = a === b; break;
+        default: out = a;
+      }
+      if (values.get(gate.id) !== out) { values.set(gate.id, out); changed = true; }
+    }
+    if (!changed) break;
+  }
+  const unresolved = gates.filter((gate) => !values.has(gate.id));
+  if (unresolved.length) return unsupported("No pude resolver las entradas digitales de: " + unresolved.map((gate) => gate.label).join(", ") + ". Cada entrada debe estar conectada a VCC/GND o a la salida de otra puerta compatible.");
+  const activeComponentIds: string[] = [];
+  const measurements: SimulationResult["measurements"] = [];
+  for (const gate of gates) {
+    const state = values.get(gate.id) === true;
+    measurements.push({ label: \`\${gate.label} (\${gate.type})\`, value: state ? "Salida HIGH (1)" : "Salida LOW (0)" });
+    if (state) activeComponentIds.push(...ledLoadsFromNode(circuit, topology, topology.nodeFor(gate.id,"y"), lowNode));
+  }
+  return {
+    supported: true, title: "Simulación de lógica digital",
+    summary: "Se calcularon los estados lógicos estables de las puertas conectadas a niveles HIGH/LOW explícitos. Los LED de salida se activan visualmente cuando la salida es HIGH.",
+    measurements, activeComponentIds: [...new Set(activeComponentIds)],
+    disclaimer: "Simulación funcional booleana con niveles lógicos ideales; no calcula tensiones analógicas, retardos, corrientes, metastabilidad ni puertas integradas de muchos pines.",
+  };
+}
+
 /**
  * DC operating-point solver using modified nodal analysis. Handles multiple
  * loops/parallel branches for supported two-terminal DC models. Diodes use an
@@ -45,6 +283,9 @@ function solveLinear(matrix: number[][], vector: number[]): number[] | null {
  */
 export function runDcSimulation(circuit: Circuit): SimulationResult {
   if (!circuit.components.length) return unsupported("Agregá componentes antes de iniciar la simulación.");
+  if (circuit.components.some((component) => component.type === "ic_4017")) return simulate4017Sequence(circuit);
+  if (circuit.components.some((component) => component.type === "ic_555")) return simulateAstable555(circuit);
+  if (circuit.components.some((component) => component.type.startsWith("logic_gate_"))) return simulateCombinationalLogic(circuit);
   const allowed = new Set(["battery", "cell", "voltage_source_dc", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "ground", "ground_earth"]);
   const unsupportedComponents = circuit.components.filter((c) => !allowed.has(c.type));
   if (unsupportedComponents.length) return unsupported("Todavía faltan modelos eléctricos para: " + unsupportedComponents.map((c) => `${c.label} (${c.type})`).join(", ") + ". La biblioteca visual es más amplia que los modelos de simulación; no se puede afirmar que esos componentes funcionen físicamente todavía.");
