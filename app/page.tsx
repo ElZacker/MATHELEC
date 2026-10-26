@@ -556,9 +556,42 @@ const [validationIssues, setValidationIssues] = useState(() =>
 );
 
 function handleStartSimulation() {
+  const issues = validateCircuit(circuit);
+  setValidationIssues(issues);
+  const errors = issues.filter((issue) => issue.severity === "error");
+  if (errors.length > 0) {
+    const result: SimulationResult = {
+      supported: false,
+      title: `Simulación bloqueada: ${errors.length} error(es) estructural(es)`,
+      summary: errors.map((issue, index) => `${index + 1}. ${issue.message}`).join("\n"),
+      measurements: [],
+      disclaimer: "Corregí los errores indicados y volvé a iniciar la simulación. No se calculan resultados mientras el esquema tenga errores estructurales.",
+    };
+    setSimulationResult(result);
+    setNotice("Se encontraron errores en el circuito. Revisá el diagnóstico.");
+    setChats((current) => current.map((chat) => chat.id === activeChatId ? {
+      ...chat,
+      messages: [...chat.messages, {
+        id: `diagnostico-${Date.now()}`,
+        role: "assistant" as const,
+        text: `No inicié la simulación porque encontré ${errors.length} error(es):\n${errors.map((issue, index) => `${index + 1}. ${issue.message}`).join("\n")}\n\nCorregí estas conexiones y volvé a intentarlo.`,
+      }],
+    } : chat));
+    return;
+  }
   const result = runDcSimulation(circuit);
   setSimulationResult(result);
-  setNotice(result.supported ? "Análisis de punto de operación DC terminado." : "La topología todavía no es compatible con el simulador experimental.");
+  setNotice(result.supported ? "Análisis de punto de operación DC terminado." : "La topología requiere un modelo eléctrico todavía no implementado.");
+  if (!result.supported) {
+    setChats((current) => current.map((chat) => chat.id === activeChatId ? {
+      ...chat,
+      messages: [...chat.messages, {
+        id: `diagnostico-${Date.now()}`,
+        role: "assistant" as const,
+        text: `Todavía no puedo calcular esta topología con fiabilidad.\n\nMotivo: ${result.summary}\n\nNo voy a mostrar mediciones inventadas. La simulación disponible actualmente cubre un lazo DC en serie con fuente, resistencia, LED y un interruptor opcional.`,
+      }],
+    } : chat));
+  }
 }
 
 function handleAddComponent(type: ComponentType) {
@@ -1192,10 +1225,10 @@ function handleMoveComponent(
         <div className="simulation-toolbar">
           <div><strong>Simulación eléctrica</strong><small>Experimental · punto de operación DC en lazo serie sencillo</small></div>
           <button type="button" className="simulation-start-button" onClick={handleStartSimulation} disabled={circuit.components.length === 0}>▶ Iniciar simulación</button>
-          {simulationResult && <button type="button" className="simulation-stop-button" onClick={() => setSimulationResult(null)}>Detener</button>}
+          {simulationResult && <button type="button" className="simulation-stop-button" onClick={() => setSimulationResult(null)}>Cerrar resultados</button>}
         </div>
         {simulationResult && (
-          <div className={simulationResult.supported ? "simulation-result" : "simulation-result simulation-result-limited"} role="status">
+          <div className={simulationResult.supported ? "simulation-result" : "simulation-result simulation-result-limited"} role="status" aria-live="polite">
             <strong>{simulationResult.title}</strong><p>{simulationResult.summary}</p>
             {simulationResult.measurements.length > 0 && <ul>{simulationResult.measurements.map((measurement) => <li key={measurement.label}><span>{measurement.label}</span><b>{measurement.value}</b></li>)}</ul>}
             <small>{simulationResult.disclaimer}</small>
