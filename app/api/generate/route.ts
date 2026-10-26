@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAvailableComponentTypes, getComponentDefinition } from "@/lib/circuits/components";
 import type { ComponentType } from "@/lib/circuits/types";
 
-type ProposalComponent = { type: ComponentType; x: number; y: number };
+type ProposalComponent = { type: ComponentType; x: number; y: number; properties?: Record<string, string | number | boolean> };
 type ProposalWire = {
   from: { componentIndex: number; terminalId: string };
   to: { componentIndex: number; terminalId: string };
@@ -22,6 +22,148 @@ type Proposal = {
 };
 
 const supportedTypes = new Set<string>(getAvailableComponentTypes());
+function buildKnownCircuitProposal(prompt: string): Omit<Proposal, "mode"> | null {
+  const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  if (/\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/.test(text)) return null;
+  if (!/\b(circuito|circuit|arma|armar|crea|crear|genera|generar|disena|monta|construye|haceme|hace|quiero|necesito|dame)\b/.test(text)) return null;
+  type C = ProposalComponent; type W = ProposalWire;
+  const cpt = (type: ComponentType, x: number, y: number, properties?: Record<string, string | number | boolean>): C => ({ type, x, y, ...(properties ? { properties } : {}) });
+  const w = (fromIndex: number, fromTerminal: string, toIndex: number, toTerminal: string): W => ({ from:{componentIndex:fromIndex,terminalId:fromTerminal},to:{componentIndex:toIndex,terminalId:toTerminal} });
+  const result = (title:string, explanation:string, response:string, components:C[], wires:W[], confirmedRequirements:string[], assumptions:string[], warnings:string[], missingInformation:string[]=[]):Omit<Proposal,"mode"> =>
+    ({title,explanation,response,components,wires,confirmedRequirements,assumptions,warnings,missingInformation,actions:[]});
+
+  // Reliable template for the common 555 astable: 9 V, 10 kΩ, 47 kΩ, 22 µF, LED+390 Ω.
+  if ((/\b(ne ?555|ic ?555|555)\b/.test(text) || /\bled intermitente\b/.test(text)) && /\b(parpade|intermit|titil|blink|destell|oscilador|led)\w*/.test(text)) {
+    const components:C[]=[
+      cpt("battery",55,170,{voltage:9}),cpt("ic_555",245,150),
+      cpt("resistor",125,65,{resistance:10000,tolerance:5,unit:"Ω"}),
+      cpt("resistor",185,65,{resistance:47000,tolerance:5,unit:"Ω"}),
+      cpt("capacitor",170,250,{capacitance:22,unit:"µF"}),
+      cpt("resistor",355,75,{resistance:390,tolerance:5,unit:"Ω"}),
+      cpt("led",380,155,{color:"red",forwardVoltage:2,maxCurrent:20}),cpt("ground",330,260)];
+    const wires:W[]=[
+      w(0,"positive",1,"vcc"),w(0,"negative",1,"gnd"),w(0,"positive",1,"reset"),
+      w(0,"positive",2,"a"),w(2,"b",1,"discharge"),w(1,"discharge",3,"a"),
+      w(3,"b",1,"threshold"),w(1,"threshold",1,"trigger"),w(1,"threshold",4,"a"),
+      w(4,"b",0,"negative"),w(1,"control",7,"gnd"),w(7,"gnd",0,"negative"),
+      w(1,"output",5,"a"),w(5,"b",6,"anode"),w(6,"cathode",0,"negative")];
+    return result("LED intermitente con NE555","Astable clásico: R1=10 kΩ, R2=47 kΩ y C1=22 µF. La salida conmuta; R3 limita la corriente del LED.",
+      "Listo: armé el astable con NE555 y conecté sus patas funcionales. El LED debería encenderse y apagarse periódicamente en una simulación temporal.",
+      components,wires,["NE555 astable","LED intermitente","Resistencia limitadora","Conexiones principales completas"],
+      ["Alimentación de 9 V","R1=10 kΩ, R2=47 kΩ, C1=22 µF, R3=390 Ω","Frecuencia aproximada de 0,63 Hz"],
+      ["Modelo funcional idealizado del NE555; no es una macro SPICE del fabricante."]);
+  }
+
+  if (/\b(cd ?4017|ic ?4017|contador decimal|secuenciador de leds|luces secuenciales|leds secuenciales)\b/.test(text)) {
+    const components:C[]=[
+      cpt("voltage_source_dc",45,165,{voltage:5,unit:"V"}),cpt("ic_555",145,145),
+      cpt("resistor",90,65,{resistance:10000,unit:"Ω"}),cpt("resistor",140,65,{resistance:47000,unit:"Ω"}),
+      cpt("capacitor",95,245,{capacitance:22,unit:"µF"}),cpt("ic_4017",235,150),
+      cpt("resistor",320,55,{resistance:390,unit:"Ω"}),cpt("led",375,55,{color:"red",forwardVoltage:2,maxCurrent:20}),
+      cpt("resistor",320,95,{resistance:390,unit:"Ω"}),cpt("led",375,95,{color:"green",forwardVoltage:2,maxCurrent:20}),
+      cpt("resistor",320,135,{resistance:390,unit:"Ω"}),cpt("led",375,135,{color:"blue",forwardVoltage:3,maxCurrent:20}),
+      cpt("resistor",320,175,{resistance:390,unit:"Ω"}),cpt("led",375,175,{color:"red",forwardVoltage:2,maxCurrent:20}),
+      cpt("resistor",320,215,{resistance:390,unit:"Ω"}),cpt("led",375,215,{color:"green",forwardVoltage:2,maxCurrent:20}),
+      cpt("resistor",320,255,{resistance:390,unit:"Ω"}),cpt("led",375,255,{color:"blue",forwardVoltage:3,maxCurrent:20)];
+    const wires:W[]=[
+      w(0,"positive",1,"vcc"),w(0,"negative",1,"gnd"),w(0,"positive",1,"reset"),
+      w(0,"positive",2,"a"),w(2,"b",1,"discharge"),w(1,"discharge",3,"a"),w(3,"b",1,"threshold"),
+      w(1,"threshold",1,"trigger"),w(1,"threshold",4,"a"),w(4,"b",0,"negative"),w(1,"control",0,"negative"),
+      w(0,"positive",5,"vdd"),w(0,"negative",5,"vss"),w(0,"negative",5,"enable"),w(0,"negative",5,"reset"),w(1,"output",5,"clock"),
+      w(5,"q0",6,"a"),w(6,"b",7,"anode"),w(7,"cathode",0,"negative"),
+      w(5,"q1",8,"a"),w(8,"b",9,"anode"),w(9,"cathode",0,"negative"),
+      w(5,"q2",10,"a"),w(10,"b",11,"anode"),w(11,"cathode",0,"negative"),
+      w(5,"q3",12,"a"),w(12,"b",13,"anode"),w(13,"cathode",0,"negative"),
+      w(5,"q4",14,"a"),w(14,"b",15,"anode"),w(15,"cathode",0,"negative"),
+      w(5,"q5",16,"a"),w(16,"b",17,"anode"),w(17,"cathode",0,"negative")];
+    return result("Secuenciador de seis LED con NE555 + CD4017","El NE555 genera el reloj; el CD4017 activa Q0–Q5. Cada LED tiene su resistencia limitadora.",
+      "Armé un secuenciador de seis pasos con NE555 y CD4017, con reloj, habilitación, reset, alimentación y las seis salidas conectadas.",
+      components,wires,["NE555 como reloj","CD4017 con seis salidas","Seis LED con resistencias serie"],
+      ["Alimentación de 5 V","Reloj aproximado de 0,63 Hz","Reset fijado a nivel bajo"],
+      ["Modelo temporal idealizado; no representa retardos de propagación ni consumo real."]);
+  }
+
+  // Simple LED request must never fail because the model omitted its wires.
+  if (/\bled\b/.test(text) && /\b(prenda|prender|encend|ilumin|enciend|funcione|que prenda)\w*/.test(text) && !/\b(555|intermit|parpade|titil)\b/.test(text)) {
+    const components:C[]=[cpt("battery",65,165,{voltage:9}),cpt("resistor",220,95,{resistance:390,tolerance:5,unit:"Ω"}),cpt("led",355,165,{color:"red",forwardVoltage:2,maxCurrent:20)];
+    return result("Circuito LED básico","Lazo DC en serie con fuente, resistencia limitadora y LED polarizado.",
+      "Hecho: generé un circuito con batería de 9 V, resistencia de 390 Ω y LED. La corriente ideal estimada es de unos 18 mA, por debajo del máximo declarado de 20 mA.",
+      components,[w(0,"positive",1,"a"),w(1,"b",2,"anode"),w(2,"cathode",0,"negative")],
+      ["LED protegido por resistencia","Lazo cerrado"],["Fuente de 9 V","LED rojo ideal de 2 V"],["No incluye tolerancias ni variación térmica."]);
+  }
+
+  // GSR/biofeedback illustration; explicitly does not infer truthfulness.
+  if (/\b(detector de mentiras|poligrafo|poligrafo casero)\b/.test(text)) {
+    const components:C[]=[
+      cpt("battery",55,165,{voltage:9}),cpt("op_amp",240,150),
+      cpt("resistor",125,70,{resistance:100000,unit:"Ω"}),
+      cpt("potentiometer",125,155,{resistance:100000,unit:"Ω"}),
+      cpt("resistor",125,225,{resistance:100000,unit:"Ω"}),
+      cpt("resistor",185,225,{resistance:100000,unit:"Ω"}),
+      cpt("resistor",355,80,{resistance:390,unit:"Ω"}),
+      cpt("led",380,160,{color:"red",forwardVoltage:2,maxCurrent:20}),cpt("ground",330,260)];
+    const wires:W[]=[
+      w(0,"positive",1,"vcc"),w(0,"negative",1,"vee"),
+      w(0,"positive",2,"a"),w(2,"b",3,"a"),w(2,"b",1,"non_inverting"),w(2,"b",3,"wiper"),w(3,"b",0,"negative"),
+      w(0,"positive",4,"a"),w(4,"b",1,"inverting"),w(4,"b",5,"a"),w(5,"b",0,"negative"),
+      w(1,"output",6,"a"),w(6,"b",7,"anode"),w(7,"cathode",0,"negative"),w(8,"gnd",0,"negative")];
+    return result("Indicador experimental de conductancia de la piel","Una resistencia variable modifica la tensión de entrada; un operacional la compara con un umbral y activa el LED.",
+      "Generé una base de biofeedback por conductancia de la piel (GSR). No es un detector fiable de mentiras: la conductancia también cambia por sudoración, temperatura, movimiento y muchas otras causas, y no permite decidir si alguien miente.",
+      components,wires,["Entrada resistiva ajustable","Comparación de umbral","LED indicador"],
+      ["La resistencia variable representa de forma conceptual un sensor GSR","Operacional genérico con alimentación simple"],
+      ["Para hardware real hacen falta electrodos aislados, excitación segura, acondicionamiento y calibración. El operacional genérico todavía no tiene modelo analógico completo."],
+      ["No determina veracidad ni detecta mentiras; ilustra variaciones resistivas."]);
+  }
+
+  if (/\b(detector de proximidad|sensor de proximidad|proximidad)\b/.test(text)) {
+    const components:C[]=[
+      cpt("battery",50,165,{voltage:5}),cpt("resistor",115,75,{resistance:220,unit:"Ω"}),
+      cpt("led",185,75,{color:"red",forwardVoltage:1.2,maxCurrent:30}),cpt("phototransistor",185,235),
+      cpt("resistor",265,75,{resistance:10000,unit:"Ω"}),cpt("npn_transistor",300,175),
+      cpt("resistor",370,75,{resistance:390,unit:"Ω"}),cpt("led",390,165,{color:"green",forwardVoltage:2,maxCurrent:20}),
+      cpt("resistor",235,235,{resistance:10000,unit:"Ω"})];
+    const wires:W[]=[
+      w(0,"positive",1,"a"),w(1,"b",2,"anode"),w(2,"cathode",0,"negative"),
+      w(0,"positive",4,"a"),w(4,"b",3,"collector"),w(3,"emitter",8,"a"),w(8,"b",5,"base"),
+      w(0,"negative",5,"emitter"),w(0,"positive",6,"a"),w(6,"b",7,"anode"),w(7,"cathode",5,"collector")];
+    return result("Indicador de proximidad infrarroja","Emisor IR, fototransistor receptor y etapa NPN de salida con LED indicador.",
+      "Armé un esquema de proximidad infrarroja con emisor, fototransistor y transistor de salida. La distancia real depende de la luz reflejada, la alineación y la superficie; no se calibra con el modelo eléctrico actual.",
+      components,wires,["Emisor IR con resistencia serie","Fototransistor receptor","Etapa NPN","LED indicador"],
+      ["Fuente de 5 V","La señal óptica depende del entorno"],["No se modela la propagación ni reflexión de la luz."]);
+  }
+
+  if (/\b(control de giro|invertir (el )?giro|reversor de giro|inversor de giro|cambiar el sentido de giro|sentido de giro del motor)\b/.test(text)) {
+    const components:C[]=[cpt("battery",65,165,{voltage:6}),cpt("switch_dpdt",220,165,{closed:true}),cpt("motor",360,165,{voltage:6)];
+    return result("Inversor de giro de motor DC con DPDT","El DPDT invierte la polaridad aplicada a los bornes del motor.",
+      "Generé un circuito de inversión de giro con DPDT. Al cambiar de posición, se invierte la polaridad del motor; la velocidad y el par todavía no se simulan.",
+      components,[w(0,"positive",1,"throw1a"),w(0,"negative",1,"throw1b"),w(0,"negative",1,"throw2a"),w(0,"positive",1,"throw2b"),w(1,"common1",2,"positive"),w(1,"common2",2,"negative")],
+      ["Motor DC","Inversión de polaridad DPDT"],["Fuente y motor de 6 V","DPDT debe soportar la corriente de arranque"],
+      ["Todavía no hay modelo dinámico de motor ni de los contactos DPDT."]);
+  }
+
+  if (/\b(amplificador (de )?base comun|base comun)\b/.test(text)) {
+    const components:C[]=[
+      cpt("battery",55,165,{voltage:9}),cpt("voltage_source_ac",55,250,{voltage:0.05,frequency:1000,unit:"V peak"}),
+      cpt("npn_transistor",245,155),cpt("resistor",150,55,{resistance:47000,unit:"Ω"}),
+      cpt("resistor",150,235,{resistance:10000,unit:"Ω"}),cpt("resistor",325,60,{resistance:4700,unit:"Ω"}),
+      cpt("resistor",325,245,{resistance:1000,unit:"Ω"}),cpt("capacitor",135,270,{capacitance:10,unit:"µF"}),
+      cpt("capacitor",365,125,{capacitance:10,unit:"µF"}),cpt("capacitor",240,245,{capacitance:100,unit:"µF"}),
+      cpt("resistor",390,245,{resistance:10000,unit:"Ω"}),cpt("ground",75,295)];
+    const wires:W[]=[
+      w(0,"positive",3,"a"),w(3,"b",2,"base"),w(3,"b",4,"a"),w(4,"b",0,"negative"),
+      w(5,"a",0,"positive"),w(5,"b",2,"collector"),w(6,"a",2,"emitter"),w(6,"b",0,"negative"),
+      w(1,"positive",7,"a"),w(1,"negative",0,"negative"),w(7,"b",2,"emitter"),
+      w(9,"a",2,"base"),w(9,"b",11,"gnd"),w(11,"gnd",0,"negative"),
+      w(8,"a",2,"collector"),w(8,"b",10,"a"),w(10,"b",0,"negative")];
+    return result("Amplificador BJT de base común","Divisor R1/R2, RC en colector, RE en emisor, bypass de base y capacitores de acople.",
+      "Armé una topología NPN de base común, con entrada por emisor y salida por colector. La ganancia y el punto de operación requieren un modelo BJT y análisis AC.",
+      components,wires,["Etapa NPN de base común","Polarización DC","Acople de entrada/salida","Bypass de base"],
+      ["Fuente de 9 V","Entrada de 50 mV pico a 1 kHz","Valores iniciales didácticos"],
+      ["No hay todavía modelo Gummel-Poon ni análisis de pequeña señal; no se inventan valores de ganancia."]);
+  }
+  return null;
+}
+
 
 // Límite básico por IP para evitar bucles accidentales y abuso del endpoint.
 // En despliegues con varias instancias, reemplazar por un limitador compartido.
@@ -53,57 +195,35 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
   const circuitContext = JSON.stringify(currentCircuit);
   const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Si preguntan cuáles son tus capacidades, respondé de forma concreta y honesta: podés explicar electrónica, proponer circuitos con toda la biblioteca disponible, añadir uno o varios componentes, conectar y desconectar cables, rotar/mover/eliminar componentes, cambiar propiedades admitidas, explicar errores y sugerir sustitutos; no podés simular eléctricamente ni garantizar que un circuito funcione, y no debes afirmar capacidades inexistentes. Si el usuario pide diseñar, generar, crear o armar un circuito, la salida debe incluir conexiones eléctricas válidas por defecto; jamás entregues componentes sueltos solo por comodidad. Solo omitas cables si el usuario pide explícitamente "sin conexiones", "sin conectar" o equivalente. Cada conexión debe usar terminales reales y respetar polaridad, función, requisitos eléctricos y límites físicos; no inventes una topología que no puedas justificar. Antes de elegir componentes, seguí un procedimiento de diseño obligatorio: (1) identifica la función y los requisitos de entrada/salida; (2) descompone el diseño en etapas (alimentación, sensor/entrada, acondicionamiento, control, driver y carga); (3) elige topología y componentes reales de la biblioteca; (4) asigna cada terminal por su nombre y función eléctrica; (5) calcula valores de polarización, corriente, tensión, potencia y frecuencias relevantes; (6) cablea cada etapa y sus referencias de alimentación/masa; (7) revisa el netlist terminal por terminal, detecta pines obligatorios flotantes, cortos, polaridad invertida y conexiones duplicadas; (8) recién entonces responde. Para circuitos conocidos (por ejemplo detector de proximidad, control de giro de motor, amplificador de base común, oscilador NE555 o contador CD4017), usa topologías electrónicas estándar de conocimiento técnico, no una cadena aleatoria de componentes. No afirmes que hiciste investigación web ni consultaste hojas de datos si no hay una herramienta de búsqueda conectada; si un dato depende de un datasheet específico y no es seguro, decláralo como supuesto. Si el circuito excede el alcance verificable, entrega una propuesta por etapas y lista exactamente qué requiere validación. Calcula valores básicos cuando sea posible y explica límites relevantes (por ejemplo, un detector de conductancia cutánea no demuestra que alguien mienta). Si faltan datos críticos, usa supuestos explícitos y conservadores o pregunta, sin presentar el diseño como validado. Si piden un circuito aleatorio, elegí un diseño didáctico coherente y conectado; si es complejo, divide en etapas funcionales conectadas y explica lo que no puede verificarse. En pedidos singulares como “agrega otro LED”, ejecutá exactamente una unidad salvo que indiquen una cantidad distinta; no dupliques acciones. Para desconectar, usa una acción disconnect por cada pareja de componentes conectada que el usuario indique, sin tocar cables no relacionados. Si solicitan un componente inexistente, explicá cuál falta y ofrecé la alternativa más cercana disponible, sin inventar que existe. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. Si el usuario dice que elijas vos, que sea aleatorio o pide componentes conectados sin especificar cuáles, elegí una combinación coherente y realizá el cambio en vez de pedirle que elija. Si pide conectar componentes que ya están colocados, conectá los existentes usando sus referencias y terminales reales. Si pide agregar un componente conectado, agregá el componente y conectalo a la topología existente cuando sea eléctricamente razonable. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 30 componentes totales y 40 cables nuevos. No afirmes validación o simulación eléctrica. Tipos y terminales disponibles (fuente de verdad): ${JSON.stringify(Object.fromEntries(getAvailableComponentTypes().map((type) => [type, getComponentDefinition(type).terminals.map((terminal) => ({ id: terminal.id, name: terminal.name }))])))}. Usá únicamente estos tipos y terminales. Coordenadas x=30..410, y=40..290. Distribuí los componentes como un esquema electrónico convencional: fuente a la izquierda, protección/entrada primero, procesamiento en el centro y carga/salida a la derecha; usá filas alineadas, separación suficiente para etiquetas y cables, evitá superposiciones y priorizá recorridos ordenados. Enrutá cables por trayectos ortogonales, no hagas que se crucen entre sí ni atraviesen símbolos; si dos redes se cruzan, mantenelas eléctricamente separadas y usa un puente visual o un desvío claro. Nunca conectes nodos solo porque se cruzan en pantalla. No inventes componentes ni terminales. Máximo 30 componentes totales y 40 cables nuevos. Respeta la cantidad exacta solicitada; “otro/un/una” significa exactamente uno. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. La salida debe ser JSON completo y válido, sin Markdown, sin comentarios, sin texto antes o después del objeto. Mantené response breve y priorizá la validez de la estructura, índices de componentes correctos y terminales existentes. `;
-  // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
-  // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
-  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
-  const modelsToTry = [...new Set([model, fallbackModel])];
-  let response: Response | undefined;
-  let lastTransientError: unknown;
-  let activeModel = model;
-
-  for (const candidateModel of modelsToTry) {
-    activeModel = candidateModel;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${apiKey}`;
-    const requestBody = JSON.stringify({
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
-      generationConfig: {
-        // Reservar pocos tokens para acciones simples reduce la latencia; las consultas técnicas
-        // reciben más espacio para explicar sin imponer respuestas largas a cada turno.
-        maxOutputTokens: /\b(aleatori|complej|todos|biblioteca|componentes conectados|conectalos|conectá|conecta|circuito|detector|amplificador|motor|ne ?555|4017)\b/i.test(prompt) ? 3072 : /\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\b/i.test(prompt) ? 1536 : prompt.length < 90 ? 768 : 1280,
-        responseMimeType: "application/json",
-        thinkingConfig: { thinkingLevel: "LOW" },
-      },
+  // Mathelect uses only Gemini 3.6 Flash. No silent switch to a slower model.
+  const model = "gemini-3.6-flash";
+  const activeModel = model;
+  const endpoint = \`https://generativelanguage.googleapis.com/v1beta/models/\${model}:generateContent?key=\${apiKey}\`;
+  const asksForCircuitDesign = /\b(circuito|circuit|detector|amplificador|oscilador|contador|proximidad|motor|transistor|555|4017|led)\b/i.test(prompt);
+  const useGoogleSearch = asksForCircuitDesign && !/\b(agrega|agregá|añade|anade|borra|elimina|mueve|rota|conecta|desconecta|valor de|explica qué es)\b/i.test(prompt);
+  const requestBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
+    ...(useGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
+    generationConfig: {
+      maxOutputTokens: /\b(complej|todos|detector|amplificador|motor|proximidad|base comun|ne ?555|4017)\b/i.test(prompt) ? 3072
+        : /\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\b/i.test(prompt) ? 1536
+        : prompt.length < 90 ? 768 : 1280,
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: "LOW" },
+    },
+  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody,
+      signal: AbortSignal.timeout(18000),
     });
-
-    // Dos intentos por modelo, con una espera corta para errores transitorios.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: requestBody,
-          signal: AbortSignal.timeout(30000),
-        });
-        if (response.ok) break;
-        if (response.status !== 503 && response.status !== 504) break;
-        lastTransientError = new Error(`Gemini ${candidateModel} respondió HTTP ${response.status}`);
-      } catch (error) {
-        lastTransientError = error;
-        const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-        if (!timedOut) throw error;
-      }
-      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1000));
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error("Gemini 3.6 tardó más de 18 segundos. Los circuitos conocidos tienen plantillas locales; para un diseño nuevo, probá de nuevo en unos segundos.");
     }
-    if (response?.ok) break;
-    if (response && response.status !== 503 && response.status !== 504) break;
-    response = undefined;
-  }
-
-  if (!response) {
-    throw lastTransientError instanceof Error
-      ? new Error(lastTransientError.message + ". Se intentó el modelo principal y el alternativo.")
-      : new Error("Gemini no respondió. Se intentaron el modelo principal y el alternativo.");
+    throw error;
   }
 
   if (!response.ok) {
@@ -115,7 +235,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     // Mensajes accionables; nunca incluir la clave en la respuesta al navegador.
     if (response.status === 429) throw new Error("Gemini agotó la cuota o el límite de solicitudes del nivel gratuito. Revisá el uso y los límites del proyecto en Google AI Studio y probá más tarde.");
     if (response.status === 401 || response.status === 403) throw new Error("Gemini rechazó la clave o el acceso a la API (HTTP " + response.status + "). Verificá que GEMINI_API_KEY sea la clave de AI Studio correcta y que la API Gemini esté habilitada para ese proyecto.");
-    if (response.status === 404) throw new Error("Gemini no encontró el modelo '" + activeModel + "' (HTTP 404). Cambiá GEMINI_MODEL o GEMINI_FALLBACK_MODEL por un modelo disponible para tu proyecto.");
+    if (response.status === 404) throw new Error("Gemini 3.6 Flash no está disponible para esta clave/proyecto (HTTP 404). Verificá el acceso al modelo en Google AI Studio.");
     if (response.status === 400) throw new Error("Gemini rechazó la solicitud (HTTP 400)." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá el modelo y el formato de la solicitud."));
     throw new Error("Gemini respondió HTTP " + response.status + "." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá la configuración e intentá nuevamente."));
   }
@@ -124,7 +244,15 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   if (typeof payload !== "object" || payload === null || !("candidates" in payload)) {
     throw new Error("La respuesta de Gemini no tiene el formato esperado.");
   }
-  const candidates = (payload as { candidates?: { content?: { parts?: { text?: string }[] } }[] }).candidates;
+  const candidates = (payload as {
+    candidates?: {
+      content?: { parts?: { text?: string }[] };
+      groundingMetadata?: { groundingChunks?: { web?: { uri?: string; title?: string } }[] };
+    }[]
+  }).candidates;
+  const researchWarnings = (candidates?.[0]?.groundingMetadata?.groundingChunks ?? [])
+    .flatMap((chunk) => chunk.web?.uri ? [`Fuente consultada: ${chunk.web.title || chunk.web.uri} — ${chunk.web.uri}`] : [])
+    .slice(0, 5);
   const raw = candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!raw) throw new Error("Gemini devolvió una respuesta vacía. Puede que el pedido haya sido bloqueado o que se haya agotado la cuota.");
 
@@ -163,7 +291,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
           contents: [{ role: "user", parts: [{ text: "Repará este JSON incompleto de Mathelect y devolvé el objeto completo. Tipos disponibles: " + JSON.stringify(getAvailableComponentTypes()) + "\\nJSON truncado:\\n" + raw }] }],
           generationConfig: { responseMimeType: "application/json", maxOutputTokens: 3072, thinkingConfig: { thinkingLevel: "LOW" } },
         }),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(8000),
       });
       if (repairResponse.ok) {
         const repairPayload = await repairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -213,7 +341,16 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     const x = typeof component.x === "number" && Number.isFinite(component.x) ? component.x : 220;
     const y = typeof component.y === "number" && Number.isFinite(component.y) ? component.y : 165;
     if (!normalizedType) throw new Error("Gemini propuso un tipo de componente no disponible en la biblioteca.");
-    return { type: normalizedType, x: Math.max(30, Math.min(410, x)), y: Math.max(40, Math.min(290, y)) };
+        const rawProperties = typeof component.properties === "object" && component.properties !== null && !Array.isArray(component.properties)
+      ? component.properties as Record<string, unknown> : {};
+    const properties: Record<string, string | number | boolean> = {};
+    for (const [key, property] of Object.entries(rawProperties).slice(0, 20)) {
+      if (key.length > 64) continue;
+      if (typeof property === "string" || typeof property === "boolean" || (typeof property === "number" && Number.isFinite(property))) {
+        properties[key] = typeof property === "string" ? property.slice(0, 100) : property;
+      }
+    }
+    return { type: normalizedType, x: Math.max(30, Math.min(410, x)), y: Math.max(40, Math.min(290, y)), ...(Object.keys(properties).length ? { properties } : {}) };
   });
 
   const wireWarnings: string[] = [];
@@ -378,7 +515,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
             contents: [{ role: "user", parts: [{ text: `El circuito está incompleto. Devolvé un objeto JSON {"wires":[...]} con la lista COMPLETA de conexiones corregidas, incluyendo estas conexiones existentes: ${JSON.stringify(wires)}. Terminales abiertos: ${JSON.stringify(openTerminals)}. Pedido original: ${prompt}. Componentes y terminales reales: ${JSON.stringify(components.map((item,index)=>({componentIndex:index,type:item.type,terminals:terminalMap[item.type]})))}. Conectá los terminales requeridos y conservá una topología eléctricamente coherente.` }] }],
             generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: "LOW" } },
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(8000),
         });
         if (repairResponse.ok) {
           const repairPayload = await repairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -439,7 +576,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     confirmedRequirements: stringList("confirmedRequirements"),
     assumptions: stringList("assumptions"),
     missingInformation: stringList("missingInformation"),
-    warnings: [...stringList("warnings"), ...wireWarnings],
+    warnings: [...stringList("warnings"), ...wireWarnings, ...researchWarnings],
   };
 }
 
@@ -559,6 +696,9 @@ export async function POST(request: Request) {
     if (prompt.length > 2000) {
       return NextResponse.json({ error: "El pedido no puede superar los 2000 caracteres." }, { status: 413 });
     }
+
+    const knownCircuit = buildKnownCircuitProposal(prompt);
+    if (knownCircuit) return NextResponse.json({ mode: "demo", ...knownCircuit });
 
     if (process.env.GEMINI_API_KEY) {
       const rawCircuit = "currentCircuit" in body ? body.currentCircuit : null;
