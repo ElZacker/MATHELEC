@@ -526,3 +526,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .simulation-result li span,.simulation-result small { color:var(--muted); }
 .simulation-result li b { color:#dffff0; font-variant-numeric:tabular-nums; }
 .simulation-result small { display:block; font-size:10px; line-height:1.5; }
+
+
+/* Controles de simulación: contraste y jerarquía inequívocos. */
+.simulation-toolbar .simulation-start-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:10px 15px; border:1px solid #45f59a; border-radius:9px; background:#45f59a; color:#06140b; font-size:12px; font-weight:800; box-shadow:0 0 0 1px rgba(69,245,154,.12),0 4px 18px rgba(69,245,154,.12); }
+.simulation-toolbar .simulation-start-button:hover:not(:disabled) { background:#a0ffc5; border-color:#a0ffc5; }
+.simulation-toolbar .simulation-stop-button { min-height:38px; color:#d9e5dc; }
+.simulation-result-limited { color:#f4e8c8; }
+.simulation-result p { white-space:pre-line; overflow-wrap:anywhere; }
+.simulation-result-limited > strong { color:#ffcf75; }
+.validation-issue { width:100%; text-align:left; }
