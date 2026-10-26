@@ -25,7 +25,7 @@ const supportedTypes = new Set<string>(getAvailableComponentTypes());
 function buildKnownCircuitProposal(prompt: string): Omit<Proposal, "mode"> | null {
   const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   if (/\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/.test(text)) return null;
-  if (!/\b(circuito|circuit|arma|armar|crea|crear|genera|generar|disena|monta|construye|haceme|hace|quiero|necesito|dame)\b/.test(text)) return null;
+  if (!/\b(circuito|circuit|arma|armar|crea|crear|genera|generar|disena|disenar|monta|construye|haceme|hace|quiero|necesito|dame)\b/.test(text)) return null;
   type C = ProposalComponent; type W = ProposalWire;
   const cpt = (type: ComponentType, x: number, y: number, properties?: Record<string, string | number | boolean>): C => ({ type, x, y, ...(properties ? { properties } : {}) });
   const w = (fromIndex: number, fromTerminal: string, toIndex: number, toTerminal: string): W => ({ from:{componentIndex:fromIndex,terminalId:fromTerminal},to:{componentIndex:toIndex,terminalId:toTerminal} });
