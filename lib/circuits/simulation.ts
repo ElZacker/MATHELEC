@@ -48,7 +48,7 @@ type NetTopology = {
 function createNetTopology(circuit: Circuit): NetTopology {
   const parent = new Map<string, string>();
   for (const component of circuit.components) for (const terminal of component.terminals) {
-    const key = \`\${component.id}:\${terminal.id}\`;
+    const key = `${component.id}:${terminal.id}`;
     parent.set(key, key);
   }
   const find = (key: string): string => {
@@ -60,14 +60,14 @@ function createNetTopology(circuit: Circuit): NetTopology {
     return root;
   };
   for (const wire of circuit.wires) {
-    const a = \`\${wire.from.componentId}:\${wire.from.terminalId}\`;
-    const b = \`\${wire.to.componentId}:\${wire.to.terminalId}\`;
+    const a = `${wire.from.componentId}:${wire.from.terminalId}`;
+    const b = `${wire.to.componentId}:${wire.to.terminalId}`;
     if (!parent.has(a) || !parent.has(b)) continue;
     const ra = find(a), rb = find(b);
     if (ra !== rb) parent.set(ra, rb);
   }
   return {
-    nodeFor: (componentId, terminalId) => find(\`\${componentId}:\${terminalId}\`),
+    nodeFor: (componentId, terminalId) => find(`${componentId}:${terminalId}`),
     connected: (componentId, terminalId) => circuit.wires.some((wire) =>
       (wire.from.componentId === componentId && wire.from.terminalId === terminalId) ||
       (wire.to.componentId === componentId && wire.to.terminalId === terminalId)),
@@ -170,10 +170,10 @@ function simulateAstable555(circuit: Circuit): SimulationResult {
       ? "Se reconoció un astable NE555. La salida se alterna y el LED conectado a OUT se anima según los tiempos calculados."
       : "Se reconoció un astable NE555. La onda cuadrada se calcula con un modelo funcional ideal; no se encontró un LED indicador conectado directamente a OUT.",
     measurements: [
-      { label: "Frecuencia estimada", value: \`\${(1000 / params.periodMs).toFixed(2)} Hz\` },
-      { label: "Período", value: \`\${params.periodMs.toFixed(1)} ms\` },
-      { label: "Salida alta (Ton)", value: \`\${params.highMs.toFixed(1)} ms\` },
-      { label: "Salida baja (Toff)", value: \`\${params.lowMs.toFixed(1)} ms\` },
+      { label: "Frecuencia estimada", value: `${(1000 / params.periodMs).toFixed(2)} Hz` },
+      { label: "Período", value: `${params.periodMs.toFixed(1)} ms` },
+      { label: "Salida alta (Ton)", value: `${params.highMs.toFixed(1)} ms` },
+      { label: "Salida baja (Toff)", value: `${params.lowMs.toFixed(1)} ms` },
     ],
     activeComponentIds: params.ledIds, oscillation: { periodMs: params.periodMs, highMs: params.highMs, componentIds: params.ledIds },
     disclaimer: "Modelo temporal analítico del astable ideal. No incluye saturación real del transistor interno, tolerancias, fuga del capacitor ni retardos; no sustituye una simulación de fabricante.",
@@ -199,15 +199,15 @@ function simulate4017Sequence(circuit: Circuit): SimulationResult {
   const steps = ["q0","q1","q2","q3","q4","q5"].map((pin, index) => {
     const node = topology.nodeFor(counter.id, pin);
     const componentIds = ledLoadsFromNode(circuit, topology, node, returnNode);
-    return { label: \`Q\${index}\`, componentIds };
+    return { label: `Q${index}`, componentIds };
   });
   if (!steps.some((step) => step.componentIds.length)) return unsupported("El CD4017 no tiene LED conectados a sus salidas Q0–Q5 mediante resistencias serie.");
   return {
     supported: true, title: "Simulación secuencial del CD4017",
     summary: "El contador avanza una salida por cada ciclo del reloj NE555. Las salidas Q0–Q5 se animan secuencialmente; el modelo es digital ideal.",
     measurements: [
-      { label: "Reloj de entrada", value: \`\${(1000 / timerParams.periodMs).toFixed(2)} Hz\` },
-      { label: "Tiempo por paso", value: \`\${timerParams.periodMs.toFixed(1)} ms\` },
+      { label: "Reloj de entrada", value: `${(1000 / timerParams.periodMs).toFixed(2)} Hz` },
+      { label: "Tiempo por paso", value: `${timerParams.periodMs.toFixed(1)} ms` },
       { label: "Estados simulados", value: String(steps.length) },
     ],
     activeComponentIds: steps[0].componentIds,
@@ -265,7 +265,7 @@ function simulateCombinationalLogic(circuit: Circuit): SimulationResult {
   const measurements: SimulationResult["measurements"] = [];
   for (const gate of gates) {
     const state = values.get(gate.id) === true;
-    measurements.push({ label: \`\${gate.label} (\${gate.type})\`, value: state ? "Salida HIGH (1)" : "Salida LOW (0)" });
+    measurements.push({ label: `${gate.label} (${gate.type})`, value: state ? "Salida HIGH (1)" : "Salida LOW (0)" });
     if (state) activeComponentIds.push(...ledLoadsFromNode(circuit, topology, topology.nodeFor(gate.id,"y"), lowNode));
   }
   return {
