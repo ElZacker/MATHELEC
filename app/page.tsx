@@ -10,6 +10,7 @@ import {
   removeComponent,
   rotateComponent,
   moveComponent,
+  updateComponentProperties,
 } from "@/lib/circuits/circuit-model";
 
 
@@ -808,7 +809,7 @@ function handleMoveComponent(
         actions?: Record<string, unknown>[];
         response?: string;
         title?: string; explanation?: string;
-        components?: { type: ComponentType; x: number; y: number }[];
+        components?: { type: ComponentType; x: number; y: number; properties?: Record<string, string | number | boolean> }[];
         wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
         confirmedRequirements?: string[]; assumptions?: string[];
         missingInformation?: string[]; warnings?: string[]; error?: string;
@@ -879,7 +880,9 @@ function handleMoveComponent(
             throw new Error("La propuesta contiene un tipo de componente no admitido.");
           }
           nextCircuit = addComponent(nextCircuit, item.type, item.x, item.y);
-          componentIds.push(nextCircuit.components[nextCircuit.components.length - 1].id);
+          const createdComponentId = nextCircuit.components[nextCircuit.components.length - 1].id;
+          componentIds.push(createdComponentId);
+          if (item.properties) nextCircuit = updateComponentProperties(nextCircuit, createdComponentId, item.properties);
         }
       }
       if (data.wires?.length && !hasIncrementalMutation) {
