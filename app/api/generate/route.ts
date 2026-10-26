@@ -197,12 +197,12 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   // Mathelect uses only Gemini 3.6 Flash. No silent switch to a slower model.
   const model = "gemini-3.6-flash";
   const activeModel = model;
-  const endpoint = \`https://generativelanguage.googleapis.com/v1beta/models/\${model}:generateContent?key=\${apiKey}\`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const asksForCircuitDesign = /\b(circuito|circuit|detector|amplificador|oscilador|contador|proximidad|motor|transistor|555|4017|led)\b/i.test(prompt);
   const useGoogleSearch = asksForCircuitDesign && !/\b(agrega|agregá|añade|anade|borra|elimina|mueve|rota|conecta|desconecta|valor de|explica qué es)\b/i.test(prompt);
   const requestBody = JSON.stringify({
     systemInstruction: { parts: [{ text: systemInstruction }] },
-    contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
+    contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\n" + prompt + "\n\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\n" + circuitContext }] }],
     ...(useGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
     generationConfig: {
       maxOutputTokens: /\b(complej|todos|detector|amplificador|motor|proximidad|base comun|ne ?555|4017)\b/i.test(prompt) ? 3072
