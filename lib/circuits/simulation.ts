@@ -6,81 +6,176 @@ export type SimulationResult = {
   summary: string;
   measurements: { label: string; value: string }[];
   disclaimer: string;
+  activeComponentIds?: string[];
 };
 
-function connectedComponent(circuit: Circuit, componentId: string, terminalId: string) {
-  const wire = circuit.wires.find((item) =>
-    (item.from.componentId === componentId && item.from.terminalId === terminalId) ||
-    (item.to.componentId === componentId && item.to.terminalId === terminalId)
-  );
-  if (!wire) return null;
-  const from = wire.from.componentId === componentId && wire.from.terminalId === terminalId;
-  return { component: circuit.components.find((item) => item.id === (from ? wire.to.componentId : wire.from.componentId)), terminalId: from ? wire.to.terminalId : wire.from.terminalId };
-}
-function otherTerminal(component: CircuitComponent, terminalId: string) {
-  return component.terminals.find((item) => item.id !== terminalId)?.id ?? null;
-}
+type Branch = { component: CircuitComponent; a: string; b: string; kind: "resistor" | "source" | "diode"; value: number; resistance?: number };
+
 function unsupported(summary: string): SimulationResult {
-  return { supported: false, title: "No se puede simular esta topología todavía", summary, measurements: [], disclaimer: "Solo se resuelve un lazo serie DC con fuente, resistencia, LED y opcionalmente interruptor. No es SPICE y no valida seguridad ni funcionamiento físico." };
+  return { supported: false, title: "Topología no compatible con los modelos actuales", summary, measurements: [], disclaimer: "No se muestran mediciones ficticias. El simulador actual resuelve redes DC con resistencias, fuentes independientes e indicadores LED/diodos mediante modelos aproximados. No es un reemplazo completo de SPICE, Livewire o Proteus." };
+}
+function finiteProperty(component: CircuitComponent, key: string, fallback: number): number {
+  const value = component.properties[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+function solveLinear(matrix: number[][], vector: number[]): number[] | null {
+  const n = vector.length;
+  const a = matrix.map((row, i) => [...row, vector[i]]);
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row++) if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+    if (Math.abs(a[pivot][col]) < 1e-12) return null;
+    [a[col], a[pivot]] = [a[pivot], a[col]];
+    const divisor = a[col][col];
+    for (let j = col; j <= n; j++) a[col][j] /= divisor;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = a[row][col];
+      if (!factor) continue;
+      for (let j = col; j <= n; j++) a[row][j] -= factor * a[col][j];
+    }
+  }
+  return a.map((row) => row[n]);
 }
 
-/** Resuelve un punto de operación aproximado para un único lazo serie DC. */
+/**
+ * DC operating-point solver using modified nodal analysis. Handles multiple
+ * loops/parallel branches for supported two-terminal DC models. Diodes use an
+ * iterative piecewise-linear approximation, not a manufacturer SPICE model.
+ */
 export function runDcSimulation(circuit: Circuit): SimulationResult {
-  if (circuit.components.length < 3 || circuit.components.length > 4) return unsupported("Se necesita fuente DC, resistencia, LED y, opcionalmente, un interruptor. Este modelo no resuelve todavía otras topologías; no se muestran mediciones ficticias.");
-  if (circuit.wires.length !== circuit.components.length) return unsupported("El lazo no parece cerrado: la cantidad de cables no coincide con un único circuito serie. Revisá terminales abiertos, cables faltantes o conexiones adicionales.");
-  const sources = circuit.components.filter((item) => ["battery", "cell", "voltage_source_dc"].includes(item.type));
-  const resistors = circuit.components.filter((item) => item.type === "resistor");
-  const leds = circuit.components.filter((item) => item.type === "led");
-  const switches = circuit.components.filter((item) => ["switch", "switch_spst"].includes(item.type));
-  if (sources.length !== 1 || resistors.length !== 1 || leds.length !== 1 || switches.length !== circuit.components.length - 3) return unsupported("Se admite una sola fuente DC, una resistencia, un LED y como máximo un interruptor.");
-  const source = sources[0], resistor = resistors[0], led = leds[0], switchComponent = switches[0];
-  const allowedTypes = new Set([source.type, resistor.type, led.type, ...(switchComponent ? [switchComponent.type] : [])]);
-  if (circuit.components.some((item) => !allowedTypes.has(item.type))) return unsupported("Hay componentes sin modelo eléctrico implementado.");
-  for (const component of circuit.components) {
-    if (component.terminals.length !== 2) return unsupported(`${component.label} no tiene dos terminales compatibles.`);
-    for (const terminal of component.terminals) {
-      const matches = circuit.wires.filter((wire) => (wire.from.componentId === component.id && wire.from.terminalId === terminal.id) || (wire.to.componentId === component.id && wire.to.terminalId === terminal.id));
-      if (matches.length !== 1) return unsupported(`${component.label} no está conectado en serie por ambos terminales.`);
+  if (!circuit.components.length) return unsupported("Agregá componentes antes de iniciar la simulación.");
+  const allowed = new Set(["battery", "cell", "voltage_source_dc", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "ground", "ground_earth"]);
+  const unsupportedComponents = circuit.components.filter((c) => !allowed.has(c.type));
+  if (unsupportedComponents.length) return unsupported("Todavía faltan modelos eléctricos para: " + unsupportedComponents.map((c) => `${c.label} (${c.type})`).join(", ") + ". La biblioteca visual es más amplia que los modelos de simulación; no se puede afirmar que esos componentes funcionen físicamente todavía.");
+  if (circuit.components.some((c) => !((c.type === "ground" || c.type === "ground_earth") && c.terminals.length === 1) && c.terminals.length !== 2)) return unsupported("Esta versión resuelve componentes de dos terminales y símbolos de tierra de un terminal. Los integrados, transistores y otros componentes multipin requieren modelos específicos que aún no están implementados.");
+  const terminalKeys = new Map<string, string>();
+  for (const c of circuit.components) for (const t of c.terminals) terminalKeys.set(`${c.id}:${t.id}`, `${c.id}:${t.id}`);
+  const parent = new Map([...terminalKeys.values()].map((key) => [key, key]));
+  const find = (key: string): string => {
+    const p = parent.get(key);
+    if (!p) return key;
+    if (p === key) return key;
+    const root = find(p); parent.set(key, root); return root;
+  };
+  const union = (a: string, b: string) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  const terminalExists = (componentId: string, terminalId: string) => terminalKeys.has(`${componentId}:${terminalId}`);
+  for (const wire of circuit.wires) {
+    const a = `${wire.from.componentId}:${wire.from.terminalId}`, b = `${wire.to.componentId}:${wire.to.terminalId}`;
+    if (!terminalExists(wire.from.componentId, wire.from.terminalId) || !terminalExists(wire.to.componentId, wire.to.terminalId)) return unsupported(`El cable ${wire.id} apunta a un terminal inexistente.`);
+    union(a, b);
+  }
+  const nodeOf = (c: CircuitComponent, terminalId: string) => find(`${c.id}:${terminalId}`);
+  const sources = circuit.components.filter((c) => ["battery", "cell", "voltage_source_dc"].includes(c.type));
+  if (!sources.length) return unsupported("No se encontró una fuente DC independiente. Agregá una batería o fuente DC para calcular el punto de operación.");
+  for (const c of circuit.components) {
+    if (c.terminals.some((t) => !circuit.wires.some((w) => (w.from.componentId === c.id && w.from.terminalId === t.id) || (w.to.componentId === c.id && w.to.terminalId === t.id)))) return unsupported(`${c.label} tiene un terminal sin cable. Completá las conexiones antes de simular.`);
+  }
+  const ground = sources[0].terminals.find((t) => ["negative", "b"].includes(t.id));
+  if (!ground) return unsupported(`No se reconoce el terminal negativo de ${sources[0].label}.`);
+  const groundNode = nodeOf(sources[0], ground.id);
+  for (const g of circuit.components.filter((c) => c.type === "ground" || c.type === "ground_earth")) {
+    if (g.terminals[0]) union(nodeOf(g, g.terminals[0].id), groundNode);
+  }
+  const allNodes = [...new Set(circuit.components.flatMap((c) => c.terminals.map((t) => nodeOf(c, t.id))))].filter((n) => n !== groundNode);
+  const nodeIndex = new Map(allNodes.map((n, i) => [n, i]));
+  const voltageSources = circuit.components.filter((c) => ["battery", "cell", "voltage_source_dc"].includes(c.type));
+  const sourceIndex = new Map(voltageSources.map((c, i) => [c.id, allNodes.length + i]));
+  const diodeOn = new Map(circuit.components.filter((c) => ["led", "diode"].includes(c.type)).map((c) => [c.id, false]));
+  let solution: number[] | null = null;
+  let branches: Branch[] = [];
+  const branchNodes = (c: CircuitComponent) => ({ a: nodeOf(c, c.terminals[0].id), b: nodeOf(c, c.terminals[1].id) });
+  for (let iteration = 0; iteration < 12; iteration++) {
+    branches = [];
+    for (const c of circuit.components) {
+      if (c.type === "ground" || c.type === "ground_earth") continue;
+      const { a, b } = branchNodes(c);
+      if (["battery", "cell", "voltage_source_dc"].includes(c.type)) {
+        const plus = c.terminals.find((t) => ["positive", "a"].includes(t.id));
+        const minus = c.terminals.find((t) => ["negative", "b"].includes(t.id));
+        if (!plus || !minus) return unsupported(`${c.label}: no se reconoce la polaridad de la fuente.`);
+        branches.push({ component: c, a: nodeOf(c, plus.id), b: nodeOf(c, minus.id), kind: "source", value: finiteProperty(c, "voltage", 0) });
+      } else if (["led", "diode"].includes(c.type)) {
+        const anode = c.terminals.find((t) => t.id === "anode") ?? c.terminals[0];
+        const cathode = c.terminals.find((t) => t.id === "cathode") ?? c.terminals[1];
+        branches.push({ component: c, a: nodeOf(c, anode.id), b: nodeOf(c, cathode.id), kind: "diode", value: finiteProperty(c, "forwardVoltage", c.type === "led" ? 2 : 0.7), resistance: diodeOn.get(c.id) ? 1 : Infinity });
+      } else {
+        const { a, b } = branchNodes(c);
+        let resistance = finiteProperty(c, "resistance", c.type === "motor" || c.type === "lamp" ? 20 : c.type === "fuse" ? 0.05 : 10000);
+        
+        if (["switch", "switch_spst"].includes(c.type) || c.type === "fuse") {
+          const closed = c.type === "fuse" || c.properties.closed === true;
+          resistance = closed ? (c.type === "fuse" ? 0.05 : 1e-3) : 1e12;
+        }
+        if (["resistor", "motor", "lamp", "ldr", "thermistor"].includes(c.type) && resistance <= 0) return unsupported(`${c.label}: resistencia inválida.`);
+        branches.push({ component: c, a, b, kind: "resistor", value: resistance });
+      }
+    }
+    const n = allNodes.length + voltageSources.length;
+    if (n === 0) return unsupported("No hay nodos eléctricos suficientes para resolver el circuito.");
+    const matrix = Array.from({ length: n }, () => Array(n).fill(0) as number[]);
+    const rhs = Array(n).fill(0) as number[];
+    const stampConductance = (a: string, b: string, g: number) => {
+      const ia = nodeIndex.get(a), ib = nodeIndex.get(b);
+      if (ia !== undefined) matrix[ia][ia] += g;
+      if (ib !== undefined) matrix[ib][ib] += g;
+      if (ia !== undefined && ib !== undefined) { matrix[ia][ib] -= g; matrix[ib][ia] -= g; }
+    };
+    for (const branch of branches) {
+      if (branch.kind === "resistor" || (branch.kind === "diode" && branch.resistance !== Infinity)) {
+        const resistance = branch.kind === "diode" ? (branch.resistance ?? 1) : branch.value;
+        if (branch.kind === "diode") {
+          // Conductance plus an equivalent offset current models the forward drop.
+          const g = 1 / resistance; stampConductance(branch.a, branch.b, g);
+          const ia = nodeIndex.get(branch.a), ib = nodeIndex.get(branch.b);
+          const offset = branch.value * g;
+          if (ia !== undefined) rhs[ia] -= offset;
+          if (ib !== undefined) rhs[ib] += offset;
+        } else {
+          if (!Number.isFinite(resistance) || resistance <= 0) return unsupported(`${branch.component.label}: resistencia fuera de rango.`);
+          stampConductance(branch.a, branch.b, 1 / resistance);
+        }
+      } else if (branch.kind === "source") {
+        const k = sourceIndex.get(branch.component.id)!;
+        const ia = nodeIndex.get(branch.a), ib = nodeIndex.get(branch.b);
+        if (ia !== undefined) { matrix[ia][k] += 1; matrix[k][ia] += 1; }
+        if (ib !== undefined) { matrix[ib][k] -= 1; matrix[k][ib] -= 1; }
+        rhs[k] = branch.value;
+      }
+    }
+    solution = solveLinear(matrix, rhs);
+    if (!solution) return unsupported("La red es singular: puede haber una fuente ideal en cortocircuito, nodos flotantes o una ruta sin referencia. Revisá las conexiones y las fuentes.");
+    let changed = false;
+    for (const branch of branches.filter((b) => b.kind === "diode")) {
+      const va = nodeIndex.has(branch.a) ? solution[nodeIndex.get(branch.a)!] : 0;
+      const vb = nodeIndex.has(branch.b) ? solution[nodeIndex.get(branch.b)!] : 0;
+      const on = va - vb > branch.value;
+      if (diodeOn.get(branch.component.id) !== on) { diodeOn.set(branch.component.id, on); changed = true; }
+    }
+    if (!changed) break;
+  }
+  if (!solution) return unsupported("No se encontró una solución numérica estable.");
+  const nodeVoltage = (node: string) => node === groundNode ? 0 : solution![nodeIndex.get(node)!] ?? 0;
+  const measurements: SimulationResult["measurements"] = [];
+  const activeComponentIds: string[] = [];
+  for (const branch of branches) {
+    const voltage = nodeVoltage(branch.a) - nodeVoltage(branch.b);
+    let current = 0;
+    if (branch.kind === "source") current = solution[sourceIndex.get(branch.component.id)!] ?? 0;
+    else if (branch.kind === "resistor") current = voltage / branch.value;
+    else if (diodeOn.get(branch.component.id)) current = (voltage - branch.value) / (branch.resistance ?? 1);
+    if (["led", "diode"].includes(branch.component.type) && current > 0.001) activeComponentIds.push(branch.component.id);
+    measurements.push({ label: `${branch.component.label}: V / I`, value: `${voltage.toFixed(3)} V · ${(current * 1000).toFixed(3)} mA` });
+    if (branch.component.type === "led" && current * 1000 > finiteProperty(branch.component, "maxCurrent", 20)) {
+      measurements.push({ label: `Advertencia ${branch.component.label}`, value: `Sobrecorriente: ${(current * 1000).toFixed(2)} mA` });
     }
   }
-  const positive = source.terminals.find((item) => ["positive", "a"].includes(item.id));
-  const negative = source.terminals.find((item) => ["negative", "b"].includes(item.id));
-  if (!positive || !negative) return unsupported("No se identificaron los terminales de polaridad de la fuente.");
-  let currentComponent = source, currentTerminalId = positive.id;
-  const visited = new Set<string>([source.id]);
-  let ledForward = false, reachedNegative = false;
-  for (let step = 0; step < circuit.components.length; step++) {
-    const connection = connectedComponent(circuit, currentComponent.id, currentTerminalId);
-    if (!connection?.component) return unsupported("Hay un terminal sin conexión.");
-    if (connection.component.id === source.id) { reachedNegative = connection.terminalId === negative.id; break; }
-    const next = connection.component;
-    if (visited.has(next.id)) return unsupported("Las conexiones no forman un único lazo serie.");
-    visited.add(next.id);
-    if (next.id === led.id) {
-      if (connection.terminalId !== "anode") return unsupported("La polaridad del LED está invertida respecto de la fuente.");
-      ledForward = true;
-    }
-    const exitTerminal = otherTerminal(next, connection.terminalId);
-    if (!exitTerminal) return unsupported("No se pudo determinar el terminal de salida.");
-    if (next.id === led.id && exitTerminal !== "cathode") return unsupported("No se identificó correctamente el cátodo del LED.");
-    currentComponent = next; currentTerminalId = exitTerminal;
-  }
-  if (!reachedNegative || visited.size !== circuit.components.length || !ledForward) return unsupported("No se pudo seguir un camino único del positivo al negativo. Revisá las conexiones.");
-  const voltage = source.properties.voltage, resistance = resistor.properties.resistance, forwardVoltage = led.properties.forwardVoltage, maxCurrent = led.properties.maxCurrent;
-  if (typeof voltage !== "number" || typeof resistance !== "number" || typeof forwardVoltage !== "number" || typeof maxCurrent !== "number" || ![voltage,resistance,forwardVoltage,maxCurrent].every(Number.isFinite) || voltage <= 0 || resistance <= 0 || forwardVoltage < 0 || maxCurrent <= 0) return unsupported("Faltan valores eléctricos válidos en la fuente, resistencia o LED.");
-  const closed = switchComponent ? switchComponent.properties.closed === true : true;
-  const current = closed ? Math.max(0, (voltage - forwardVoltage) / resistance) : 0;
-  const ledVoltage = current > 0 ? forwardVoltage : 0, resistorVoltage = current * resistance;
-  const measurements = [
-    { label: "Tensión de fuente", value: `${voltage.toFixed(2)} V` },
-    { label: "Corriente del lazo", value: `${(current * 1000).toFixed(2)} mA` },
-    { label: "Caída en resistencia", value: `${resistorVoltage.toFixed(2)} V` },
-    { label: "Caída estimada en LED", value: `${ledVoltage.toFixed(2)} V` },
-    { label: "Potencia en resistencia", value: `${(current * current * resistance * 1000).toFixed(2)} mW` },
-  ];
-  const summary = !closed ? "El interruptor está abierto: el modelo ideal predice corriente nula."
-    : current === 0 ? "La tensión disponible no supera la caída directa declarada del LED; el modelo predice corriente nula."
-    : current * 1000 > maxCurrent ? `ERROR ELÉCTRICO: el modelo estima ${(current * 1000).toFixed(2)} mA, por encima del máximo declarado de ${maxCurrent} mA. Aumentá la resistencia o revisá la tensión de alimentación antes de construir.`
-    : "La corriente estimada no supera el máximo declarado del LED según este modelo simplificado.";
-  return { supported: true, title: "Resultado de simulación DC aproximada", summary, measurements, disclaimer: "Modelo estático ideal: LED por caída directa constante, fuente y resistencia ideales. No incluye tolerancias, temperatura, transitorios ni modelos SPICE; no reemplaza simulación profesional ni revisión humana." };
+  return {
+    supported: true,
+    title: "Punto de operación DC calculado",
+    summary: activeComponentIds.length ? "Se detectó corriente directa en: " + activeComponentIds.map((id) => circuit.components.find((c) => c.id === id)?.label ?? id).join(", ") + ". Los símbolos LED/diodo pueden mostrarse encendidos. Revisá las advertencias de corriente máxima." : "Se resolvió el punto de operación. Ningún LED/diodo supera el umbral de corriente de encendido en este modelo.",
+    measurements,
+    activeComponentIds,
+    disclaimer: "Análisis DC de red mediante MNA con modelos ideales/resistivos y diodos lineales por tramos. No simula transitorios, frecuencia, temperatura, saturación de transistores ni integrados; motores/lámparas y componentes sensibles usan equivalentes simplificados. No reemplaza Livewire, Proteus ni SPICE validado.",
+  };
 }
