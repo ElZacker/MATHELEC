@@ -593,6 +593,13 @@ const [circuit, setCircuit] = useState<Circuit>(() => ({
 
 const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);
 const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+const [simulationTick, setSimulationTick] = useState(0);
+
+useEffect(() => {
+  if (!simulationResult?.oscillation && !simulationResult?.sequencer) return;
+  const intervalId = window.setInterval(() => setSimulationTick((tick) => tick + 1), 50);
+  return () => window.clearInterval(intervalId);
+}, [simulationResult?.oscillation?.periodMs, simulationResult?.sequencer?.stepMs, simulationResult?.sequencer?.steps.length]);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
@@ -606,6 +613,7 @@ const [validationIssues, setValidationIssues] = useState(() =>
 );
 
 function handleStartSimulation() {
+  setSimulationTick(0);
   const issues = validateCircuit(circuit);
   setValidationIssues(issues);
   const errors = issues.filter((issue) => issue.severity === "error");
@@ -1282,6 +1290,8 @@ function handleMoveComponent(
         {simulationResult && (
           <div className={simulationResult.supported ? "simulation-result" : "simulation-result simulation-result-limited"} role="status" aria-live="polite">
             <strong>{simulationResult.title}</strong><p>{simulationResult.summary}</p>
+            {simulationResult.oscillation && <p className="simulation-animation-status">{((simulationTick * 50) % simulationResult.oscillation.periodMs) < simulationResult.oscillation.highMs ? "Salida NE555: ALTA" : "Salida NE555: BAJA"} · animación en tiempo real</p>}
+            {simulationResult.sequencer && <p className="simulation-animation-status">Paso activo: {simulationResult.sequencer.steps[Math.floor((simulationTick * 50) / simulationResult.sequencer.stepMs) % simulationResult.sequencer.steps.length]?.label ?? "Q0"}</p>}
             {simulationResult.measurements.length > 0 && <ul>{simulationResult.measurements.map((measurement) => <li key={measurement.label}><span>{measurement.label}</span><b>{measurement.value}</b></li>)}</ul>}
             <small>{simulationResult.disclaimer}</small>
           </div>
@@ -1298,7 +1308,15 @@ function handleMoveComponent(
     onDeleteWire={handleDeleteWire}
     highlightedComponentIds={selectedValidationIssue?.componentIds ?? []}
     highlightedWireIds={selectedValidationIssue?.wireIds ?? []}
-    activeComponentIds={simulationResult?.activeComponentIds ?? []}
+    activeComponentIds={
+      simulationResult?.sequencer
+        ? (simulationResult.sequencer.steps[Math.floor((simulationTick * 50) / simulationResult.sequencer.stepMs) % simulationResult.sequencer.steps.length]?.componentIds ?? [])
+        : simulationResult?.oscillation
+          ? (((simulationTick * 50) % simulationResult.oscillation.periodMs) < simulationResult.oscillation.highMs
+            ? simulationResult.oscillation.componentIds
+            : [])
+          : (simulationResult?.activeComponentIds ?? [])
+    }
   />
 ) : (
 
