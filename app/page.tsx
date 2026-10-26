@@ -230,7 +230,23 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         if (!from || !to) return null;
         const fromPoint = getTerminalPoint(from, wire.from.terminalId);
         const toPoint = getTerminalPoint(to, wire.to.terminalId);
-        const points = [fromPoint, ...(wire.points ?? []), toPoint];
+        let points: { x: number; y: number }[];
+        if (wire.points?.length) {
+          points = [fromPoint, ...wire.points, toPoint];
+        } else {
+          const fromIsNegativeSource = ["battery", "cell", "voltage_source_dc"].includes(from.type) && ["negative", "b"].includes(wire.from.terminalId);
+          const toIsNegativeSource = ["battery", "cell", "voltage_source_dc"].includes(to.type) && ["negative", "b"].includes(wire.to.terminalId);
+          if (Math.abs(fromPoint.y - toPoint.y) < 8 && Math.abs(fromPoint.x - toPoint.x) > 120 && (fromIsNegativeSource || toIsNegativeSource)) {
+            // El retorno negativo rodea el circuito por abajo, sin cruzar símbolos.
+            points = [fromPoint, { x: fromPoint.x, y: 300 }, { x: toPoint.x, y: 300 }, toPoint];
+          } else if (Math.abs(fromPoint.y - toPoint.y) > 18) {
+            // Los cables automáticos siguen ángulos rectos, como un esquema convencional.
+            const midX = Math.round((fromPoint.x + toPoint.x) / 2);
+            points = [fromPoint, { x: midX, y: fromPoint.y }, { x: midX, y: toPoint.y }, toPoint];
+          } else {
+            points = [fromPoint, toPoint];
+          }
+        }
         const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
 
         return (
