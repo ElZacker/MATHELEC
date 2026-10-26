@@ -442,7 +442,7 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
     for (const c of circuit.components) {
       if (c.type === "ground" || c.type === "ground_earth") continue;
       const { a, b } = branchNodes(c);
-      if (["battery", "cell", "voltage_source_dc"].includes(c.type)) {
+      if (["battery", "cell", "voltage_source_dc", "voltage_source_ac"].includes(c.type)) {
         const plus = c.terminals.find((t) => ["positive", "a"].includes(t.id));
         const minus = c.terminals.find((t) => ["negative", "b"].includes(t.id));
         if (!plus || !minus) return unsupported(`${c.label}: no se reconoce la polaridad de la fuente.`);
