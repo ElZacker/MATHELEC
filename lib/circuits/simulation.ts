@@ -45,10 +45,10 @@ function solveLinear(matrix: number[][], vector: number[]): number[] | null {
  */
 export function runDcSimulation(circuit: Circuit): SimulationResult {
   if (!circuit.components.length) return unsupported("Agregá componentes antes de iniciar la simulación.");
-  const allowed = new Set(["battery", "cell", "voltage_source_dc", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "potentiometer"]);
+  const allowed = new Set(["battery", "cell", "voltage_source_dc", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "ground", "ground_earth"]);
   const unsupportedComponents = circuit.components.filter((c) => !allowed.has(c.type));
   if (unsupportedComponents.length) return unsupported("Todavía faltan modelos eléctricos para: " + unsupportedComponents.map((c) => `${c.label} (${c.type})`).join(", ") + ". La biblioteca visual es más amplia que los modelos de simulación; no se puede afirmar que esos componentes funcionen físicamente todavía.");
-  if (circuit.components.some((c) => c.terminals.length !== 2)) return unsupported("Esta versión resuelve componentes de dos terminales. Los integrados, transistores y otros componentes multipin requieren modelos específicos que aún no están implementados.");
+  if (circuit.components.some((c) => !((c.type === "ground" || c.type === "ground_earth") && c.terminals.length === 1) && c.terminals.length !== 2)) return unsupported("Esta versión resuelve componentes de dos terminales y símbolos de tierra de un terminal. Los integrados, transistores y otros componentes multipin requieren modelos específicos que aún no están implementados.");
   const terminalKeys = new Map<string, string>();
   for (const c of circuit.components) for (const t of c.terminals) terminalKeys.set(`${c.id}:${t.id}`, `${c.id}:${t.id}`);
   const parent = new Map([...terminalKeys.values()].map((key) => [key, key]));
@@ -74,6 +74,9 @@ export function runDcSimulation(circuit: Circuit): SimulationResult {
   const ground = sources[0].terminals.find((t) => ["negative", "b"].includes(t.id));
   if (!ground) return unsupported(`No se reconoce el terminal negativo de ${sources[0].label}.`);
   const groundNode = nodeOf(sources[0], ground.id);
+  for (const g of circuit.components.filter((c) => c.type === "ground" || c.type === "ground_earth")) {
+    if (g.terminals[0]) union(nodeOf(g, g.terminals[0].id), groundNode);
+  }
   const allNodes = [...new Set(circuit.components.flatMap((c) => c.terminals.map((t) => nodeOf(c, t.id))))].filter((n) => n !== groundNode);
   const nodeIndex = new Map(allNodes.map((n, i) => [n, i]));
   const voltageSources = circuit.components.filter((c) => ["battery", "cell", "voltage_source_dc"].includes(c.type));
@@ -85,6 +88,7 @@ export function runDcSimulation(circuit: Circuit): SimulationResult {
   for (let iteration = 0; iteration < 12; iteration++) {
     branches = [];
     for (const c of circuit.components) {
+      if (c.type === "ground" || c.type === "ground_earth") continue;
       const { a, b } = branchNodes(c);
       if (["battery", "cell", "voltage_source_dc"].includes(c.type)) {
         const plus = c.terminals.find((t) => ["positive", "a"].includes(t.id));
@@ -98,12 +102,12 @@ export function runDcSimulation(circuit: Circuit): SimulationResult {
       } else {
         const { a, b } = branchNodes(c);
         let resistance = finiteProperty(c, "resistance", c.type === "motor" || c.type === "lamp" ? 20 : c.type === "fuse" ? 0.05 : 10000);
-        if (c.type === "potentiometer") resistance = Math.max(1e-3, resistance / 2);
+        
         if (["switch", "switch_spst"].includes(c.type) || c.type === "fuse") {
           const closed = c.type === "fuse" || c.properties.closed === true;
           resistance = closed ? (c.type === "fuse" ? 0.05 : 1e-3) : 1e12;
         }
-        if (["resistor", "motor", "lamp", "ldr", "thermistor", "potentiometer"].includes(c.type) && resistance <= 0) return unsupported(`${c.label}: resistencia inválida.`);
+        if (["resistor", "motor", "lamp", "ldr", "thermistor"].includes(c.type) && resistance <= 0) return unsupported(`${c.label}: resistencia inválida.`);
         branches.push({ component: c, a, b, kind: "resistor", value: resistance });
       }
     }
