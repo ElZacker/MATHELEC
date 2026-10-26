@@ -102,6 +102,7 @@ function CircuitPreview({
   onDeleteWire,
   highlightedComponentIds,
   highlightedWireIds,
+  activeComponentIds,
 }: {
   circuit: Circuit;
   onMove: (componentId: string, x: number, y: number) => void;
@@ -109,6 +110,7 @@ function CircuitPreview({
   onDeleteWire: (wireId: string) => void;
   highlightedComponentIds: string[];
   highlightedWireIds: string[];
+  activeComponentIds: string[];
 }) {
   const componentColor = "#45f59a";
   const [wireDraft, setWireDraft] = useState<{
@@ -320,6 +322,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
 
           {component.type === "led" && (
             <>
+              {activeComponentIds.includes(component.id) && <><circle cx="0" cy="0" r="23" fill={String(component.properties.color || "red")} opacity="0.2" stroke="none" /><circle cx="0" cy="0" r="15" fill={String(component.properties.color || "red")} opacity="0.3" stroke="none" /></>}
               <line x1="-28" y1="0" x2="-10" y2="0" />
               <path d="M-10 -12 L12 0 L-10 12 Z" />
               <line x1="12" y1="-13" x2="12" y2="13" />
@@ -588,7 +591,7 @@ function handleStartSimulation() {
       messages: [...chat.messages, {
         id: `diagnostico-${Date.now()}`,
         role: "assistant" as const,
-        text: `Todavía no puedo calcular esta topología con fiabilidad.\n\nMotivo: ${result.summary}\n\nNo voy a mostrar mediciones inventadas. La simulación disponible actualmente cubre un lazo DC en serie con fuente, resistencia, LED y un interruptor opcional.`,
+        text: `Todavía no puedo calcular esta topología con fiabilidad.\n\nMotivo: ${result.summary}\n\nNo voy a mostrar mediciones inventadas. El diagnóstico indica qué modelo o conexión falta para esta topología.`,
       }],
     } : chat));
   }
@@ -1223,7 +1226,7 @@ function handleMoveComponent(
         </div>
 
         <div className="simulation-toolbar">
-          <div><strong>Simulación eléctrica</strong><small>Experimental · punto de operación DC en lazo serie sencillo</small></div>
+          <div><strong>Simulación eléctrica</strong><small>Experimental · análisis DC de redes resistivas y diodos compatibles</small></div>
           <button type="button" className="simulation-start-button" onClick={handleStartSimulation} disabled={circuit.components.length === 0}>▶ Iniciar simulación</button>
           {simulationResult && <button type="button" className="simulation-stop-button" onClick={() => setSimulationResult(null)}>Cerrar resultados</button>}
         </div>
@@ -1246,6 +1249,7 @@ function handleMoveComponent(
     onDeleteWire={handleDeleteWire}
     highlightedComponentIds={selectedValidationIssue?.componentIds ?? []}
     highlightedWireIds={selectedValidationIssue?.wireIds ?? []}
+    activeComponentIds={simulationResult?.activeComponentIds ?? []}
   />
 ) : (
 
