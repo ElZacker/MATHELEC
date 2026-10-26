@@ -265,7 +265,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const noConnectionRequested = /\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/i.test(prompt);
   const canInferSimpleLoop = components.length >= 3 && components.length <= 4 && components.every((item) => ["battery", "cell", "voltage_source_dc", "resistor", "led", "switch", "switch_spst"].includes(item.type)) &&
     components.some((item) => ["battery", "cell", "voltage_source_dc"].includes(item.type)) && components.some((item) => item.type === "resistor") && components.some((item) => item.type === "led") &&
-    (components.length === 3 || components.some((item) => ["switch", "switch_spst"].includes(item.type));
+    (components.length === 3 || components.some((item) => ["switch", "switch_spst"].includes(item.type)));
   if (components.length > 1 && wires.length === 0 && !noConnectionRequested && !canInferSimpleLoop) {
     // Segunda pasada dedicada al cableado: evita mostrar una lista de componentes como si fuera un circuito.
     const wireRepairEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
