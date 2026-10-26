@@ -16,6 +16,7 @@ import {
 import { validateCircuit } from "@/lib/circuits/validation";
 import { getAvailableComponentTypes } from "@/lib/circuits/components";
 import { importSpiceNetlist } from "@/lib/circuits/import-spice";
+import { runDcSimulation, type SimulationResult } from "@/lib/circuits/simulation";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
 type Message = {
@@ -229,7 +230,23 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         if (!from || !to) return null;
         const fromPoint = getTerminalPoint(from, wire.from.terminalId);
         const toPoint = getTerminalPoint(to, wire.to.terminalId);
-        const points = [fromPoint, ...(wire.points ?? []), toPoint];
+        let points: { x: number; y: number }[];
+        if (wire.points?.length) {
+          points = [fromPoint, ...wire.points, toPoint];
+        } else {
+          const fromIsNegativeSource = ["battery", "cell", "voltage_source_dc"].includes(from.type) && ["negative", "b"].includes(wire.from.terminalId);
+          const toIsNegativeSource = ["battery", "cell", "voltage_source_dc"].includes(to.type) && ["negative", "b"].includes(wire.to.terminalId);
+          if (Math.abs(fromPoint.y - toPoint.y) < 8 && Math.abs(fromPoint.x - toPoint.x) > 120 && (fromIsNegativeSource || toIsNegativeSource)) {
+            // El retorno negativo rodea el circuito por abajo, sin cruzar símbolos.
+            points = [fromPoint, { x: fromPoint.x, y: 300 }, { x: toPoint.x, y: 300 }, toPoint];
+          } else if (Math.abs(fromPoint.y - toPoint.y) > 18) {
+            // Los cables automáticos siguen ángulos rectos, como un esquema convencional.
+            const midX = Math.round((fromPoint.x + toPoint.x) / 2);
+            points = [fromPoint, { x: midX, y: fromPoint.y }, { x: midX, y: toPoint.y }, toPoint];
+          } else {
+            points = [fromPoint, toPoint];
+          }
+        }
         const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
 
         return (
@@ -525,6 +542,7 @@ const [circuit, setCircuit] = useState<Circuit>(() => ({
 }));
 
 const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);
+const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
@@ -536,6 +554,12 @@ const [validationIssues, setValidationIssues] = useState(() =>
     updatedAt: "",
   })
 );
+
+function handleStartSimulation() {
+  const result = runDcSimulation(circuit);
+  setSimulationResult(result);
+  setNotice(result.supported ? "Análisis de punto de operación DC terminado." : "La topología todavía no es compatible con el simulador experimental.");
+}
 
 function handleAddComponent(type: ComponentType) {
   try {
@@ -1164,6 +1188,19 @@ function handleMoveComponent(
             <button key={tab} type="button" role="tab" aria-selected={previewTab === tab} className={previewTab === tab ? "preview-tab-active" : ""} onClick={() => setPreviewTab(tab)}>{tab}</button>
           ))}
         </div>
+
+        <div className="simulation-toolbar">
+          <div><strong>Simulación eléctrica</strong><small>Experimental · punto de operación DC en lazo serie sencillo</small></div>
+          <button type="button" className="simulation-start-button" onClick={handleStartSimulation} disabled={circuit.components.length === 0}>▶ Iniciar simulación</button>
+          {simulationResult && <button type="button" className="simulation-stop-button" onClick={() => setSimulationResult(null)}>Detener</button>}
+        </div>
+        {simulationResult && (
+          <div className={simulationResult.supported ? "simulation-result" : "simulation-result simulation-result-limited"} role="status">
+            <strong>{simulationResult.title}</strong><p>{simulationResult.summary}</p>
+            {simulationResult.measurements.length > 0 && <ul>{simulationResult.measurements.map((measurement) => <li key={measurement.label}><span>{measurement.label}</span><b>{measurement.value}</b></li>)}</ul>}
+            <small>{simulationResult.disclaimer}</small>
+          </div>
+        )}
 
         <div className="preview-canvas">
           <div className="preview-canvas-top"><span>MATHELEC / VIEWER</span><span>100%</span></div>

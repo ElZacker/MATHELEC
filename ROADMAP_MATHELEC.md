@@ -1095,3 +1095,20 @@ No necesitás saber toda la programación antes de empezar. Necesitás aprender 
 Tu primer gran logro no será crear una IA que haga absolutamente todo. Será conseguir que ElectroIA genere un circuito sencillo, con componentes bien colocados, terminales correctos y conexiones verificables. Una vez que eso funcione, ya vas a tener una base real sobre la que construir los conversores de Livewire, PCB Wizard y Proteus, la guía de protoboard y el sistema comercial.
 
 Y si el proyecto termina teniendo éxito, tenerlo bien documentado, con pruebas y con un historial de desarrollo será tan importante como la IA misma.
+
+
+---
+
+## Implementación técnica — generación coherente y simulación inicial
+
+La generación debe producir un esquema conectado por defecto. Solo se dejan componentes sin cables cuando el usuario lo solicita explícitamente. La IA debe justificar topología, valores, polaridad y supuestos, y advertir cuando una solicitud no puede demostrar lo que promete (por ejemplo, medir conductancia de la piel no demuestra que una persona mienta).
+
+El editor incluye una primera simulación experimental de punto de operación DC para un único lazo serie con una fuente, una resistencia, un LED y, opcionalmente, un interruptor. Calcula corriente y caídas de tensión con un modelo ideal simplificado; rechaza topologías no compatibles y muestra sus limitaciones. No es una simulación transitoria ni un sustituto de SPICE.
+
+El generador aplica un acomodo determinista a circuitos LED serie simples y solicita a Gemini una distribución convencional, ordenada y legible. Los circuitos complejos todavía requieren reglas de disposición y modelos eléctricos específicos; no deben presentarse como verificados solo porque la IA los haya generado.
+
+Criterios de aceptación:
+- Un pedido de circuito normal produce componentes y conexiones válidas; un pedido explícito “sin conexiones” no agrega cables.
+- El circuito serie LED sencillo queda dispuesto con fuente, resistencia, LED y retorno claramente separados.
+- El simulador devuelve mediciones solo para la topología que sabe resolver; para cualquier otra topología explica por qué no puede calcularla.
+- Las advertencias técnicas y las limitaciones del modelo permanecen visibles.

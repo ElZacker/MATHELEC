@@ -52,7 +52,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
 
   const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
   const circuitContext = JSON.stringify(currentCircuit);
-  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Si preguntan cuáles son tus capacidades, respondé de forma concreta y honesta: podés explicar electrónica, proponer circuitos con toda la biblioteca disponible, añadir uno o varios componentes, conectar y desconectar cables, rotar/mover/eliminar componentes, cambiar propiedades admitidas, explicar errores y sugerir sustitutos; no podés simular eléctricamente ni garantizar que un circuito funcione, y no debes afirmar capacidades inexistentes. Si piden un circuito aleatorio, no rechaces el pedido: elegí un circuito didáctico coherente con componentes disponibles y, si pide que sea complejo, usá varias etapas conectadas sin exceder los límites, explicá qué hace y devolvé componentes y conexiones válidas. En pedidos singulares como “agrega otro LED”, ejecutá exactamente una unidad salvo que indiquen una cantidad distinta; no dupliques acciones. Para desconectar, usa una acción disconnect por cada pareja de componentes conectada que el usuario indique, sin tocar cables no relacionados. Si solicitan un componente inexistente, explicá cuál falta y ofrecé la alternativa más cercana disponible, sin inventar que existe. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. Si el usuario dice que elijas vos, que sea aleatorio o pide componentes conectados sin especificar cuáles, elegí una combinación coherente y realizá el cambio en vez de pedirle que elija. Si pide conectar componentes que ya están colocados, conectá los existentes usando sus referencias y terminales reales. Si pide agregar un componente conectado, agregá el componente y conectalo a la topología existente cuando sea eléctricamente razonable. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 30 componentes totales y 40 cables nuevos. No afirmes validación o simulación eléctrica. Tipos y terminales disponibles (fuente de verdad): ${JSON.stringify(Object.fromEntries(getAvailableComponentTypes().map((type) => [type, getComponentDefinition(type).terminals.map((terminal) => ({ id: terminal.id, name: terminal.name }))])))}. Usá únicamente estos tipos y terminales. Coordenadas x=30..410, y=40..290. No inventes componentes ni terminales. Máximo 30 componentes totales y 40 cables nuevos. Respeta la cantidad exacta solicitada; “otro/un/una” significa exactamente uno. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. La salida debe ser JSON completo y válido, sin Markdown, sin comentarios, sin texto antes o después del objeto. Mantené response breve y priorizá la validez de la estructura, índices de componentes correctos y terminales existentes. `;
+  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Si preguntan cuáles son tus capacidades, respondé de forma concreta y honesta: podés explicar electrónica, proponer circuitos con toda la biblioteca disponible, añadir uno o varios componentes, conectar y desconectar cables, rotar/mover/eliminar componentes, cambiar propiedades admitidas, explicar errores y sugerir sustitutos; no podés simular eléctricamente ni garantizar que un circuito funcione, y no debes afirmar capacidades inexistentes. Si el usuario pide diseñar, generar, crear o armar un circuito, la salida debe incluir conexiones eléctricas válidas por defecto; jamás entregues componentes sueltos solo por comodidad. Solo omitas cables si el usuario pide explícitamente "sin conexiones", "sin conectar" o equivalente. Cada conexión debe usar terminales reales y respetar polaridad, función, requisitos eléctricos y límites físicos; no inventes una topología que no puedas justificar. Antes de elegir componentes, identifica la función del circuito, calcula valores básicos cuando sea posible y explica límites relevantes (por ejemplo, un detector de conductancia cutánea no demuestra que alguien mienta). Si faltan datos críticos, usa supuestos explícitos y conservadores o pregunta, sin presentar el diseño como validado. Si piden un circuito aleatorio, elegí un diseño didáctico coherente y conectado; si es complejo, divide en etapas funcionales conectadas y explica lo que no puede verificarse. En pedidos singulares como “agrega otro LED”, ejecutá exactamente una unidad salvo que indiquen una cantidad distinta; no dupliques acciones. Para desconectar, usa una acción disconnect por cada pareja de componentes conectada que el usuario indique, sin tocar cables no relacionados. Si solicitan un componente inexistente, explicá cuál falta y ofrecé la alternativa más cercana disponible, sin inventar que existe. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. Si el usuario dice que elijas vos, que sea aleatorio o pide componentes conectados sin especificar cuáles, elegí una combinación coherente y realizá el cambio en vez de pedirle que elija. Si pide conectar componentes que ya están colocados, conectá los existentes usando sus referencias y terminales reales. Si pide agregar un componente conectado, agregá el componente y conectalo a la topología existente cuando sea eléctricamente razonable. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 30 componentes totales y 40 cables nuevos. No afirmes validación o simulación eléctrica. Tipos y terminales disponibles (fuente de verdad): ${JSON.stringify(Object.fromEntries(getAvailableComponentTypes().map((type) => [type, getComponentDefinition(type).terminals.map((terminal) => ({ id: terminal.id, name: terminal.name }))])))}. Usá únicamente estos tipos y terminales. Coordenadas x=30..410, y=40..290. Distribuí los componentes como un esquema electrónico convencional: fuente a la izquierda, protección/entrada primero, procesamiento en el centro y carga/salida a la derecha; usá filas alineadas, separación suficiente para etiquetas y cables, evitá superposiciones y priorizá recorridos ordenados. No inventes componentes ni terminales. Máximo 30 componentes totales y 40 cables nuevos. Respeta la cantidad exacta solicitada; “otro/un/una” significa exactamente uno. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. La salida debe ser JSON completo y válido, sin Markdown, sin comentarios, sin texto antes o después del objeto. Mantené response breve y priorizá la validez de la estructura, índices de componentes correctos y terminales existentes. `;
   // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
   // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
   const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
@@ -262,11 +262,94 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     wires.push({ from, to });
   }
 
+  const noConnectionRequested = /\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/i.test(prompt);
+  const canInferSimpleLoop = components.length >= 3 && components.length <= 4 && components.every((item) => ["battery", "cell", "voltage_source_dc", "resistor", "led", "switch", "switch_spst"].includes(item.type)) &&
+    components.some((item) => ["battery", "cell", "voltage_source_dc"].includes(item.type)) && components.some((item) => item.type === "resistor") && components.some((item) => item.type === "led") &&
+    (components.length === 3 || components.some((item) => ["switch", "switch_spst"].includes(item.type)));
+  if (components.length > 1 && wires.length === 0 && !noConnectionRequested && !canInferSimpleLoop) {
+    // Segunda pasada dedicada al cableado: evita mostrar una lista de componentes como si fuera un circuito.
+    const wireRepairEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+    const wireRepairPrompt = `Conectá técnicamente los componentes de este circuito. Devolvé SOLO JSON con la forma {"wires":[{"from":{"componentIndex":0,"terminalId":"..."},"to":{"componentIndex":1,"terminalId":"..."}}]}. No cambies componentes. Usá únicamente índices y terminales listados. Respetá polaridad, función eléctrica y una topología razonable; si no podés justificar una conexión, devolvé {"wires":[]} en lugar de inventar. Pedido original: ${prompt}. Componentes: ${JSON.stringify(components.map((item,index)=>({componentIndex:index,type:item.type,terminals:terminalMap[item.type]})))}. `;
+    try {
+      const wireRepairResponse = await fetch(wireRepairEndpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: "Sos un ingeniero electrónico cuidadoso. Generá conexiones justificables, nunca inventes terminales y devolvé solo JSON válido." }] },
+          contents: [{ role: "user", parts: [{ text: wireRepairPrompt }] }],
+          generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: "LOW" } },
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (wireRepairResponse.ok) {
+        const wirePayload = await wireRepairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const wireRaw = wirePayload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim() ?? "";
+        const parsedWires = JSON.parse(wireRaw) as { wires?: unknown[] };
+        for (const item of (Array.isArray(parsedWires.wires) ? parsedWires.wires : [])) {
+          if (!item || typeof item !== "object") continue;
+          const candidate = item as Record<string, unknown>;
+          const parseRepairEnd = (end: unknown) => {
+            if (!end || typeof end !== "object") return null;
+            const value = end as Record<string, unknown>;
+            if (!Number.isInteger(value.componentIndex) || typeof value.terminalId !== "string") return null;
+            const componentIndex = value.componentIndex as number;
+            if (componentIndex < 0 || componentIndex >= components.length) return null;
+            const terminalId = normalizeTerminal(components[componentIndex].type, value.terminalId);
+            return terminalId ? { componentIndex, terminalId } : null;
+          };
+          const from = parseRepairEnd(candidate.from), to = parseRepairEnd(candidate.to);
+          if (!from || !to || (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId)) continue;
+          const key = [`${from.componentIndex}:${from.terminalId}`, `${to.componentIndex}:${to.terminalId}`].sort().join("<->");
+          if (!wires.some((wire) => [`${wire.from.componentIndex}:${wire.from.terminalId}`, `${wire.to.componentIndex}:${wire.to.terminalId}`].sort().join("<->") === key)) wires.push({ from, to });
+        }
+      }
+    } catch {
+      // El chequeo final de abajo evita entregar una propuesta desconectada como si estuviera completa.
+    }
+    if (wires.length === 0) {
+      throw new Error("No pude justificar conexiones eléctricas válidas para todos los componentes. No se aplicó el circuito; probá especificar su función o los requisitos que faltan.");
+    }
+  }
   const connectionKeys = new Set<string>();
   for (const wire of wires) {
     const key = [`${wire.from.componentIndex}:${wire.from.terminalId}`, `${wire.to.componentIndex}:${wire.to.terminalId}`].sort().join("<->");
     if (connectionKeys.has(key)) throw new Error("Gemini propuso una conexión duplicada.");
     connectionKeys.add(key);
+  }
+  // Si Gemini omitió todos los cables en un circuito nuevo, solo inferimos un lazo LED serie elemental.
+  const explicitlyUnwired = /\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/i.test(prompt);
+  if (components.length > 1 && wires.length === 0 && !explicitlyUnwired) {
+    const batteryIndex = components.findIndex((item) => ["battery", "cell", "voltage_source_dc"].includes(item.type));
+    const resistorIndex = components.findIndex((item) => item.type === "resistor");
+    const ledIndex = components.findIndex((item) => item.type === "led");
+    const switchIndex = components.findIndex((item) => ["switch", "switch_spst"].includes(item.type));
+    const simpleTypes = components.every((item) => ["battery", "cell", "voltage_source_dc", "resistor", "led", "switch", "switch_spst"].includes(item.type));
+    if (simpleTypes && batteryIndex >= 0 && resistorIndex >= 0 && ledIndex >= 0 && components.length === (switchIndex >= 0 ? 4 : 3)) {
+      const addWire = (fromIndex: number, fromTerminal: string, toIndex: number, toTerminal: string) =>
+        wires.push({ from: { componentIndex: fromIndex, terminalId: fromTerminal }, to: { componentIndex: toIndex, terminalId: toTerminal } });
+      addWire(batteryIndex, "positive", resistorIndex, "a");
+      addWire(resistorIndex, "b", ledIndex, "anode");
+      if (switchIndex >= 0) {
+        addWire(ledIndex, "cathode", switchIndex, "a");
+        addWire(switchIndex, "b", batteryIndex, "negative");
+      } else addWire(ledIndex, "cathode", batteryIndex, "negative");
+      components[batteryIndex] = { ...components[batteryIndex], x: 55, y: 165 };
+      components[resistorIndex] = { ...components[resistorIndex], x: 165, y: 80 };
+      components[ledIndex] = { ...components[ledIndex], x: 335, y: 165 };
+      if (switchIndex >= 0) components[switchIndex] = { ...components[switchIndex], x: 165, y: 250 };
+    }
+  }
+  // Acomodo determinista para el circuito LED serie común.
+  if (components.length > 1 && wires.length > 0 && components.every((item) => ["battery", "cell", "voltage_source_dc", "resistor", "led", "switch", "switch_spst"].includes(item.type))) {
+    const batteryIndex = components.findIndex((item) => ["battery", "cell", "voltage_source_dc"].includes(item.type));
+    const resistorIndex = components.findIndex((item) => item.type === "resistor");
+    const ledIndex = components.findIndex((item) => item.type === "led");
+    const switchIndex = components.findIndex((item) => ["switch", "switch_spst"].includes(item.type));
+    if (batteryIndex >= 0 && resistorIndex >= 0 && ledIndex >= 0) {
+      components[batteryIndex] = { ...components[batteryIndex], x: 55, y: 165 };
+      components[resistorIndex] = { ...components[resistorIndex], x: 165, y: 80 };
+      components[ledIndex] = { ...components[ledIndex], x: 335, y: 165 };
+      if (switchIndex >= 0) components[switchIndex] = { ...components[switchIndex], x: 165, y: 250 };
+    }
   }
   const stringList = (key: string): string[] => {
     const entry = value[key];
@@ -291,6 +374,7 @@ function buildDemoProposal(prompt: string): Proposal {
   const asksCapabilities = /\b(capacidades|que podes hacer|que puedes hacer|para que servis|que sabes hacer)\b/.test(text);
   if (asksCapabilities) return { mode: "demo", title: "Qué puede hacer Mathelect", explanation: "Puedo proponer circuitos con la biblioteca, añadir componentes, definir conexiones, explicar componentes y señalar piezas que falten. La edición exacta depende de que el modelo Gemini esté configurado; sin la clave, el modo demostración reconoce solo algunas solicitudes. No ejecuto simulación eléctrica ni puedo garantizar el funcionamiento físico.", response: "Puedo ayudarte a diseñar circuitos con los componentes de la biblioteca, explicar cómo funcionan, proponer conexiones, agregar o quitar componentes, rotarlos, moverlos y ajustar propiedades admitidas. También puedo señalar piezas faltantes y sugerir alternativas disponibles. Si Gemini está configurado, puedo interpretar instrucciones en lenguaje natural con más flexibilidad; sin esa configuración, algunas funciones quedan limitadas al modo demostración. No simulo eléctricamente el circuito ni garantizo que sea seguro construirlo.", components: [], wires: [], confirmedRequirements: [], assumptions: [], missingInformation: [], warnings: ["Las capacidades de edición avanzada requieren configurar GEMINI_API_KEY; el modo demostración no es una IA general."] };
   const wantsRandom = /\b(aleatorio|aleatoria|al azar|sorpresa|random)\b/.test(text) && /\b(circuito|generame|genera|crear|crea|arma|armar)\b/.test(text);
+  const explicitlyUnwired = /\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/.test(text);
   if (wantsRandom) {
     const components: ProposalComponent[] = [
       { type: "battery", x: 75, y: 165 },
@@ -298,7 +382,7 @@ function buildDemoProposal(prompt: string): Proposal {
       { type: "led", x: 365, y: 165 },
       { type: "switch", x: 220, y: 245 },
     ];
-    const wires: ProposalWire[] = [
+    const wires: ProposalWire[] = explicitlyUnwired ? [] : [
       { from: { componentIndex: 0, terminalId: "positive" }, to: { componentIndex: 1, terminalId: "a" } },
       { from: { componentIndex: 1, terminalId: "b" }, to: { componentIndex: 2, terminalId: "anode" } },
       { from: { componentIndex: 2, terminalId: "cathode" }, to: { componentIndex: 3, terminalId: "a" } },
@@ -354,7 +438,7 @@ function buildDemoProposal(prompt: string): Proposal {
   const positions = Array.from({ length: 30 }, (_, index) => ({ x: 55 + (index % 6) * 70, y: 55 + Math.floor(index / 6) * 48 }));
   const components: ProposalComponent[] = expanded.map((type, index) => ({ type, ...positions[index] }));
   const hasBattery = expanded.includes("battery"), hasResistor = expanded.includes("resistor"), hasLed = expanded.includes("led");
-  const simpleLed = asksForAction && hasBattery && hasResistor && hasLed && !wantsBlink && !wantsAlarm && !wantsCounter;
+  const simpleLed = asksForAction && hasBattery && hasResistor && hasLed && !wantsBlink && !wantsAlarm && !wantsCounter && !explicitlyUnwired;
   const wires: ProposalWire[] = [];
   if (simpleLed) {
     const bi = expanded.indexOf("battery"), ri = expanded.indexOf("resistor"), li = expanded.indexOf("led");
