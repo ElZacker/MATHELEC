@@ -29,8 +29,33 @@ function buildKnownCircuitProposal(prompt: string): Omit<Proposal, "mode"> | nul
   type C = ProposalComponent; type W = ProposalWire;
   const cpt = (type: ComponentType, x: number, y: number, properties?: Record<string, string | number | boolean>): C => ({ type, x, y, ...(properties ? { properties } : {}) });
   const w = (fromIndex: number, fromTerminal: string, toIndex: number, toTerminal: string): W => ({ from:{componentIndex:fromIndex,terminalId:fromTerminal},to:{componentIndex:toIndex,terminalId:toTerminal} });
-  const result = (title:string, explanation:string, response:string, components:C[], wires:W[], confirmedRequirements:string[], assumptions:string[], warnings:string[], missingInformation:string[]=[]):Omit<Proposal,"mode"> =>
-    ({title,explanation,response,components,wires,confirmedRequirements,assumptions,warnings,missingInformation,actions:[]});
+  const result = (title:string, explanation:string, response:string, components:C[], wires:W[], confirmedRequirements:string[], assumptions:string[], warnings:string[], missingInformation:string[]=[]):Omit<Proposal,"mode"> => {
+    if (components.length > 30 || wires.length > 40) throw new Error("La plantilla excede el límite de componentes o cables.");
+    const validTerminals = components.map((item) => getComponentDefinition(item.type).terminals.map((terminal) => terminal.id));
+    const connected = new Set<string>();
+    const wireKeys = new Set<string>();
+    for (const wire of wires) {
+      if (!components[wire.from.componentIndex] || !components[wire.to.componentIndex]) throw new Error("La plantilla contiene una conexión a un componente inexistente.");
+      if (!validTerminals[wire.from.componentIndex].includes(wire.from.terminalId) || !validTerminals[wire.to.componentIndex].includes(wire.to.terminalId)) {
+        throw new Error("La plantilla contiene una conexión a un terminal inexistente.");
+      }
+      const ends = [
+        wire.from.componentIndex + ":" + wire.from.terminalId,
+        wire.to.componentIndex + ":" + wire.to.terminalId,
+      ];
+      if (ends[0] === ends[1]) throw new Error("La plantilla intenta conectar un terminal consigo mismo.");
+      const wireKey = [...ends].sort().join("<->");
+      if (wireKeys.has(wireKey)) throw new Error("La plantilla contiene una conexión duplicada.");
+      wireKeys.add(wireKey);
+      connected.add(ends[0]); connected.add(ends[1]);
+    }
+    const openTerminals = components.flatMap((item,index) =>
+      getComponentDefinition(item.type).terminals
+        .filter((terminal) => !connected.has(index + ":" + terminal.id))
+        .map((terminal) => item.type + " #" + (index + 1) + " terminal " + (terminal.name || terminal.id)));
+    if (openTerminals.length) throw new Error("La plantilla no se aplicó porque tiene terminales sin cable: " + openTerminals.join(", ") + ".");
+    return {title,explanation,response,components,wires,confirmedRequirements,assumptions,warnings,missingInformation,actions:[]};
+  };
 
   // Reliable template for the common 555 astable: 9 V, 10 kΩ, 47 kΩ, 22 µF, LED+390 Ω.
   if ((/\b(ne ?555|ic ?555|555)\b/.test(text) || /\bled intermitente\b/.test(text)) && /\b(parpade|intermit|titil|blink|destell|oscilador|led)\w*/.test(text)) {
