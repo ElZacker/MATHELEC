@@ -26,8 +26,8 @@ function unsupported(summary: string): SimulationResult {
 
 /** Resuelve un punto de operación aproximado para un único lazo serie DC. */
 export function runDcSimulation(circuit: Circuit): SimulationResult {
-  if (circuit.components.length < 3 || circuit.components.length > 4) return unsupported("Se necesita fuente DC, resistencia, LED y, opcionalmente, un interruptor.");
-  if (circuit.wires.length !== circuit.components.length) return unsupported("El lazo no parece cerrado: la cantidad de cables no coincide con un único circuito serie.");
+  if (circuit.components.length < 3 || circuit.components.length > 4) return unsupported("Se necesita fuente DC, resistencia, LED y, opcionalmente, un interruptor. Este modelo no resuelve todavía otras topologías; no se muestran mediciones ficticias.").replace("x","x");
+  if (circuit.wires.length !== circuit.components.length) return unsupported("El lazo no parece cerrado: la cantidad de cables no coincide con un único circuito serie. Revisá terminales abiertos, cables faltantes o conexiones adicionales.");
   const sources = circuit.components.filter((item) => ["battery", "cell", "voltage_source_dc"].includes(item.type));
   const resistors = circuit.components.filter((item) => item.type === "resistor");
   const leds = circuit.components.filter((item) => item.type === "led");
@@ -80,7 +80,7 @@ export function runDcSimulation(circuit: Circuit): SimulationResult {
   ];
   const summary = !closed ? "El interruptor está abierto: el modelo ideal predice corriente nula."
     : current === 0 ? "La tensión disponible no supera la caída directa declarada del LED; el modelo predice corriente nula."
-    : current * 1000 > maxCurrent ? `El modelo estima ${(current * 1000).toFixed(2)} mA, por encima del máximo declarado de ${maxCurrent} mA. Revisá los valores antes de construir.`
+    : current * 1000 > maxCurrent ? `ERROR ELÉCTRICO: el modelo estima ${(current * 1000).toFixed(2)} mA, por encima del máximo declarado de ${maxCurrent} mA. Aumentá la resistencia o revisá la tensión de alimentación antes de construir.`
     : "La corriente estimada no supera el máximo declarado del LED según este modelo simplificado.";
   return { supported: true, title: "Resultado de simulación DC aproximada", summary, measurements, disclaimer: "Modelo estático ideal: LED por caída directa constante, fuente y resistencia ideales. No incluye tolerancias, temperatura, transitorios ni modelos SPICE; no reemplaza simulación profesional ni revisión humana." };
 }
