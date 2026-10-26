@@ -468,6 +468,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
                 </g>
               ) : ["motor", "lamp"].includes(component.type) ? (
                 <g>
+                  {component.type === "motor" && activeComponentIds.includes(component.id) && <circle cx="0" cy="0" r="23" fill="#45f59a" opacity="0.15" stroke="none" />}
                   <line x1="-28" y1="0" x2="-17" y2="0" />
                   <circle cx="0" cy="0" r="17" />
                   <line x1="17" y1="0" x2="28" y2="0" />
@@ -596,10 +597,17 @@ const [simulationResult, setSimulationResult] = useState<SimulationResult | null
 const [simulationTick, setSimulationTick] = useState(0);
 
 useEffect(() => {
-  if (!simulationResult?.oscillation && !simulationResult?.sequencer) return;
-  const intervalId = window.setInterval(() => setSimulationTick((tick) => tick + 1), 50);
+  const transient = simulationResult?.transient;
+  if (!simulationResult?.oscillation && !simulationResult?.sequencer && !transient) return;
+  let tick = simulationTick;
+  const intervalId = window.setInterval(() => {
+    tick += 1;
+    setSimulationTick(tick);
+    // AC nets are re-solved at every time step; RC/RL use their analytic state equation.
+    if (transient?.kind === "ac") setSimulationResult(runDcSimulation(circuit, tick * 0.05));
+  }, 50);
   return () => window.clearInterval(intervalId);
-}, [simulationResult?.oscillation?.periodMs, simulationResult?.sequencer?.stepMs, simulationResult?.sequencer?.steps.length]);
+}, [circuit, simulationResult?.oscillation?.periodMs, simulationResult?.sequencer?.stepMs, simulationResult?.sequencer?.steps.length, simulationResult?.transient?.kind, simulationResult?.transient?.frequencyHz, simulationResult?.transient?.timeConstantMs]);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
@@ -1283,7 +1291,7 @@ function handleMoveComponent(
         </div>
 
         <div className="simulation-toolbar">
-          <div><strong>Simulación eléctrica</strong><small>Experimental · análisis DC de redes resistivas y diodos compatibles</small></div>
+          <div><strong>Simulación eléctrica</strong><small>DC, lógica digital y transitorios de primer orden para topologías compatibles</small></div>
           <button type="button" className="simulation-start-button" onClick={handleStartSimulation} disabled={circuit.components.length === 0}>▶ Iniciar simulación</button>
           {simulationResult && <button type="button" className="simulation-stop-button" onClick={() => setSimulationResult(null)}>Cerrar resultados</button>}
         </div>
@@ -1292,6 +1300,17 @@ function handleMoveComponent(
             <strong>{simulationResult.title}</strong><p>{simulationResult.summary}</p>
             {simulationResult.oscillation && <p className="simulation-animation-status">{((simulationTick * 50) % simulationResult.oscillation.periodMs) < simulationResult.oscillation.highMs ? "Salida NE555: ALTA" : "Salida NE555: BAJA"} · animación en tiempo real</p>}
             {simulationResult.sequencer && <p className="simulation-animation-status">Paso activo: {simulationResult.sequencer.steps[Math.floor((simulationTick * 50) / simulationResult.sequencer.stepMs) % simulationResult.sequencer.steps.length]?.label ?? "Q0"}</p>}
+            {simulationResult.transient && (
+              <p className="simulation-animation-status">
+                {simulationResult.transient.kind === "ac"
+                  ? "Fuente AC: " + (simulationResult.transient.frequencyHz ?? 0).toFixed(2) + " Hz · t = " + (simulationTick * 50).toFixed(0) + " ms"
+                  : simulationResult.transient.kind === "rc"
+                    ? "Carga RC · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.initialCurrentA * Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1)) * 1000).toFixed(2) + " mA"
+                    : simulationResult.transient.kind === "rl"
+                      ? "Crecimiento RL · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.finalCurrentA * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1))) * 1000).toFixed(2) + " mA"
+                      : "Motor DC · t = " + (simulationTick * 50).toFixed(0) + " ms · velocidad relativa ≈ " + (100 * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.mechanicalTimeConstantMs ?? 250)))).toFixed(0) + "%"}
+              </p>
+            )}
             {simulationResult.measurements.length > 0 && <ul>{simulationResult.measurements.map((measurement) => <li key={measurement.label}><span>{measurement.label}</span><b>{measurement.value}</b></li>)}</ul>}
             <small>{simulationResult.disclaimer}</small>
           </div>
@@ -1315,7 +1334,20 @@ function handleMoveComponent(
           ? (((simulationTick * 50) % simulationResult.oscillation.periodMs) < simulationResult.oscillation.highMs
             ? simulationResult.oscillation.componentIds
             : [])
-          : (simulationResult?.activeComponentIds ?? [])
+          : simulationResult?.transient
+            ? (() => {
+                const transient = simulationResult.transient!;
+                if (transient.kind === "ac") return simulationResult.activeComponentIds ?? [];
+                const elapsedMs = simulationTick * 50;
+                const tau = Math.max(0.001, transient.timeConstantMs ?? 1);
+                const currentA = transient.kind === "rc"
+                  ? transient.initialCurrentA * Math.exp(-elapsedMs / tau)
+                  : transient.finalCurrentA * (1 - Math.exp(-elapsedMs / tau));
+                const activeIds = currentA > 0.001 ? [...transient.ledIds] : [];
+                if (transient.kind === "motor" && elapsedMs > (transient.mechanicalTimeConstantMs ?? 250) * 0.05) activeIds.push(...transient.componentIds);
+                return activeIds;
+              })()
+            : (simulationResult?.activeComponentIds ?? [])
     }
   />
 ) : (
