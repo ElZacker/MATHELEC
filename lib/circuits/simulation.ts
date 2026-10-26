@@ -159,7 +159,11 @@ function firstOrderTransient(circuit: Circuit): SimulationResult | null {
     };
   }
   const reactive = inductors[0];
-  const inductance = reactive ? finiteProperty(reactive,"inductance",10) * (String(reactive.properties.unit ?? "mH").toLowerCase()==="h" ? 1 : String(reactive.properties.unit ?? "mH").toLowerCase()==="uh" || String(reactive.properties.unit ?? "mH").toLowerCase()==="µh" ? 1e-6 : String(reactive.properties.unit ?? "mH").toLowerCase()==="mh" ? 1e-3 : 1) : finiteProperty(motors[0],"inductance",20e-3);
+  const motorUnit = String(motors[0]?.properties.inductanceUnit ?? "mH").toLowerCase();
+  const motorScale = motorUnit === "h" ? 1 : motorUnit === "uh" || motorUnit === "µh" ? 1e-6 : motorUnit === "mh" ? 1e-3 : 1;
+  const inductance = reactive
+    ? finiteProperty(reactive,"inductance",10) * (String(reactive.properties.unit ?? "mH").toLowerCase()==="h" ? 1 : String(reactive.properties.unit ?? "mH").toLowerCase()==="uh" || String(reactive.properties.unit ?? "mH").toLowerCase()==="µh" ? 1e-6 : String(reactive.properties.unit ?? "mH").toLowerCase()==="mh" ? 1e-3 : 1)
+    : finiteProperty(motors[0],"inductance",20) * motorScale;
   const tau = inductance / totalResistance;
   if (inductance <= 0 || !Number.isFinite(tau) || tau <= 0) return unsupported("La inductancia o constante de tiempo RL no es válida.");
   const finalCurrent = effectiveVoltage / totalResistance;
@@ -479,7 +483,7 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
         branches.push({ component: c, a, b, kind: "controlled", value: isOn ? control.onResistance : control.offResistance, control });
       } else {
         const { a, b } = branchNodes(c);
-        let resistance = finiteProperty(c, "resistance", c.type === "motor" || c.type === "lamp" ? 20 : c.type === "fuse" ? 0.05 : 10000);
+        let resistance = finiteProperty(c, "resistance", c.type === "motor" ? 12 : c.type === "lamp" ? 20 : c.type === "fuse" ? 0.05 : 10000);
         if (["switch", "switch_spst"].includes(c.type) || c.type === "fuse") {
           const closed = c.type === "fuse" || c.properties.closed === true;
           resistance = closed ? (c.type === "fuse" ? 0.05 : 1e-3) : 1e12;
@@ -559,7 +563,7 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
   return {
     supported: true,
     title: acSource ? "Simulación instantánea AC" : "Punto de operación DC calculado",
-    summary: activeComponentIds.length ? "Se detectó corriente directa en: " + activeComponentIds.map((id) => circuit.components.find((c) => c.id === id)?.label ?? id).join(", ") + ". Los símbolos LED/diodo pueden mostrarse encendidos. Revisá las advertencias de corriente máxima." : "Se resolvió el punto de operación. Ningún LED/diodo supera el umbral de corriente de encendido en este modelo.",
+    summary: acSource ? "Se resolvió la red para la fase instantánea de la señal AC. Los LED/diodos conducen según la polaridad y amplitud presentes en este instante." : activeComponentIds.length ? "Se detectó corriente directa en: " + activeComponentIds.map((id) => circuit.components.find((c) => c.id === id)?.label ?? id).join(", ") + ". Los símbolos LED/diodo pueden mostrarse encendidos. Revisá las advertencias de corriente máxima." : "Se resolvió el punto de operación. Ningún LED/diodo supera el umbral de corriente de encendido en este modelo.",
     measurements,
     activeComponentIds,
     ...(acSource ? { transient: {
@@ -568,6 +572,6 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
       componentIds: circuit.components.filter((component) => component.type === "voltage_source_ac").map((component) => component.id),
       ledIds: circuit.components.filter((component) => component.type === "led").map((component) => component.id),
     } } : {}),
-    disclaimer: acSource ? "Solver instantáneo por fase para fuente sinusoidal ideal. Se vuelve a calcular cada cuadro; no incluye respuesta en frecuencia compleja, transformadores acoplados ni modelos SPICE de componentes no lineales." : "Análisis DC de red mediante MNA con modelos ideales/resistivos y diodos lineales por tramos. No simula transitorios, frecuencia, temperatura, saturación de transistores ni integrados; motores/lámparas y componentes sensibles usan equivalentes simplificados. No reemplaza Livewire, Proteus ni SPICE validado.",
+    disclaimer: acSource ? "Solver instantáneo por fase para fuente sinusoidal ideal. Se vuelve a calcular cada cuadro; no incluye respuesta en frecuencia compleja, transformadores acoplados ni modelos SPICE de componentes no lineales." : "Análisis DC de red mediante MNA con resistencias ideales, diodos lineales por tramos y transistores/MOSFET como interruptores de umbral. No calcula ganancia analógica de transistores, transitorios generales ni integrados; motores/lámparas usan equivalentes simplificados. No reemplaza Livewire, Proteus ni SPICE validado.",
   };
 }
