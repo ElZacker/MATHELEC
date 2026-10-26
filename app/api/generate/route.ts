@@ -262,6 +262,52 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     wires.push({ from, to });
   }
 
+  const noConnectionRequested = /\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/i.test(prompt);
+  const canInferSimpleLoop = components.length === 3 && ["battery", "cell", "voltage_source_dc"].includes(components[0]?.type) &&
+    components.some((item) => item.type === "resistor") && components.some((item) => item.type === "led");
+  if (components.length > 1 && wires.length === 0 && !noConnectionRequested && !canInferSimpleLoop) {
+    // Segunda pasada dedicada al cableado: evita mostrar una lista de componentes como si fuera un circuito.
+    const wireRepairEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${apiKey}`;
+    const wireRepairPrompt = `Conectá técnicamente los componentes de este circuito. Devolvé SOLO JSON con la forma {"wires":[{"from":{"componentIndex":0,"terminalId":"..."},"to":{"componentIndex":1,"terminalId":"..."}}]}. No cambies componentes. Usá únicamente índices y terminales listados. Respetá polaridad, función eléctrica y una topología razonable; si no podés justificar una conexión, devolvé {"wires":[]} en lugar de inventar. Pedido original: ${prompt}. Componentes: ${JSON.stringify(components.map((item,index)=>({componentIndex:index,type:item.type,terminals:terminalMap[item.type]})))}. `;
+    try {
+      const wireRepairResponse = await fetch(wireRepairEndpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: "Sos un ingeniero electrónico cuidadoso. Generá conexiones justificables, nunca inventes terminales y devolvé solo JSON válido." }] },
+          contents: [{ role: "user", parts: [{ text: wireRepairPrompt }] }],
+          generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: "LOW" } },
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (wireRepairResponse.ok) {
+        const wirePayload = await wireRepairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const wireRaw = wirePayload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim() ?? "";
+        const parsedWires = JSON.parse(wireRaw) as { wires?: unknown[] };
+        for (const item of (Array.isArray(parsedWires.wires) ? parsedWires.wires : [])) {
+          if (!item || typeof item !== "object") continue;
+          const candidate = item as Record<string, unknown>;
+          const parseRepairEnd = (end: unknown) => {
+            if (!end || typeof end !== "object") return null;
+            const value = end as Record<string, unknown>;
+            if (!Number.isInteger(value.componentIndex) || typeof value.terminalId !== "string") return null;
+            const componentIndex = value.componentIndex as number;
+            if (componentIndex < 0 || componentIndex >= components.length) return null;
+            const terminalId = normalizeTerminal(components[componentIndex].type, value.terminalId);
+            return terminalId ? { componentIndex, terminalId } : null;
+          };
+          const from = parseRepairEnd(candidate.from), to = parseRepairEnd(candidate.to);
+          if (!from || !to || (from.componentIndex === to.componentIndex && from.terminalId === to.terminalId)) continue;
+          const key = [`${from.componentIndex}:${from.terminalId}`, `${to.componentIndex}:${to.terminalId}`].sort().join("<->");
+          if (!wires.some((wire) => [`${wire.from.componentIndex}:${wire.from.terminalId}`, `${wire.to.componentIndex}:${wire.to.terminalId}`].sort().join("<->") === key)) wires.push({ from, to });
+        }
+      }
+    } catch {
+      // El chequeo final de abajo evita entregar una propuesta desconectada como si estuviera completa.
+    }
+    if (wires.length === 0) {
+      throw new Error("No pude justificar conexiones eléctricas válidas para todos los componentes. No se aplicó el circuito; probá especificar su función o los requisitos que faltan.");
+    }
+  }
   const connectionKeys = new Set<string>();
   for (const wire of wires) {
     const key = [`${wire.from.componentIndex}:${wire.from.terminalId}`, `${wire.to.componentIndex}:${wire.to.terminalId}`].sort().join("<->");
