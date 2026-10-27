@@ -23,7 +23,7 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
   pnp_transistor: { type:"pnp_transistor", label:"Q1", properties:{ description:"Transistor PNP", vbeOn:0.65, onResistance:25 }, terminals:[t("base","Base",0,-22),t("collector","Colector",25,-5),t("emitter","Emisor (+)",25,18)] },
   mosfet_n: { type:"mosfet_n", label:"Q1", properties:{ description:"MOSFET canal N", gateThreshold:2, onResistance:25 }, terminals:[t("gate","Puerta (G)",-25,0),t("drain","Drenador (D)",25,-14),t("source","Fuente (S)",25,14)] },
   mosfet_p: { type:"mosfet_p", label:"Q1", properties:{ description:"MOSFET canal P", gateThreshold:-2, onResistance:25 }, terminals:[t("gate","Puerta (G)",-25,0),t("drain","Drenador (D)",25,-14),t("source","Fuente (S)",25,14)] },
-  op_amp: { type:"op_amp", label:"U1", properties:{ description:"Amplificador operacional" }, terminals:[t("inverting","Entrada −",-25,-12),t("non_inverting","Entrada +",-25,12),t("output","Salida",25,0),t("vcc","V+ (alimentación)",0,-25),t("vee","V− (alimentación)",0,25)] },
+  op_amp: { type:"op_amp", label:"U1", properties:{ description:"Amplificador operacional ideal como comparador", inputOffset:0.001, outputResistance:25 }, terminals:[t("inverting","Entrada −",-25,-12),t("non_inverting","Entrada +",-25,12),t("output","Salida",25,0),t("vcc","V+ (alimentación)",0,-25),t("vee","V− (alimentación)",0,25)] },
   voltage_source_ac: { type:"voltage_source_ac", label:"VAC1", properties:{ voltage:5, frequency:50, unit:"V RMS" }, terminals:polarized("＋","−") },
   current_source: { type:"current_source", label:"I1", properties:{ current:0.01, unit:"A" }, terminals:pair("＋","−") },
   fuse: { type:"fuse", label:"F1", properties:{ currentRating:1, unit:"A" }, terminals:pair() },
