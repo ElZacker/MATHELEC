@@ -233,7 +233,6 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       if(ib!==undefined) matrix[ib][ib]+=g;
       if(ia!==undefined&&ib!==undefined){matrix[ia][ib]-=g;matrix[ib][ia]-=g;}
     };
-    const nodeVoltage=(node:string)=>node===find(referenceNode)?0:solution?.[nodeIndex.get(node)??-1]??0;
     for(const branch of branches) {
       if(["resistor","controlled"].includes(branch.kind)) {
         if(!Number.isFinite(branch.value)||branch.value<=0) return {result:failure(branch.component.label+" tiene una resistencia inválida."),state:previous};
