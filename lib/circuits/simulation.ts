@@ -26,7 +26,7 @@ export type SimulationResult = {
 };
 
 type ControlledSwitch = { controlPositive: string; controlNegative: string; threshold: number; onResistance: number; offResistance: number };
-type Branch = { component: CircuitComponent; a: string; b: string; kind: "resistor" | "source" | "diode" | "controlled"; value: number; resistance?: number; control?: ControlledSwitch };
+type Branch = { component: CircuitComponent; a: string; b: string; kind: "resistor" | "source" | "current" | "diode" | "controlled"; value: number; resistance?: number; control?: ControlledSwitch; measurementLabel?: string };
 
 function unsupported(summary: string): SimulationResult {
   return { supported: false, title: "Topología no compatible con los modelos actuales", summary, measurements: [], disclaimer: "No se muestran mediciones ficticias. El simulador actual resuelve redes DC con resistencias, fuentes independientes e indicadores LED/diodos mediante modelos aproximados. No es un reemplazo completo de SPICE, Livewire o Proteus." };
@@ -394,12 +394,13 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
   if (circuit.components.some((component) => component.type.startsWith("logic_gate_"))) return simulateCombinationalLogic(circuit);
   const transientResult = firstOrderTransient(circuit);
   if (transientResult) return transientResult;
-  const allowed = new Set(["battery", "cell", "voltage_source_dc", "voltage_source_ac", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "ground", "ground_earth", "npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"]);
+  const allowed = new Set(["battery", "cell", "voltage_source_dc", "voltage_source_ac", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "ground", "ground_earth", "npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p", "current_source", "potentiometer", "photodiode"]);
   const unsupportedComponents = circuit.components.filter((c) => !allowed.has(c.type));
   if (unsupportedComponents.length) return unsupported("Todavía faltan modelos eléctricos para: " + unsupportedComponents.map((c) => `${c.label} (${c.type})`).join(", ") + ". La biblioteca visual es más amplia que los modelos de simulación; no se puede afirmar que esos componentes funcionen físicamente todavía.");
   if (circuit.components.some((c) => {
     if ((c.type === "ground" || c.type === "ground_earth") && c.terminals.length === 1) return false;
     if (["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(c.type) && c.terminals.length === 3) return false;
+    if (c.type === "potentiometer" && c.terminals.length === 3) return false;
     return c.terminals.length !== 2;
   })) return unsupported("Este análisis admite componentes de dos terminales, tierra y transistores/MOSFET usados como interruptores controlados. Los integrados multipin requieren modelos específicos.");
   const terminalKeys = new Map<string, string>();
@@ -436,7 +437,7 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
   const sourceIndex = new Map(voltageSources.map((c, i) => [c.id, allNodes.length + i]));
   // Arrancar con los diodos en conducción evita una matriz singular en redes
   // serie: la primera solución permite decidir si están polarizados en directa.
-  const diodeOn = new Map(circuit.components.filter((c) => ["led", "diode"].includes(c.type)).map((c) => [c.id, true]));
+  const diodeOn = new Map(circuit.components.filter((c) => ["led", "diode", "photodiode"].includes(c.type)).map((c) => [c.id, true]));
   const controlledOn = new Map(circuit.components.filter((c) => ["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(c.type)).map((c) => [c.id, false]));
   let solution: number[] | null = null;
   let branches: Branch[] = [];
@@ -456,10 +457,10 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
             Math.sin(2 * Math.PI * Math.max(0,finiteProperty(c,"frequency",50)) * timeSeconds)
           : nominalVoltage;
         branches.push({ component: c, a: nodeOf(c, plus.id), b: nodeOf(c, minus.id), kind: "source", value: sourceVoltage });
-      } else if (["led", "diode"].includes(c.type)) {
+      } else if (["led", "diode", "photodiode"].includes(c.type)) {
         const anode = c.terminals.find((t) => t.id === "anode") ?? c.terminals[0];
         const cathode = c.terminals.find((t) => t.id === "cathode") ?? c.terminals[1];
-        branches.push({ component: c, a: nodeOf(c, anode.id), b: nodeOf(c, cathode.id), kind: "diode", value: finiteProperty(c, "forwardVoltage", c.type === "led" ? 2 : 0.7), resistance: diodeOn.get(c.id) ? 1 : 1e9 });
+        branches.push({ component: c, a: nodeOf(c, anode.id), b: nodeOf(c, cathode.id), kind: "diode", value: finiteProperty(c, "forwardVoltage", c.type === "led" ? 2 : c.type === "photodiode" ? 0.65 : 0.7), resistance: diodeOn.get(c.id) ? 1 : 1e9 });
       } else if (["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(c.type)) {
         const terminal = (id: string) => c.terminals.find((t) => t.id === id);
         const base = terminal("base"), collector = terminal("collector"), emitter = terminal("emitter");
@@ -481,14 +482,32 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
         const isOn = controlledOn.get(c.id) === true;
         const control: ControlledSwitch = { controlPositive, controlNegative, threshold, onResistance: finiteProperty(c, "onResistance", 25), offResistance: 1e9 };
         branches.push({ component: c, a, b, kind: "controlled", value: isOn ? control.onResistance : control.offResistance, control });
+      } else if (c.type === "current_source") {
+        const terminals = branchNodes(c);
+        const current = finiteProperty(c, "current", 0);
+        if (!Number.isFinite(current)) return unsupported(c.label + ": corriente de fuente inválida.");
+        branches.push({ component: c, a: terminals.a, b: terminals.b, kind: "current", value: current });
+      } else if (c.type === "potentiometer") {
+        const endA = c.terminals.find((terminal) => terminal.id === "a");
+        const wiper = c.terminals.find((terminal) => terminal.id === "wiper");
+        const endB = c.terminals.find((terminal) => terminal.id === "b");
+        if (!endA || !wiper || !endB) return unsupported(c.label + ": faltan terminales A, cursor o B del potenciómetro.");
+        const total = finiteProperty(c, "resistance", 10000);
+        const rawPosition = finiteProperty(c, "position", 0.5);
+        const position = Math.max(0, Math.min(1, rawPosition > 1 ? rawPosition / 100 : rawPosition));
+        if (total <= 0) return unsupported(c.label + ": resistencia total inválida.");
+        const segmentA = Math.max(1e-3, total * position);
+        const segmentB = Math.max(1e-3, total * (1-position));
+        branches.push({ component: c, a: nodeOf(c,endA.id), b: nodeOf(c,wiper.id), kind:"resistor", value: segmentA, measurementLabel: c.label + " A-cursor" });
+        branches.push({ component: c, a: nodeOf(c,wiper.id), b: nodeOf(c,endB.id), kind:"resistor", value: segmentB, measurementLabel: c.label + " cursor-B" });
       } else {
         const { a, b } = branchNodes(c);
-        let resistance = finiteProperty(c, "resistance", c.type === "motor" ? 12 : c.type === "lamp" ? 20 : c.type === "fuse" ? 0.05 : 10000);
+        let resistance = finiteProperty(c, "resistance", c.type === "motor" ? 12 : c.type === "lamp" ? 20 : c.type === "fuse" ? 0.05 : c.type === "photodiode" ? 1e9 : 10000);
         if (["switch", "switch_spst"].includes(c.type) || c.type === "fuse") {
           const closed = c.type === "fuse" || c.properties.closed === true;
           resistance = closed ? (c.type === "fuse" ? 0.05 : 1e-3) : 1e12;
         }
-        if (["resistor", "motor", "lamp", "ldr", "thermistor"].includes(c.type) && resistance <= 0) return unsupported(`${c.label}: resistencia inválida.`);
+        if (["resistor", "motor", "lamp", "ldr", "thermistor"].includes(c.type) && resistance <= 0) return unsupported(c.label + ": resistencia inválida.");
         branches.push({ component: c, a, b, kind: "resistor", value: resistance });
       }
     }
@@ -516,6 +535,10 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
           if (!Number.isFinite(resistance) || resistance <= 0) return unsupported(`${branch.component.label}: resistencia fuera de rango.`);
           stampConductance(branch.a, branch.b, 1 / resistance);
         }
+      } else if (branch.kind === "current") {
+        const ia = nodeIndex.get(branch.a), ib = nodeIndex.get(branch.b);
+        if (ia !== undefined) rhs[ia] -= branch.value;
+        if (ib !== undefined) rhs[ib] += branch.value;
       } else if (branch.kind === "source") {
         const k = sourceIndex.get(branch.component.id)!;
         const ia = nodeIndex.get(branch.a), ib = nodeIndex.get(branch.b);
@@ -550,10 +573,11 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
     const voltage = nodeVoltage(branch.a) - nodeVoltage(branch.b);
     let current = 0;
     if (branch.kind === "source") current = solution[sourceIndex.get(branch.component.id)!] ?? 0;
+    else if (branch.kind === "current") current = branch.value;
     else if (branch.kind === "resistor" || branch.kind === "controlled") current = voltage / branch.value;
     else if (diodeOn.get(branch.component.id)) current = (voltage - branch.value) / (branch.resistance ?? 1);
     if ((["led", "diode"].includes(branch.component.type) && current > 0.001) || (branch.kind === "controlled" && Math.abs(current) > 0.001)) activeComponentIds.push(branch.component.id);
-    measurements.push({ label: `${branch.component.label}: V / I`, value: `${voltage.toFixed(3)} V · ${(current * 1000).toFixed(3)} mA` });
+    measurements.push({ label: `${branch.measurementLabel ?? branch.component.label}: V / I`, value: `${voltage.toFixed(3)} V · ${(current * 1000).toFixed(3)} mA` });
     if (branch.component.type === "led" && current * 1000 > finiteProperty(branch.component, "maxCurrent", 20)) {
       measurements.push({ label: `Advertencia ${branch.component.label}`, value: `Sobrecorriente: ${(current * 1000).toFixed(2)} mA` });
     }
