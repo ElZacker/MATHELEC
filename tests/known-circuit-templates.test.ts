@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createComponent, getComponentDefinition } from "../lib/circuits/components";
 import { runDcSimulation } from "../lib/circuits/simulation";
+import { createTransientState, runTransientStep } from "../lib/circuits/transient-simulation";
 import type { Circuit } from "../lib/circuits/types";
 import { buildKnownCircuitProposal } from "../lib/circuits/known-circuit-templates";
 
@@ -117,5 +118,10 @@ test("Las plantillas de LED, NE555 y CD4017 son aceptadas por sus modelos de sim
   assert.equal(biofeedbackResult.supported, true, biofeedbackResult.summary);
   assert.ok(biofeedbackResult.measurements.some((item) => item.label === "U1 salida alta: V / I"));
   assert.ok(biofeedbackResult.measurements.some((item) => item.label === "U1 salida baja: V / I"));
+
+  const transient = runTransientStep(materializeProposal(biofeedback), 0.001, createTransientState());
+  assert.equal(transient.result.supported, true, transient.result.summary);
+  assert.ok(transient.result.measurements.some((item) => item.label === "U1 salida alta: V / I"));
+  assert.ok(transient.result.measurements.some((item) => item.label === "U1 salida baja: V / I"));
 });
 
