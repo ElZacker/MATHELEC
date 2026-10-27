@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createComponent, getComponentDefinition } from "../lib/circuits/components";
 import { runDcSimulation } from "../lib/circuits/simulation";
-import type { Circuit, CircuitComponent } from "../lib/circuits/types";
+import type { Circuit } from "../lib/circuits/types";
 import { buildKnownCircuitProposal } from "../lib/circuits/known-circuit-templates";
 
 function materializeProposal(proposal: NonNullable<ReturnType<typeof buildKnownCircuitProposal>>): Circuit {
