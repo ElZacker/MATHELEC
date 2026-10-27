@@ -31,7 +31,7 @@ export function buildKnownCircuitProposal(prompt: string): KnownCircuitProposal 
   type C = KnownCircuitComponent; type W = KnownCircuitWire;
   const cpt = (type: ComponentType, x: number, y: number, properties?: Record<string, string | number | boolean>): C => ({ type, x, y, ...(properties ? { properties } : {}) });
   const w = (fromIndex: number, fromTerminal: string, toIndex: number, toTerminal: string): W => ({ from:{componentIndex:fromIndex,terminalId:fromTerminal},to:{componentIndex:toIndex,terminalId:toTerminal} });
-  const result = (title:string, explanation:string, response:string, components:C[], wires:W[], confirmedRequirements:string[], assumptions:string[], warnings:string[], missingInformation:string[]=[]):Omit<Proposal,"mode"> => {
+  const result = (title:string, explanation:string, response:string, components:C[], wires:W[], confirmedRequirements:string[], assumptions:string[], warnings:string[], missingInformation:string[]=[]):KnownCircuitProposal => {
     if (components.length > 30 || wires.length > 40) throw new Error("La plantilla excede el límite de componentes o cables.");
     const validTerminals = components.map((item) => getComponentDefinition(item.type).terminals.map((terminal) => terminal.id));
     const connected = new Set<string>();
