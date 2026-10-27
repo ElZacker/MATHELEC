@@ -7,11 +7,12 @@ export type TransientState = {
   inductorCurrents: Record<string, number>;
   diodeOn: Record<string, boolean>;
   controlledOn: Record<string, boolean>;
+  nodeVoltages: Record<string, number>;
 };
 export type TransientStep = { result: SimulationResult; state: TransientState };
 
 export function createTransientState(): TransientState {
-  return { timeSeconds: 0, capacitorVoltages: {}, inductorCurrents: {}, diodeOn: {}, controlledOn: {} };
+  return { timeSeconds: 0, capacitorVoltages: {}, inductorCurrents: {}, diodeOn: {}, controlledOn: {}, nodeVoltages: {} };
 }
 
 type ControlledSwitch = { controlPositive: string; controlNegative: string; threshold: number; onResistance: number; offResistance: number };
@@ -153,8 +154,9 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   const sampleTime=previous.timeSeconds+dtSeconds;
   const diodeOn=new Map(circuit.components.filter((component)=>["led","diode","photodiode"].includes(component.type))
     .map((component)=>[component.id,previous.diodeOn[component.id] ?? true]));
-  const controlledOn=new Map(circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type))
+  const controlledOn=new Map(circuit.components.filter((component)=>["mosfet_n","mosfet_p"].includes(component.type))
     .map((component)=>[component.id,previous.controlledOn[component.id] ?? false]));
+  const bjtComponents = circuit.components.filter((component)=>["npn_transistor","pnp_transistor"].includes(component.type));
   let solution:number[]|null=null;
   let branches:Branch[]=[];
   for(let iteration=0;iteration<12;iteration++) {
@@ -180,12 +182,14 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         const anode=t("anode")??first,cathode=t("cathode")??second;
         if(!anode||!cathode) return {result:failure(component.label+" no tiene ánodo y cátodo reconocibles."),state:previous};
         branches.push({id:component.id,component,a:nodeOf(component.id,anode.id),b:nodeOf(component.id,cathode.id),kind:"diode",value:numeric(component,"forwardVoltage",component.type==="led"?2:0.7),stateKey:component.id});
-      } else if(["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type)) {
-        const base=t("base"),collector=t("collector"),emitter=t("emitter"),gate=t("gate"),drain=t("drain"),source=t("source");
+      } else if(["npn_transistor","pnp_transistor"].includes(component.type)) {
+        // BJT is stamped as a simple exponential common-emitter model below,
+        // rather than incorrectly treating every transistor like a fixed switch.
+        continue;
+      } else if(["mosfet_n","mosfet_p"].includes(component.type)) {
+        const gate=t("gate"),drain=t("drain"),source=t("source");
         let cp:string,cn:string,a:string,b:string,threshold:number;
-        if(component.type==="npn_transistor"&&base&&collector&&emitter){cp=nodeOf(component.id,base.id);cn=nodeOf(component.id,emitter.id);a=nodeOf(component.id,collector.id);b=nodeOf(component.id,emitter.id);threshold=numeric(component,"vbeOn",0.65);}
-        else if(component.type==="pnp_transistor"&&base&&collector&&emitter){cp=nodeOf(component.id,emitter.id);cn=nodeOf(component.id,base.id);a=nodeOf(component.id,emitter.id);b=nodeOf(component.id,collector.id);threshold=numeric(component,"vbeOn",0.65);}
-        else if(component.type==="mosfet_n"&&gate&&drain&&source){cp=nodeOf(component.id,gate.id);cn=nodeOf(component.id,source.id);a=nodeOf(component.id,drain.id);b=nodeOf(component.id,source.id);threshold=numeric(component,"gateThreshold",2);}
+        if(component.type==="mosfet_n"&&gate&&drain&&source){cp=nodeOf(component.id,gate.id);cn=nodeOf(component.id,source.id);a=nodeOf(component.id,drain.id);b=nodeOf(component.id,source.id);threshold=numeric(component,"gateThreshold",2);}
         else if(component.type==="mosfet_p"&&gate&&drain&&source){cp=nodeOf(component.id,source.id);cn=nodeOf(component.id,gate.id);a=nodeOf(component.id,source.id);b=nodeOf(component.id,drain.id);threshold=Math.abs(numeric(component,"gateThreshold",-2));}
         else return {result:failure(component.label+" tiene terminales de control no reconocidos."),state:previous};
         const control:ControlledSwitch={controlPositive:cp,controlNegative:cn,threshold,onResistance:numeric(component,"onResistance",25),offResistance:1e9};
