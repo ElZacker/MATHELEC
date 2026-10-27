@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { runDcSimulation } from "../lib/circuits/simulation";
 import { createTransientState, runTransientStep } from "../lib/circuits/transient-simulation";
+import { validateCircuit } from "../lib/circuits/validation";
 import type { Circuit, CircuitComponent, ComponentType } from "../lib/circuits/types";
 
 function component(
@@ -377,4 +378,21 @@ test("Relé: la bobina activa conmuta el contacto NA y enciende la carga", () =>
   assert.equal(state.controlledOn.K1, true, "La corriente de la bobina debe superar el umbral de captación.");
   assert.ok(result.result.activeComponentIds?.includes("D1"), "El contacto NA cerrado debe alimentar el LED.");
   assert.ok(result.result.measurements.some((item) => item.label === "K1 estado" && item.value.includes("NA cerrado")));
+});
+
+
+test("Validación: una bobina de relé puede usarse con contactos NO/NC sin cablear", () => {
+  const model = circuit([
+    source(5),
+    component("K1", "relay", ["coil1", "coil2", "common", "normally_open", "normally_closed"], {
+      coilVoltage: 5, coilResistance: 125, coilInductance: 50, coilInductanceUnit: "mH",
+    }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "K1", terminalId: "coil1" }),
+    wire("W2", { componentId: "K1", terminalId: "coil2" }, { componentId: "BAT1", terminalId: "negative" }),
+  ]);
+
+  const issues = validateCircuit(model);
+  assert.ok(!issues.some((issue) => issue.severity === "error"), issues.map((issue) => issue.message).join("\n"));
+  assert.ok(!issues.some((issue) => issue.code === "UNCONNECTED_TERMINAL" && issue.componentIds?.includes("K1")));
 });
