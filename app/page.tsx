@@ -570,19 +570,30 @@ useEffect(() => {
   }
 }, [circuit]);
 
+// Keep the running simulation's latest values without restarting its timer on
+// every animation frame. The previous dependency list recreated setInterval
+// after every tick, making the simulated time drift and creating avoidable work.
+const simulationRuntime = useRef({ circuit, simulationResult, simulationTick, transientState });
 useEffect(() => {
-  const transient = simulationResult?.transient;
-  if (!simulationResult?.oscillation && !simulationResult?.sequencer && !transient) return;
-  let tick = simulationTick;
-  let state = transientState;
+  simulationRuntime.current = { circuit, simulationResult, simulationTick, transientState };
+}, [circuit, simulationResult, simulationTick, transientState]);
+
+useEffect(() => {
+  const result = simulationResult;
+  if (!result?.oscillation && !result?.sequencer && !result?.transient) return;
   const intervalId = window.setInterval(() => {
-    tick += 1;
+    const current = simulationRuntime.current;
+    const tick = current.simulationTick + 1;
+    simulationRuntime.current = { ...current, simulationTick: tick };
     setSimulationTick(tick);
+    const transient = current.simulationResult?.transient;
+
     // Integrate 50 × 1 ms steps per visual frame to retain useful resolution for 50/60 Hz AC.
-    if (transient?.kind === "network" && state) {
-      let latest = simulationResult;
-      for (let index = 0; index < 50; index += 1) {
-        const step = runTransientStep(circuit, 0.001, state);
+    if (transient?.kind === "network" && current.transientState) {
+      let state: TransientState | null = current.transientState;
+      let latest = current.simulationResult;
+      for (let index = 0; index < 50 && state; index += 1) {
+        const step = runTransientStep(current.circuit, 0.001, state);
         if (!step.result.supported) {
           latest = step.result;
           state = null;
@@ -591,14 +602,17 @@ useEffect(() => {
         state = step.state;
         latest = step.result;
       }
+      simulationRuntime.current = { ...simulationRuntime.current, transientState: state, simulationResult: latest };
       setTransientState(state);
       setSimulationResult(latest);
     } else if (transient?.kind === "ac") {
-      setSimulationResult(runDcSimulation(circuit, tick * 0.05));
+      const latest = runDcSimulation(current.circuit, tick * 0.05);
+      simulationRuntime.current = { ...simulationRuntime.current, simulationResult: latest };
+      setSimulationResult(latest);
     }
   }, 50);
   return () => window.clearInterval(intervalId);
-}, [circuit, simulationResult, simulationTick, transientState]);
+}, [circuit.id, simulationResult?.oscillation?.periodMs, simulationResult?.sequencer?.stepMs, simulationResult?.transient?.kind, simulationResult?.transient?.frequencyHz, simulationResult?.transient?.timeConstantMs]);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
