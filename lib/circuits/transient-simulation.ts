@@ -94,7 +94,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     "battery","cell","voltage_source_dc","voltage_source_ac","current_source",
     "resistor","potentiometer","capacitor","polarized_capacitor","inductor",
     "led","diode","photodiode","switch","switch_spst","fuse","lamp","motor",
-    "ldr","thermistor","ground","ground_earth","npn_transistor","pnp_transistor","mosfet_n","mosfet_p",
+    "ldr","thermistor","ground","ground_earth","op_amp","npn_transistor","pnp_transistor","mosfet_n","mosfet_p",
   ]);
   const unsupportedTypes=circuit.components.filter((component)=>!supported.has(component.type));
   if (unsupportedTypes.length) {
@@ -153,8 +153,14 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   const sampleTime=previous.timeSeconds+dtSeconds;
   const diodeOn=new Map(circuit.components.filter((component)=>["led","diode","photodiode"].includes(component.type))
     .map((component)=>[component.id,previous.diodeOn[component.id] ?? true]));
-  const controlledOn=new Map(circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type))
-    .map((component)=>[component.id,previous.controlledOn[component.id] ?? false]));
+  const controlledOn=new Map<string,boolean>([
+    ...circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type))
+      .map((component)=>[component.id,previous.controlledOn[component.id] ?? false] as [string,boolean]),
+    ...circuit.components.filter((component)=>component.type==="op_amp").flatMap((component)=>[
+      [component.id+":high",previous.controlledOn[component.id+":high"] ?? false] as [string,boolean],
+      [component.id+":low",previous.controlledOn[component.id+":low"] ?? false] as [string,boolean],
+    ]),
+  ]);
   let solution:number[]|null=null;
   let branches:Branch[]=[];
   for(let iteration=0;iteration<12;iteration++) {
@@ -180,6 +186,15 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         const anode=t("anode")??first,cathode=t("cathode")??second;
         if(!anode||!cathode) return {result:failure(component.label+" no tiene ánodo y cátodo reconocibles."),state:previous};
         branches.push({id:component.id,component,a:nodeOf(component.id,anode.id),b:nodeOf(component.id,cathode.id),kind:"diode",value:numeric(component,"forwardVoltage",component.type==="led"?2:0.7),stateKey:component.id});
+      } else if(component.type==="op_amp") {
+        const nonInverting=t("non_inverting"),inverting=t("inverting"),output=t("output"),vcc=t("vcc"),vee=t("vee");
+        if(!nonInverting||!inverting||!output||!vcc||!vee) return {result:failure(component.label+" necesita entradas, salida y alimentación reconocibles."),state:previous};
+        const threshold=Math.max(0,numeric(component,"inputOffset",0.001));
+        const onResistance=numeric(component,"outputResistance",25);
+        const highControl:ControlledSwitch={controlPositive:nodeOf(component.id,nonInverting.id),controlNegative:nodeOf(component.id,inverting.id),threshold,onResistance,offResistance:1e9};
+        const lowControl:ControlledSwitch={controlPositive:nodeOf(component.id,inverting.id),controlNegative:nodeOf(component.id,nonInverting.id),threshold,onResistance,offResistance:1e9};
+        branches.push({id:component.id+":high",component,a:nodeOf(component.id,output.id),b:nodeOf(component.id,vcc.id),kind:"controlled",value:controlledOn.get(component.id+":high")?onResistance:1e9,control:highControl,measurementLabel:component.label+" salida alta"});
+        branches.push({id:component.id+":low",component,a:nodeOf(component.id,output.id),b:nodeOf(component.id,vee.id),kind:"controlled",value:controlledOn.get(component.id+":low")?onResistance:1e9,control:lowControl,measurementLabel:component.label+" salida baja"});
       } else if(["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type)) {
         let cp:string,cn:string,a:string,b:string,threshold:number;
         if(component.type==="npn_transistor"||component.type==="pnp_transistor") {
@@ -295,7 +310,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const positive=nodeIndex.has(control.controlPositive)?solution[nodeIndex.get(control.controlPositive)!]:0;
       const negative=nodeIndex.has(control.controlNegative)?solution[nodeIndex.get(control.controlNegative)!]:0;
       const on=positive-negative>=control.threshold;
-      if(controlledOn.get(branch.component.id)!==on){controlledOn.set(branch.component.id,on);changed=true;}
+      if(controlledOn.get(branch.id)!==on){controlledOn.set(branch.id,on);changed=true;}
     }
     if(!changed) break;
   }
