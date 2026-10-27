@@ -1,7 +1,39 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getComponentDefinition } from "../lib/circuits/components";
+import { createComponent, getComponentDefinition } from "../lib/circuits/components";
+import { runDcSimulation } from "../lib/circuits/simulation";
+import type { Circuit, CircuitComponent } from "../lib/circuits/types";
 import { buildKnownCircuitProposal } from "../lib/circuits/known-circuit-templates";
+
+function materializeProposal(proposal: NonNullable<ReturnType<typeof buildKnownCircuitProposal>>): Circuit {
+  const components = proposal.components.map((item, index) => {
+    const created = createComponent(item.type, "test-component-" + index, item.x, item.y);
+    return {
+      ...created,
+      properties: { ...created.properties, ...(item.properties ?? {}) },
+    };
+  });
+  const wires: Circuit["wires"] = proposal.wires.map((wire, index) => ({
+    id: "test-wire-" + index,
+    from: {
+      componentId: components[wire.from.componentIndex].id,
+      terminalId: wire.from.terminalId,
+    },
+    to: {
+      componentId: components[wire.to.componentIndex].id,
+      terminalId: wire.to.terminalId,
+    },
+  }));
+  return {
+    id: "template-test",
+    name: proposal.title,
+    version: 1,
+    components,
+    wires,
+    createdAt: "",
+    updatedAt: "",
+  };
+}
 
 const prompts = [
   "Diseñar un LED intermitente con un NE555",
@@ -57,3 +89,26 @@ test("Una petición explícita sin conexiones no activa plantillas cableadas", (
   assert.equal(buildKnownCircuitProposal("genera un circuito con LED sin conexiones"), null);
   assert.equal(buildKnownCircuitProposal("poneme componentes sueltos sin cables"), null);
 });
+
+test("Las plantillas de LED, NE555 y CD4017 son aceptadas por sus modelos de simulación", () => {
+  const led = buildKnownCircuitProposal("genera un circuito cualquiera que prenda un led");
+  assert.ok(led);
+  const ledResult = runDcSimulation(materializeProposal(led));
+  assert.equal(ledResult.supported, true, ledResult.summary);
+  assert.ok(ledResult.activeComponentIds?.length);
+
+  const flasher = buildKnownCircuitProposal("Diseñar un LED intermitente con un NE555");
+  assert.ok(flasher);
+  const flasherResult = runDcSimulation(materializeProposal(flasher));
+  assert.equal(flasherResult.supported, true, flasherResult.summary);
+  assert.ok(flasherResult.oscillation);
+  assert.ok(Math.abs(1000 / (flasherResult.oscillation?.periodMs ?? 0) - 0.63) < 0.03);
+
+  const chaser = buildKnownCircuitProposal("armame un secuenciador de LEDs con CD4017");
+  assert.ok(chaser);
+  const chaserResult = runDcSimulation(materializeProposal(chaser));
+  assert.equal(chaserResult.supported, true, chaserResult.summary);
+  assert.ok(chaserResult.sequencer);
+  assert.equal(chaserResult.sequencer?.steps.length, 6);
+});
+
