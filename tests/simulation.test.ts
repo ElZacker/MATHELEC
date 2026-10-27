@@ -297,3 +297,26 @@ test("Fuente AC: pasos temporales adyacentes producen distinta tensión instant�
   assert.notEqual(current1,current2);
 });
 
+test("Backward Euler: resuelve dos ramas RC en paralelo en el mismo paso", () => {
+  const model = circuit([
+    source(5),
+    component("R1", "resistor", ["a", "b"], { resistance: 1000 }),
+    component("C1", "capacitor", ["a", "b"], { capacitance: 10, unit: "µF" }),
+    component("R2", "resistor", ["a", "b"], { resistance: 2000 }),
+    component("C2", "capacitor", ["a", "b"], { capacitance: 22, unit: "µF" }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "R1", terminalId: "a" }),
+    wire("W2", { componentId: "R1", terminalId: "b" }, { componentId: "C1", terminalId: "a" }),
+    wire("W3", { componentId: "C1", terminalId: "b" }, { componentId: "BAT1", terminalId: "negative" }),
+    wire("W4", { componentId: "BAT1", terminalId: "positive" }, { componentId: "R2", terminalId: "a" }),
+    wire("W5", { componentId: "R2", terminalId: "b" }, { componentId: "C2", terminalId: "a" }),
+    wire("W6", { componentId: "C2", terminalId: "b" }, { componentId: "BAT1", terminalId: "negative" }),
+  ]);
+  const step = runTransientStep(model, 0.001, createTransientState());
+  assert.equal(step.result.supported, true, step.result.summary);
+  assert.ok(step.result.measurements.some((item) => item.label === "C1: V / I"));
+  assert.ok(step.result.measurements.some((item) => item.label === "C2: V / I"));
+  assert.ok((step.state.capacitorVoltages.C1 ?? 0) > 0);
+  assert.ok((step.state.capacitorVoltages.C2 ?? 0) > 0);
+});
+
