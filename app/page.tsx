@@ -18,6 +18,7 @@ import { validateCircuit } from "@/lib/circuits/validation";
 import { getAvailableComponentTypes } from "@/lib/circuits/components";
 import { importSpiceNetlist } from "@/lib/circuits/import-spice";
 import { runDcSimulation, type SimulationResult } from "@/lib/circuits/simulation";
+import { createTransientState, runTransientStep, type TransientState } from "@/lib/circuits/transient-simulation";
 import { routeOrthogonalWires } from "@/lib/circuits/wire-routing";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
@@ -536,19 +537,48 @@ const [circuit, setCircuit] = useState<Circuit>(() => ({
 const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);
 const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
 const [simulationTick, setSimulationTick] = useState(0);
+const [transientState, setTransientState] = useState<TransientState | null>(null);
+const previousCircuitJson = useRef(JSON.stringify(circuit));
+
+useEffect(() => {
+  const nextJson = JSON.stringify(circuit);
+  if (nextJson !== previousCircuitJson.current) {
+    previousCircuitJson.current = nextJson;
+    setSimulationResult(null);
+    setTransientState(null);
+    setSimulationTick(0);
+  }
+}, [circuit]);
 
 useEffect(() => {
   const transient = simulationResult?.transient;
   if (!simulationResult?.oscillation && !simulationResult?.sequencer && !transient) return;
   let tick = simulationTick;
+  let state = transientState;
   const intervalId = window.setInterval(() => {
     tick += 1;
     setSimulationTick(tick);
-    // AC nets are re-solved at every time step; RC/RL use their analytic state equation.
-    if (transient?.kind === "ac") setSimulationResult(runDcSimulation(circuit, tick * 0.05));
+    // Integrate 50 × 1 ms steps per visual frame to retain useful resolution for 50/60 Hz AC.
+    if (transient?.kind === "network" && state) {
+      let latest = simulationResult;
+      for (let index = 0; index < 50; index += 1) {
+        const step = runTransientStep(circuit, 0.001, state);
+        if (!step.result.supported) {
+          latest = step.result;
+          state = null;
+          break;
+        }
+        state = step.state;
+        latest = step.result;
+      }
+      setTransientState(state);
+      setSimulationResult(latest);
+    } else if (transient?.kind === "ac") {
+      setSimulationResult(runDcSimulation(circuit, tick * 0.05));
+    }
   }, 50);
   return () => window.clearInterval(intervalId);
-}, [circuit, simulationResult, simulationTick]);
+}, [circuit, simulationResult, simulationTick, transientState]);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
@@ -586,16 +616,35 @@ function handleStartSimulation() {
     } : chat));
     return;
   }
-  const result = runDcSimulation(circuit);
+  const staticResult = runDcSimulation(circuit);
+  let result = staticResult;
+  let nextTransientState: TransientState | null = null;
+  const hasAcSource = circuit.components.some((component) => component.type === "voltage_source_ac");
+  const hasReactiveParts = circuit.components.some((component) =>
+    ["capacitor", "polarized_capacitor", "inductor"].includes(component.type));
+  const hasExactSingleLoopTransient = staticResult.supported &&
+    ["rc", "rl", "motor"].includes(staticResult.transient?.kind ?? "");
+  if ((hasAcSource || (!staticResult.supported && hasReactiveParts)) && !hasExactSingleLoopTransient) {
+    const initialStep = runTransientStep(circuit, 0.001, createTransientState());
+    if (initialStep.result.supported) {
+      result = initialStep.result;
+      nextTransientState = initialStep.state;
+    } else if (!staticResult.supported) {
+      result = initialStep.result;
+    }
+  }
+  setTransientState(nextTransientState);
   setSimulationResult(result);
-  setNotice(result.supported ? "Análisis de punto de operación DC terminado." : "La topología requiere un modelo eléctrico todavía no implementado.");
+  setNotice(result.supported
+    ? result.transient?.kind === "network" ? "Simulación temporal iniciada (paso de 1 ms)." : result.transient ? "Modelo transitorio calculado." : "Análisis de punto de operación terminado."
+    : "La topología requiere conexiones o modelos eléctricos todavía no implementados.");
   if (!result.supported) {
     setChats((current) => current.map((chat) => chat.id === activeChatId ? {
       ...chat,
       messages: [...chat.messages, {
-        id: `diagnostico-${Date.now()}`,
+        id: "diagnostico-" + Date.now(),
         role: "assistant" as const,
-        text: `Todavía no puedo calcular esta topología con fiabilidad.\n\nMotivo: ${result.summary}\n\nNo voy a mostrar mediciones inventadas. El diagnóstico indica qué modelo o conexión falta para esta topología.`,
+        text: "Todavía no puedo calcular esta topología con fiabilidad.\n\nMotivo: " + result.summary + "\n\nNo voy a mostrar mediciones inventadas. Corregí las conexiones indicadas o usá componentes con modelos eléctricos implementados.",
       }],
     } : chat));
   }
