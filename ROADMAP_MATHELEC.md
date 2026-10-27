@@ -1128,9 +1128,9 @@ Criterios de aceptación:
 ### Modelos que ya se pueden ejecutar
 - MNA DC para fuentes de tensión, redes resistivas, diodos/LED con un modelo lineal por tramos, interruptores SPST, fusibles, cargas resistivas, potenciómetros de tres terminales, fuentes de corriente y fotodiodos aproximados.
 - NPN/PNP y MOSFET de canal N/P como **interruptores controlados por umbral**. No son modelos de amplificación analógica ni modelos de fabricante.
-- Transitorio analítico RC de primer orden para una única red serie compatible.
-- Transitorio RL de primer orden y arranque eléctrico/mecánico didáctico para una carga de motor.
-- Fuente de tensión AC sinusoidal con resolución instantánea por fase en el solver nodal.
+- Solver temporal MNA con integración backward Euler para redes RLC multirrama compatibles, con estado persistente de tensiones de capacitor y corrientes de inductor.
+- Se conservan soluciones analíticas especializadas para lazos RC/RL y una aproximación R-L + constante mecánica para el arranque del motor.
+- Fuente sinusoidal AC para análisis instantáneo por fase; no equivale a un análisis AC complejo de pequeña señal ni a respuesta en frecuencia.
 - Modelo funcional de astable NE555 que calcula Ton/Toff/frecuencia y anima LED en la salida.
 - Modelo digital ideal de CD4017 limitado a seis estados Q0–Q5 cuando está conectado a un NE555 compatible.
 - Puertas lógicas combinacionales con entradas que llegan a niveles HIGH/LOW definidos.
@@ -1141,11 +1141,21 @@ La CI ejecuta `npm test`, comprobación de TypeScript, ESLint y compilación de 
 - Constantes de tiempo RC y RL.
 - Arranque aproximado del motor.
 - Frecuencia del astable NE555.
-- Conmutación de una carga LED con un NPN.
-- Fuente de corriente, potenciómetro y fase de la fuente AC.
+- Conmutación de una carga LED con un NPN en el modelo de umbral.
+- Fuente de corriente, potenciómetro, fase AC y pasos temporales RC/RL/RLC.
+- Plantillas de LED, astable NE555 y secuenciador CD4017 ejecutadas contra el mismo despachador de simulación.
+- Enrutador ortogonal A*: segmentos rectos, obstáculos de componentes, rutas de cables previos y preservación de dobleces manuales; las pruebas cubren casos de cruce y obstáculos concretos.
 
 ### Límites importantes que siguen abiertos
-Esto amplía los modelos, pero no constituye un simulador universal ni una equivalencia con Proteus/Livewire. Siguen pendientes: solucionador transitorio RLC general multi-rama; modelos SPICE no lineales completos para BJT/MOSFET; análisis AC de pequeña señal y frecuencia; modelos temporales completos de integrados y lógica secuencial arbitraria; contactos/relés/SCR/TRIAC y modelos electroópticos o mecánicos acoplados; comprobación topológica global para evitar cortos, redes flotantes y cruces visuales; pruebas de plantillas y bibliotecas de circuitos contra referencias externas verificadas.
+Esto amplía los modelos, pero no constituye un simulador universal ni una equivalencia con Proteus/Livewire. Siguen pendientes: modelos SPICE no lineales completos para BJT/MOSFET y pruebas de referencia adicionales para RLC grandes; análisis AC de pequeña señal y frecuencia; modelos temporales completos de integrados y lógica secuencial arbitraria; contactos/relés/SCR/TRIAC y modelos electroópticos o mecánicos acoplados; comprobación topológica global para evitar cortos, redes flotantes y cruces visuales; pruebas de plantillas y bibliotecas de circuitos contra referencias externas verificadas.
 
 **Regla de aceptación:** si un componente no tiene modelo específico, el simulador debe identificarlo con su nombre y explicar qué cálculo no puede hacer. No debe inventar corrientes, formas de onda, ganancia, velocidad ni comportamiento físico.
+
+### Actualización de verificación — 27 de octubre de 2026
+- Se corrigió la conexión de CONTROL del NE555 en las plantillas astables: utiliza un capacitor de desacople de 10 nF a masa, en vez de conectar el pin directamente a tierra. El modelo de oscilador acepta esta conexión estándar.
+- La validación de las plantillas comprueba terminales reales, terminales abiertos, cables duplicados y cortocircuitos obvios entre alimentación, LED y componentes pasivos.
+- Se agregaron pruebas de integración para demostrar que los circuitos básicos LED, NE555 astable y CD4017 de seis salidas son reconocidos por el despachador de simulación.
+- El enrutador A* mantiene sus carriles dentro del área visible del esquema; cuando la geometría no admite un recorrido limpio, el fallback sigue siendo heurístico. No se afirma una garantía universal de cero cruces para cualquier esquema.
+- El modelo BJT activo por umbral es un interruptor de baja resistencia cuando VBE supera el umbral configurado; entrega una corriente de rama aproximada, pero **no calcula ganancia analógica ni corriente de base de manera física**. El amplificador de base común sigue siendo una plantilla de esquema, no una simulación de amplificación validada.
+
 
