@@ -30,7 +30,7 @@ const definitions: Record<ComponentType, ComponentDefinition> = {
   motor: { type:"motor", label:"M1", properties:{ voltage:6, resistance:12, inductance:20, inductanceUnit:"mH", mechanicalTimeConstantMs:250 }, terminals:polarized("+","−") },
   lamp: { type:"lamp", label:"LP1", properties:{ voltage:6 }, terminals:pair() },
   push_button: { type:"push_button", label:"PB1", properties:{ normallyOpen:true }, terminals:pair() },
-  relay: { type:"relay", label:"K1", properties:{ coilVoltage:5 }, terminals:[t("coil1","Bobina 1",-28,-8),t("coil2","Bobina 2",-28,8),t("common","Común",28,-14),t("normally_open","NA",28,0),t("normally_closed","NC",28,14)] },
+  relay: { type:"relay", label:"K1", properties:{ coilVoltage:5, coilResistance:125, coilInductance:50, coilInductanceUnit:"mH", pickupCurrent:0.025, dropoutCurrent:0.015, contactResistance:0.05 }, terminals:[t("coil1","Bobina 1",-28,-8),t("coil2","Bobina 2",-28,8),t("common","Común",28,-14),t("normally_open","NA",28,0),t("normally_closed","NC",28,14)] },
   photodiode: { type:"photodiode", label:"PD1", properties:{ description:"Fotodiodo" }, terminals:[t("anode","Ánodo (+)",-28),t("cathode","Cátodo (−)",28)] },
   ldr: { type:"ldr", label:"LDR1", properties:{ resistance:10000, unit:"Ω" }, terminals:pair() },
   thermistor: { type:"thermistor", label:"TH1", properties:{ resistance:10000, unit:"Ω" }, terminals:pair() },
