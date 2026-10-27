@@ -27,6 +27,10 @@ export type KnownCircuitProposal = {
 export function buildKnownCircuitProposal(prompt: string): KnownCircuitProposal | null {
   const text = prompt.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   if (/\b(sin conexiones|sin conectar|sin cables|componentes sueltos|no conectes|no conectar)\b/.test(text)) return null;
+  // Templates create a new schematic. Incremental edits must flow through the
+  // conversation-aware Gemini action path and preserve the current circuit.
+  if (/\b(agrega|agregá|añade|anade|sumá|suma|pon|pone|coloca|conecta|desconecta|mueve|rota|gira|elimina|borra|modifica|actualiza|cambia|ajusta|reemplaza)\b/.test(text) &&
+      !/\b(desde cero|empezar de cero|circuito nuevo|limpia el circuito)\b/.test(text)) return null;
   if (!/\b(circuito|circuit|arma|armar|crea|crear|genera|generar|disena|disenar|monta|construye|haceme|hace|quiero|necesito|dame|control de giro|detector de mentiras|poligrafo|detector de proximidad|sensor de proximidad|base comun|led intermitente|secuenciador de leds)\b/.test(text)) return null;
   type C = KnownCircuitComponent; type W = KnownCircuitWire;
   const cpt = (type: ComponentType, x: number, y: number, properties?: Record<string, string | number | boolean>): C => ({ type, x, y, ...(properties ? { properties } : {}) });
