@@ -94,7 +94,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     "battery","cell","voltage_source_dc","voltage_source_ac","current_source",
     "resistor","potentiometer","capacitor","polarized_capacitor","inductor",
     "led","diode","photodiode","switch","switch_spst","fuse","lamp","motor",
-    "ldr","thermistor","ground","ground_earth","op_amp","relay","npn_transistor","pnp_transistor","mosfet_n","mosfet_p",
+    "ldr","thermistor","ground","ground_earth","op_amp","relay","npn_transistor","pnp_transistor","mosfet_n","mosfet_p","thyristor_scr","triac",
   ]);
   const unsupportedTypes=circuit.components.filter((component)=>!supported.has(component.type));
   if (unsupportedTypes.length) {
@@ -163,7 +163,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   const diodeOn=new Map(circuit.components.filter((component)=>["led","diode","photodiode"].includes(component.type))
     .map((component)=>[component.id,previous.diodeOn[component.id] ?? true]));
   const controlledOn=new Map<string,boolean>([
-    ...circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p","relay"].includes(component.type))
+    ...circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p","relay","thyristor_scr","triac"].includes(component.type))
       .map((component)=>[component.id,previous.controlledOn[component.id] ?? false] as [string,boolean]),
     ...circuit.components.filter((component)=>component.type==="op_amp").flatMap((component)=>[
       [component.id+":high",previous.controlledOn[component.id+":high"] ?? false] as [string,boolean],
@@ -204,9 +204,21 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         const lowControl:ControlledSwitch={controlPositive:nodeOf(component.id,inverting.id),controlNegative:nodeOf(component.id,nonInverting.id),threshold,onResistance,offResistance:1e9};
         branches.push({id:component.id+":high",component,a:nodeOf(component.id,output.id),b:nodeOf(component.id,vcc.id),kind:"controlled",value:controlledOn.get(component.id+":high")?onResistance:1e9,control:highControl,measurementLabel:component.label+" salida alta"});
         branches.push({id:component.id+":low",component,a:nodeOf(component.id,output.id),b:nodeOf(component.id,vee.id),kind:"controlled",value:controlledOn.get(component.id+":low")?onResistance:1e9,control:lowControl,measurementLabel:component.label+" salida baja"});
-      } else if(["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type)) {
+      } else if(["npn_transistor","pnp_transistor","mosfet_n","mosfet_p","thyristor_scr","triac"].includes(component.type)) {
         let cp:string,cn:string,a:string,b:string,threshold:number;
-        if(component.type==="npn_transistor"||component.type==="pnp_transistor") {
+        if(component.type==="thyristor_scr") {
+          const anode=t("anode"),cathode=t("cathode"),gate=t("gate");
+          if(!anode||!cathode||!gate) return {result:failure(component.label+" necesita ánodo, cátodo y compuerta."),state:previous};
+          cp=nodeOf(component.id,gate.id);cn=nodeOf(component.id,cathode.id);
+          a=nodeOf(component.id,anode.id);b=nodeOf(component.id,cathode.id);
+          threshold=numeric(component,"gateTriggerVoltage",0.7);
+        } else if(component.type==="triac") {
+          const mt1=t("mt1"),mt2=t("mt2"),gate=t("gate");
+          if(!mt1||!mt2||!gate) return {result:failure(component.label+" necesita MT1, MT2 y compuerta."),state:previous};
+          cp=nodeOf(component.id,gate.id);cn=nodeOf(component.id,mt1.id);
+          a=nodeOf(component.id,mt2.id);b=nodeOf(component.id,mt1.id);
+          threshold=numeric(component,"gateTriggerVoltage",0.7);
+        } else if(component.type==="npn_transistor"||component.type==="pnp_transistor") {
           const base=t("base"),collector=t("collector"),emitter=t("emitter");
           if(!base||!collector||!emitter) return {result:failure(component.label+" necesita terminales Base, Colector y Emisor."),state:previous};
           const isPnp=component.type==="pnp_transistor";
@@ -221,7 +233,8 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
           if(component.type==="mosfet_n"){cp=nodeOf(component.id,gate.id);cn=nodeOf(component.id,source.id);a=nodeOf(component.id,drain.id);b=nodeOf(component.id,source.id);threshold=numeric(component,"gateThreshold",2);}
           else {cp=nodeOf(component.id,source.id);cn=nodeOf(component.id,gate.id);a=nodeOf(component.id,source.id);b=nodeOf(component.id,drain.id);threshold=Math.abs(numeric(component,"gateThreshold",-2));}
         }
-        const control:ControlledSwitch={controlPositive:cp,controlNegative:cn,threshold,onResistance:numeric(component,"onResistance",25),offResistance:1e9};
+        const defaultOnResistance=["thyristor_scr","triac"].includes(component.type)?0.2:25;
+        const control:ControlledSwitch={controlPositive:cp,controlNegative:cn,threshold,onResistance:numeric(component,"onResistance",defaultOnResistance),offResistance:1e9};
         branches.push({id:component.id,component,a,b,kind:"controlled",value:controlledOn.get(component.id)?control.onResistance:control.offResistance,control});
       } else if(component.type==="capacitor"||component.type==="polarized_capacitor") {
         if(!first||!second) return {result:failure(component.label+" no tiene dos terminales."),state:previous};
@@ -334,8 +347,10 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const control=branch.control!;
       const positive=nodeIndex.has(control.controlPositive)?solution[nodeIndex.get(control.controlPositive)!]:0;
       const negative=nodeIndex.has(control.controlNegative)?solution[nodeIndex.get(control.controlNegative)!]:0;
-      const on=positive-negative>=control.threshold;
-      if(controlledOn.get(branch.id)!==on){controlledOn.set(branch.id,on);changed=true;}
+      const wasOn=controlledOn.get(branch.id)??false;
+      const isLatchingDevice=["thyristor_scr","triac"].includes(branch.component.type);
+      const on=isLatchingDevice ? (wasOn || positive-negative>=control.threshold) : positive-negative>=control.threshold;
+      if(wasOn!==on){controlledOn.set(branch.id,on);changed=true;}
     }
     if(!changed) break;
   }
@@ -371,6 +386,18 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     if(branch.component.type==="led"&&current*1000>numeric(branch.component,"maxCurrent",20)) {
       measurements.push({label:"Advertencia "+branch.component.label,value:"Sobrecorriente: "+(current*1000).toFixed(2)+" mA"});
     }
+  }
+  for (const device of circuit.components.filter((component)=>["thyristor_scr","triac"].includes(component.type))) {
+    const branch=branches.find((item)=>item.id===device.id);
+    const isOn=controlledOn.get(device.id)??false;
+    if (!branch || !isOn) continue;
+    const current=Math.abs((voltageAt(branch.a)-voltageAt(branch.b))/Math.max(0.01,numeric(device,"onResistance",0.2)));
+    const holding=Math.max(0,numeric(device,"holdingCurrent",0.01));
+    if(current<holding) controlledOn.set(device.id,false);
+    measurements.push({
+      label:device.label+" estado",
+      value:current>=holding?"Conducción enclavada":"Corriente bajo retención; se apagará",
+    });
   }
   for (const relay of circuit.components.filter((component)=>component.type==="relay")) {
     const current=Math.abs(inductorCurrents[relay.id+":coil"] ?? previous.inductorCurrents[relay.id+":coil"] ?? 0);
