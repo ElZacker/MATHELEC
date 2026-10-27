@@ -1147,7 +1147,7 @@ La CI ejecuta `npm test`, comprobación de TypeScript, ESLint y compilación de 
 - Enrutador ortogonal A*: segmentos rectos, obstáculos de componentes, rutas de cables previos y preservación de dobleces manuales; las pruebas cubren casos de cruce y obstáculos concretos.
 
 ### Límites importantes que siguen abiertos
-Esto amplía los modelos, pero no constituye un simulador universal ni una equivalencia con Proteus/Livewire. Siguen pendientes: modelos SPICE no lineales completos para BJT/MOSFET y pruebas de referencia adicionales para RLC grandes; análisis AC de pequeña señal y frecuencia; modelos temporales completos de integrados y lógica secuencial arbitraria; contactos/relés/SCR/TRIAC y modelos electroópticos o mecánicos acoplados; comprobación topológica global para evitar cortos, redes flotantes y cruces visuales; pruebas de plantillas y bibliotecas de circuitos contra referencias externas verificadas.
+Esto amplía los modelos, pero no constituye un simulador universal ni una equivalencia con Proteus/Livewire. Siguen pendientes: modelos SPICE no lineales completos para BJT/MOSFET y pruebas de referencia adicionales para RLC grandes; análisis AC de pequeña señal y frecuencia; modelos temporales completos de integrados y lógica secuencial arbitraria; validación de contacto/retención para relés, disparo por cuadrantes y conmutación AC real de TRIAC, recuperación inversa y límites reales de SCR; modelos electroópticos o mecánicos acoplados; comprobación topológica global para evitar cortos y redes flotantes; pruebas de plantillas y bibliotecas de circuitos contra referencias externas verificadas. El enrutador identifica y bloquea visualmente muchos cruces, pero no garantiza cero cruces geométricos en toda topología posible.
 
 **Regla de aceptación:** si un componente no tiene modelo específico, el simulador debe identificarlo con su nombre y explicar qué cálculo no puede hacer. No debe inventar corrientes, formas de onda, ganancia, velocidad ni comportamiento físico.
 
@@ -1159,3 +1159,11 @@ Esto amplía los modelos, pero no constituye un simulador universal ni una equiv
 - El modelo BJT activo por umbral es un interruptor de baja resistencia cuando VBE supera el umbral configurado; entrega una corriente de rama aproximada, pero **no calcula ganancia analógica ni corriente de base de manera física**. El amplificador de base común sigue siendo una plantilla de esquema, no una simulación de amplificación validada.
 
 
+
+
+### Compatibilidad del modelo de IA — aviso de mantenimiento (27 de octubre de 2026)
+- Mathelect está fijado deliberadamente a `gemini-3.6-flash`; no cambia a otro modelo automáticamente.
+- La documentación oficial de Google consultada indica retiro de Gemini 3.6 Flash el **19 de noviembre de 2026**. Antes de esa fecha deberá evaluarse un cambio explícito, probado y aprobado; no cambiar el modelo en silencio.
+- La búsqueda con Google Search se activa solo en pedidos de diseño no cubiertos por plantillas y su cuota/costo debe revisarse antes de habilitar un volumen elevado. Si no se puede confirmar la fuente, Mathelect no debe afirmar que realizó investigación.
+- Las reparaciones secundarias de JSON y cableado tienen un timeout de 8 segundos; si la propuesta sigue incompleta, se rechaza con un diagnóstico en vez de esperar una segunda llamada larga sin límite práctico.
+- SCR/TRIAC cuentan con un modelo funcional inicial de disparo/enclavamiento, no con el modelo de fabricante completo; especialmente, no debe afirmarse que la simulación cubre los cuatro cuadrantes del TRIAC ni los parámetros de recuperación de un SCR.
