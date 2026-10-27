@@ -607,7 +607,7 @@ useEffect(() => {
     if (transient?.kind === "ac") setSimulationResult(runDcSimulation(circuit, tick * 0.05));
   }, 50);
   return () => window.clearInterval(intervalId);
-}, [circuit, simulationResult?.oscillation?.periodMs, simulationResult?.sequencer?.stepMs, simulationResult?.sequencer?.steps.length, simulationResult?.transient?.kind, simulationResult?.transient?.frequencyHz, simulationResult?.transient?.timeConstantMs]);
+}, [circuit, simulationResult, simulationTick]);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
