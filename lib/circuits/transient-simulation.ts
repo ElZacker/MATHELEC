@@ -94,7 +94,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     "battery","cell","voltage_source_dc","voltage_source_ac","current_source",
     "resistor","potentiometer","capacitor","polarized_capacitor","inductor",
     "led","diode","photodiode","switch","switch_spst","fuse","lamp","motor",
-    "ldr","thermistor","ground","ground_earth","op_amp","npn_transistor","pnp_transistor","mosfet_n","mosfet_p",
+    "ldr","thermistor","ground","ground_earth","op_amp","relay","npn_transistor","pnp_transistor","mosfet_n","mosfet_p",
   ]);
   const unsupportedTypes=circuit.components.filter((component)=>!supported.has(component.type));
   if (unsupportedTypes.length) {
@@ -124,7 +124,9 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     const wired=circuit.wires.some((wire)=>
       (wire.from.componentId===component.id&&wire.from.terminalId===terminal.id) ||
       (wire.to.componentId===component.id&&wire.to.terminalId===terminal.id));
-    if (!wired) return {result:failure(component.label+" tiene el terminal "+terminal.name+" sin cable."),state:previous};
+    const intentionallyUnusedRelayContact = component.type === "relay" &&
+      ["common","normally_open","normally_closed"].includes(terminal.id);
+    if (!wired && !intentionallyUnusedRelayContact) return {result:failure(component.label+" tiene el terminal "+terminal.name+" sin cable."),state:previous};
   }
   const sources=circuit.components.filter((component)=>["battery","cell","voltage_source_dc","voltage_source_ac","current_source"].includes(component.type));
   if (!sources.length) return {result:failure("No se encontró una fuente independiente."),state:previous};
@@ -140,8 +142,8 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   }
   const nodeOf=(componentId:string,terminalId:string)=>find(componentId+":"+terminalId);
   const internalNodes=new Set<string>();
-  for (const component of circuit.components.filter((item)=>item.type==="motor")) {
-    const internal="@motor:"+component.id;
+  for (const component of circuit.components.filter((item)=>item.type==="motor" || item.type==="relay")) {
+    const internal=(component.type==="motor"?"@motor:":"@relay:")+component.id;
     parent.set(internal,internal);
     internalNodes.add(internal);
   }
@@ -154,7 +156,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   const diodeOn=new Map(circuit.components.filter((component)=>["led","diode","photodiode"].includes(component.type))
     .map((component)=>[component.id,previous.diodeOn[component.id] ?? true]));
   const controlledOn=new Map<string,boolean>([
-    ...circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type))
+    ...circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p","relay"].includes(component.type))
       .map((component)=>[component.id,previous.controlledOn[component.id] ?? false] as [string,boolean]),
     ...circuit.components.filter((component)=>component.type==="op_amp").flatMap((component)=>[
       [component.id+":high",previous.controlledOn[component.id+":high"] ?? false] as [string,boolean],
@@ -220,6 +222,18 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       } else if(component.type==="inductor") {
         if(!first||!second) return {result:failure(component.label+" no tiene dos terminales."),state:previous};
         branches.push({id:component.id,component,a:nodeOf(component.id,first.id),b:nodeOf(component.id,second.id),kind:"inductor",value:indHenries(component),stateKey:component.id});
+      } else if(component.type==="relay") {
+        const coil1=t("coil1"),coil2=t("coil2"),common=t("common"),normallyOpen=t("normally_open"),normallyClosed=t("normally_closed");
+        if(!coil1||!coil2||!common||!normallyOpen||!normallyClosed) return {result:failure(component.label+" necesita terminales de bobina y contacto reconocibles."),state:previous};
+        const internal="@relay:"+component.id;
+        branches.push({id:component.id+":coilR",component,a:nodeOf(component.id,coil1.id),b:internal,kind:"resistor",value:Math.max(1e-3,numeric(component,"coilResistance",125)),measurementLabel:component.label+" resistencia de bobina"});
+        const coilUnit=String(component.properties.coilInductanceUnit??"mH").toLowerCase();
+        const coilInductance=numeric(component,"coilInductance",50)*(coilUnit==="h"?1:["uh","µh"].includes(coilUnit)?1e-6:1e-3);
+        branches.push({id:component.id+":coilL",component,a:internal,b:nodeOf(component.id,coil2.id),kind:"inductor",value:coilInductance,stateKey:component.id+":coil",measurementLabel:component.label+" inductancia de bobina"});
+        const energized=controlledOn.get(component.id)===true;
+        const contactResistance=Math.max(1e-3,numeric(component,"contactResistance",0.05));
+        branches.push({id:component.id+":NO",component,a:nodeOf(component.id,common.id),b:nodeOf(component.id,normallyOpen.id),kind:"resistor",value:energized?contactResistance:1e9,measurementLabel:component.label+" contacto NA"});
+        branches.push({id:component.id+":NC",component,a:nodeOf(component.id,common.id),b:nodeOf(component.id,normallyClosed.id),kind:"resistor",value:energized?1e9:contactResistance,measurementLabel:component.label+" contacto NC"});
       } else if(component.type==="motor") {
         if(!first||!second) return {result:failure(component.label+" no tiene dos terminales."),state:previous};
         const internal="@motor:"+component.id;
@@ -346,6 +360,19 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     if(branch.component.type==="led"&&current*1000>numeric(branch.component,"maxCurrent",20)) {
       measurements.push({label:"Advertencia "+branch.component.label,value:"Sobrecorriente: "+(current*1000).toFixed(2)+" mA"});
     }
+  }
+  for (const relay of circuit.components.filter((component)=>component.type==="relay")) {
+    const current=Math.abs(inductorCurrents[relay.id+":coil"] ?? previous.inductorCurrents[relay.id+":coil"] ?? 0);
+    const wasEnergized=controlledOn.get(relay.id) ?? false;
+    const pickup=Math.max(0,numeric(relay,"pickupCurrent",0.025));
+    const dropout=Math.max(0,numeric(relay,"dropoutCurrent",0.015));
+    const energized=wasEnergized ? current>=dropout : current>=pickup;
+    controlledOn.set(relay.id,energized);
+    measurements.push({
+      label:relay.label+" estado",
+      value:energized ? "Bobina energizada · NA cerrado · NC abierto" : "Bobina desenergizada · NA abierto · NC cerrado",
+    });
+    if (energized) activeComponentIds.push(relay.id);
   }
   const acSource=circuit.components.find((component)=>component.type==="voltage_source_ac");
   const nextState:TransientState={
