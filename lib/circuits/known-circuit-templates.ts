@@ -33,9 +33,26 @@ export function buildKnownCircuitProposal(prompt: string): KnownCircuitProposal 
   const w = (fromIndex: number, fromTerminal: string, toIndex: number, toTerminal: string): W => ({ from:{componentIndex:fromIndex,terminalId:fromTerminal},to:{componentIndex:toIndex,terminalId:toTerminal} });
   const result = (title:string, explanation:string, response:string, components:C[], wires:W[], confirmedRequirements:string[], assumptions:string[], warnings:string[], missingInformation:string[]=[]):KnownCircuitProposal => {
     if (components.length > 30 || wires.length > 40) throw new Error("La plantilla excede el límite de componentes o cables.");
-    const validTerminals = components.map((item) => getComponentDefinition(item.type).terminals.map((terminal) => terminal.id));
+    const definitions = components.map((item) => getComponentDefinition(item.type));
+    const validTerminals = definitions.map((definition) => definition.terminals.map((terminal) => terminal.id));
     const connected = new Set<string>();
     const wireKeys = new Set<string>();
+    const parent = new Map<string, string>();
+    components.forEach((component, index) => {
+      for (const terminal of validTerminals[index]) {
+        const key = index + ":" + terminal;
+        parent.set(key, key);
+      }
+    });
+    const find = (key: string): string => {
+      const p = parent.get(key);
+      if (!p || p === key) return key;
+      const root = find(p);
+      parent.set(key, root);
+      return root;
+    };
+    const sameNet = (index: number, terminalA: string, terminalB: string) =>
+      find(index + ":" + terminalA) === find(index + ":" + terminalB);
     for (const wire of wires) {
       if (!components[wire.from.componentIndex] || !components[wire.to.componentIndex]) throw new Error("La plantilla contiene una conexión a un componente inexistente.");
       if (!validTerminals[wire.from.componentIndex].includes(wire.from.terminalId) || !validTerminals[wire.to.componentIndex].includes(wire.to.terminalId)) {
@@ -50,12 +67,35 @@ export function buildKnownCircuitProposal(prompt: string): KnownCircuitProposal 
       if (wireKeys.has(wireKey)) throw new Error("La plantilla contiene una conexión duplicada.");
       wireKeys.add(wireKey);
       connected.add(ends[0]); connected.add(ends[1]);
+      const fromRoot = find(ends[0]), toRoot = find(ends[1]);
+      if (fromRoot !== toRoot) parent.set(fromRoot, toRoot);
     }
     const openTerminals = components.flatMap((item,index) =>
       getComponentDefinition(item.type).terminals
         .filter((terminal) => !connected.has(index + ":" + terminal.id))
         .map((terminal) => item.type + " #" + (index + 1) + " terminal " + (terminal.name || terminal.id)));
     if (openTerminals.length) throw new Error("La plantilla no se aplicó porque tiene terminales sin cable: " + openTerminals.join(", ") + ".");
+
+    const electricalShorts: string[] = [];
+    components.forEach((item,index) => {
+      const terminals = validTerminals[index];
+      const definition = definitions[index];
+      const sourcePositive = terminals.includes("positive") ? "positive" : terminals.includes("a") ? "a" : null;
+      const sourceNegative = terminals.includes("negative") ? "negative" : terminals.includes("b") ? "b" : null;
+      if (["battery","cell","voltage_source_dc","voltage_source_ac"].includes(item.type) &&
+          sourcePositive && sourceNegative && sameNet(index,sourcePositive,sourceNegative)) {
+        electricalShorts.push(item.type + " #" + (index + 1) + " tiene positivo y negativo en la misma red");
+      }
+      if (["led","diode","photodiode","zener_diode"].includes(item.type) &&
+          terminals.includes("anode") && terminals.includes("cathode") && sameNet(index,"anode","cathode")) {
+        electricalShorts.push(item.type + " #" + (index + 1) + " tiene ánodo y cátodo cortocircuitados");
+      }
+      if (["resistor","capacitor","polarized_capacitor","inductor","motor","lamp"].includes(item.type) &&
+          terminals.length >= 2 && sameNet(index,terminals[0],terminals[1])) {
+        electricalShorts.push(item.type + " #" + (index + 1) + " tiene sus dos terminales en la misma red");
+      }
+    });
+    if (electricalShorts.length) throw new Error("La plantilla no se aplicó porque detecté cortocircuitos: " + electricalShorts.join("; ") + ".");
     return {title,explanation,response,components,wires,confirmedRequirements,assumptions,warnings,missingInformation,actions:[]};
   };
 
