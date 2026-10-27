@@ -187,3 +187,51 @@ test("Transistor NPN con polarización de base conmuta la carga LED", () => {
   assert.equal(result.supported, true, result.summary);
   assert.ok(result.activeComponentIds?.includes("D1"), "El NPN activado debe permitir corriente por la carga.");
 });
+
+test("Fuente de corriente DC: resuelve una carga resistiva", () => {
+  const model = circuit([
+    component("I1", "current_source", ["a", "b"], { current: 0.01 }),
+    component("R1", "resistor", ["a", "b"], { resistance: 1000 }),
+  ], [
+    wire("W1", { componentId: "I1", terminalId: "a" }, { componentId: "R1", terminalId: "a" }),
+    wire("W2", { componentId: "I1", terminalId: "b" }, { componentId: "R1", terminalId: "b" }),
+  ]);
+  const result = runDcSimulation(model);
+  assert.equal(result.supported, true, result.summary);
+  const current = result.measurements.find((item) => item.label === "I1: V / I");
+  assert.ok(current?.value.includes("10.000 mA"));
+});
+
+test("Potenciómetro: divide la resistencia entre A-cursor y cursor-B", () => {
+  const model = circuit([
+    source(5),
+    component("RV1", "potentiometer", ["a", "wiper", "b"], { resistance: 10000, position: 0.5 }),
+    component("R1", "resistor", ["a", "b"], { resistance: 1000 }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "RV1", terminalId: "a" }),
+    wire("W2", { componentId: "RV1", terminalId: "b" }, { componentId: "BAT1", terminalId: "negative" }),
+    wire("W3", { componentId: "RV1", terminalId: "wiper" }, { componentId: "R1", terminalId: "a" }),
+    wire("W4", { componentId: "R1", terminalId: "b" }, { componentId: "BAT1", terminalId: "negative" }),
+  ]);
+  const result = runDcSimulation(model);
+  assert.equal(result.supported, true, result.summary);
+  assert.ok(result.measurements.some((item) => item.label === "RV1 A-cursor: V / I"));
+  assert.ok(result.measurements.some((item) => item.label === "RV1 cursor-B: V / I"));
+});
+
+test("Fuente AC: el solver cambia la tensión instantánea con la fase", () => {
+  const model = circuit([
+    component("VAC1", "voltage_source_ac", ["positive", "negative"], { voltage: 5, frequency: 50, unit: "V RMS" }),
+    component("R1", "resistor", ["a", "b"], { resistance: 1000 }),
+  ], [
+    wire("W1", { componentId: "VAC1", terminalId: "positive" }, { componentId: "R1", terminalId: "a" }),
+    wire("W2", { componentId: "R1", terminalId: "b" }, { componentId: "VAC1", terminalId: "negative" }),
+  ]);
+  const zero = runDcSimulation(model, 0);
+  const peak = runDcSimulation(model, 1 / 200);
+  assert.equal(zero.supported, true, zero.summary);
+  assert.equal(peak.supported, true, peak.summary);
+  const current = peak.measurements.find((item) => item.label === "R1: V / I");
+  assert.ok(current?.value.includes("7.071 mA"));
+});
+
