@@ -620,11 +620,12 @@ function handleStartSimulation() {
   let result = staticResult;
   let nextTransientState: TransientState | null = null;
   const hasAcSource = circuit.components.some((component) => component.type === "voltage_source_ac");
+  const hasBjt = circuit.components.some((component) => ["npn_transistor", "pnp_transistor"].includes(component.type));
   const hasReactiveParts = circuit.components.some((component) =>
     ["capacitor", "polarized_capacitor", "inductor"].includes(component.type));
   const hasExactSingleLoopTransient = staticResult.supported &&
     ["rc", "rl", "motor"].includes(staticResult.transient?.kind ?? "");
-  if ((hasAcSource || (!staticResult.supported && hasReactiveParts)) && !hasExactSingleLoopTransient) {
+  if ((hasAcSource || hasBjt || (!staticResult.supported && hasReactiveParts)) && !hasExactSingleLoopTransient) {
     const initialStep = runTransientStep(circuit, 0.001, createTransientState());
     if (initialStep.result.supported) {
       result = initialStep.result;
