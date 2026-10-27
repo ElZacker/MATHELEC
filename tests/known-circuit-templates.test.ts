@@ -110,5 +110,12 @@ test("Las plantillas de LED, NE555 y CD4017 son aceptadas por sus modelos de sim
   assert.equal(chaserResult.supported, true, chaserResult.summary);
   assert.ok(chaserResult.sequencer);
   assert.equal(chaserResult.sequencer?.steps.length, 6);
+
+  const biofeedback = buildKnownCircuitProposal("haceme un circuito detector de mentiras");
+  assert.ok(biofeedback);
+  const biofeedbackResult = runDcSimulation(materializeProposal(biofeedback));
+  assert.equal(biofeedbackResult.supported, true, biofeedbackResult.summary);
+  assert.ok(biofeedbackResult.measurements.some((item) => item.label === "U1 salida alta: V / I"));
+  assert.ok(biofeedbackResult.measurements.some((item) => item.label === "U1 salida baja: V / I"));
 });
 
