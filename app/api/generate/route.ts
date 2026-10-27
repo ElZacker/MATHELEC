@@ -272,7 +272,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
           contents: [{ role: "user", parts: [{ text: wireRepairPrompt }] }],
           generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: "LOW" } },
         }),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(8000),
       });
       if (wireRepairResponse.ok) {
         const wirePayload = await wireRepairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
