@@ -676,7 +676,9 @@ function handleStartSimulation() {
     ["capacitor", "polarized_capacitor", "inductor"].includes(component.type));
   const hasExactSingleLoopTransient = staticResult.supported &&
     ["rc", "rl", "motor"].includes(staticResult.transient?.kind ?? "");
-  if ((hasAcSource || hasBjt || (!staticResult.supported && hasReactiveParts)) && !hasExactSingleLoopTransient) {
+  // If the DC solver declines a topology, always try the general transient
+  // engine; it may support devices (such as relays or op-amps) outside the DC solver.
+  if ((hasAcSource || hasBjt || !staticResult.supported) && !hasExactSingleLoopTransient) {
     const initialStep = runTransientStep(circuit, 0.001, createTransientState());
     if (initialStep.result.supported) {
       result = initialStep.result;
