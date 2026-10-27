@@ -4,8 +4,10 @@ type TerminalPointFn = (component: CircuitComponent, terminalId: string) => Poin
 type RouteObstacle = { wire: CircuitWire; points: Point[] };
 
 const GRID = 10;
-const MAX_X = 440;
-const MAX_Y = 340;
+const MIN_X = 10;
+const MIN_Y = 10;
+const MAX_X = 430;
+const MAX_Y = 320;
 
 function distance(a: Point, b: Point): number {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -153,10 +155,10 @@ function popHeap(heap: SearchState[]): SearchState | undefined {
 }
 function aStar(start: Point, goal: Point, wire: CircuitWire, fromComponent: CircuitComponent, toComponent: CircuitComponent,
   circuit: Circuit, obstacles: RouteObstacle[], getPoint: TerminalPointFn): Point[] | null {
-  const sx = Math.max(0, Math.min(MAX_X, Math.round(start.x / GRID) * GRID));
-  const sy = Math.max(0, Math.min(MAX_Y, Math.round(start.y / GRID) * GRID));
-  const gx = Math.max(0, Math.min(MAX_X, Math.round(goal.x / GRID) * GRID));
-  const gy = Math.max(0, Math.min(MAX_Y, Math.round(goal.y / GRID) * GRID));
+  const sx = Math.max(MIN_X, Math.min(MAX_X, Math.round(start.x / GRID) * GRID));
+  const sy = Math.max(MIN_Y, Math.min(MAX_Y, Math.round(start.y / GRID) * GRID));
+  const gx = Math.max(MIN_X, Math.min(MAX_X, Math.round(goal.x / GRID) * GRID));
+  const gy = Math.max(MIN_Y, Math.min(MAX_Y, Math.round(goal.y / GRID) * GRID));
   const initialKey = sx + ":" + sy + ":4";
   const open: SearchState[] = [];
   const best = new Map<string, number>([[initialKey, 0]]);
@@ -173,7 +175,7 @@ function aStar(start: Point, goal: Point, wire: CircuitWire, fromComponent: Circ
     if (current.x === gx && current.y === gy) { finalKey = current.key; break; }
     for (const direction of directions) {
       const nx = current.x + direction.x, ny = current.y + direction.y;
-      if (nx < 0 || nx > MAX_X || ny < 0 || ny > MAX_Y) continue;
+      if (nx < MIN_X || nx > MAX_X || ny < MIN_Y || ny > MAX_Y) continue;
       if (!(nx === gx && ny === gy) && cellBlocked(nx, ny, fromComponent.id, toComponent.id, circuit.components)) continue;
       const a = { x: current.x, y: current.y }, b = { x: nx, y: ny };
       if (circuit.components.some((component) => component.id !== fromComponent.id && component.id !== toComponent.id && segmentHitsComponent(a,b,component))) continue;
@@ -217,9 +219,9 @@ function aStar(start: Point, goal: Point, wire: CircuitWire, fromComponent: Circ
 function fallbackRoute(from: Point, to: Point, wire: CircuitWire, fromComponent: CircuitComponent, toComponent: CircuitComponent,
   circuit: Circuit, obstacles: RouteObstacle[], getPoint: TerminalPointFn): Point[] {
   const candidates: Point[][] = [
-    [from,{x:from.x,y:0},{x:to.x,y:0},to],
+    [from,{x:from.x,y:MIN_Y},{x:to.x,y:MIN_Y},to],
     [from,{x:from.x,y:MAX_Y},{x:to.x,y:MAX_Y},to],
-    [from,{x:0,y:from.y},{x:0,y:to.y},to],
+    [from,{x:MIN_X,y:from.y},{x:MIN_X,y:to.y},to],
     [from,{x:MAX_X,y:from.y},{x:MAX_X,y:to.y},to],
   ];
   let best = candidates[0], bestScore = Infinity;
