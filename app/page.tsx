@@ -18,6 +18,7 @@ import { validateCircuit } from "@/lib/circuits/validation";
 import { getAvailableComponentTypes } from "@/lib/circuits/components";
 import { importSpiceNetlist } from "@/lib/circuits/import-spice";
 import { runDcSimulation, type SimulationResult } from "@/lib/circuits/simulation";
+import { routeOrthogonalWires } from "@/lib/circuits/wire-routing";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
 type Message = {
@@ -130,67 +131,7 @@ function CircuitPreview({
     };
   }
 
-  type WirePoint = { x: number; y: number };
-  const routeMap = new Map<string, WirePoint[]>();
-  const isCrossing = (a: WirePoint, b: WirePoint, c: WirePoint, d: WirePoint) => {
-    const horizontalA = Math.abs(a.y - b.y) < 0.01;
-    const horizontalB = Math.abs(c.y - d.y) < 0.01;
-    if (horizontalA === horizontalB) return false;
-    const h1 = horizontalA ? a : c, h2 = horizontalA ? b : d;
-    const v1 = horizontalA ? c : a, v2 = horizontalA ? d : b;
-    const x = v1.x, y = h1.y;
-    return x > Math.min(h1.x, h2.x) + 1 && x < Math.max(h1.x, h2.x) - 1 &&
-      y > Math.min(v1.y, v2.y) + 1 && y < Math.max(v1.y, v2.y) - 1;
-  };
-  const pathLength = (points: WirePoint[]) => points.slice(1).reduce((sum, point, i) => sum + Math.abs(point.x - points[i].x) + Math.abs(point.y - points[i].y), 0);
-  const intersectsComponent = (a: WirePoint, b: WirePoint, component: Circuit["components"][number]) => {
-    const x1 = component.position.x - 32, x2 = component.position.x + 32;
-    const y1 = component.position.y - 28, y2 = component.position.y + 28;
-    if (Math.abs(a.y - b.y) < 0.01) return a.y > y1 && a.y < y2 && Math.max(Math.min(a.x,b.x),x1) < Math.min(Math.max(a.x,b.x),x2);
-    if (Math.abs(a.x - b.x) < 0.01) return a.x > x1 && a.x < x2 && Math.max(Math.min(a.y,b.y),y1) < Math.min(Math.max(a.y,b.y),y2);
-    return true;
-  };
-  // Enruta cada cable evitando, cuando existe alternativa, cruces con cables ya trazados
-  // y atravesar los cuerpos de componentes. Los cables se procesan de forma determinista.
-  for (const wire of circuit.wires) {
-    const fromComponent = circuit.components.find((item) => item.id === wire.from.componentId);
-    const toComponent = circuit.components.find((item) => item.id === wire.to.componentId);
-    if (!fromComponent || !toComponent) continue;
-    const from = getTerminalPoint(fromComponent, wire.from.terminalId);
-    const to = getTerminalPoint(toComponent, wire.to.terminalId);
-    if (wire.points?.length) {
-      routeMap.set(wire.id, [from, ...wire.points, to]);
-      continue;
-    }
-    const midX = Math.round((from.x + to.x) / 2), midY = Math.round((from.y + to.y) / 2);
-    const candidates: WirePoint[][] = [
-      [from, { x: midX, y: from.y }, { x: midX, y: to.y }, to],
-      [from, { x: from.x, y: midY }, { x: to.x, y: midY }, to],
-      [from, { x: from.x, y: 20 }, { x: to.x, y: 20 }, to],
-      [from, { x: from.x, y: 310 }, { x: to.x, y: 310 }, to],
-      [from, { x: 18, y: from.y }, { x: 18, y: to.y }, to],
-      [from, { x: 422, y: from.y }, { x: 422, y: to.y }, to],
-    ];
-    let best = candidates[0], bestScore = Infinity;
-    for (const candidate of candidates) {
-      let score = pathLength(candidate);
-      for (let i = 1; i < candidate.length; i++) {
-        const a = candidate[i - 1], b = candidate[i];
-        for (const [otherId, otherPath] of routeMap) {
-          if (otherId === wire.id) continue;
-          for (let j = 1; j < otherPath.length; j++) if (isCrossing(a,b,otherPath[j-1],otherPath[j])) score += 100000;
-        }
-        for (const component of circuit.components) {
-          if (component.id === fromComponent.id || component.id === toComponent.id) continue;
-          if (intersectsComponent(a,b,component)) score += 5000;
-        }
-      }
-      // Penalizar quiebres redundantes y preferir recorridos compactos.
-      score += candidate.length * 2;
-      if (score < bestScore) { best = candidate; bestScore = score; }
-    }
-    routeMap.set(wire.id, best);
-  }
+  const routeMap = routeOrthogonalWires(circuit, getTerminalPoint);
 
   function handleTerminalClick(componentId: string, terminalId: string) {
     if (!wireDraft) {
