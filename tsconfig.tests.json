@@ -21,6 +21,7 @@
     "lib/circuits/wire-routing.ts",
     "tests/known-circuit-templates.test.ts",
     "lib/circuits/known-circuit-templates.ts",
-    "lib/circuits/components.ts"
+    "lib/circuits/components.ts",
+    "lib/circuits/transient-simulation.ts"
   ]
 }
