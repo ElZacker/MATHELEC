@@ -159,7 +159,9 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   const bjtComponents = circuit.components.filter((component)=>["npn_transistor","pnp_transistor"].includes(component.type));
   let solution:number[]|null=null;
   let branches:Branch[]=[];
-  for(let iteration=0;iteration<12;iteration++) {
+  let converged=false;
+  const bjtLinearizationVoltages=new Map<string,{drive:number;output:number}>();
+  for(let iteration=0;iteration<30;iteration++) {
     branches=[];
     for(const component of circuit.components) {
       const t=(id:string)=>component.terminals.find((terminal)=>terminal.id===id);
@@ -242,12 +244,12 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       if(solution) return solution[nodeIndex.get(node)??-1]??0;
       return previous.nodeVoltages[node]??0;
     };
-    const stampNonlinearCurrent=(from:string,to:string,current:number,controls:{positive:string;negative:string;derivative:number}[])=>{
+    const stampNonlinearCurrent=(from:string,to:string,current:number,controls:{positive:string;negative:string;derivative:number;linearizationVoltage?:number}[])=>{
       const fromIndex=nodeIndex.get(from),toIndex=nodeIndex.get(to);
       let equivalent=current;
       for(const control of controls) {
         const derivative=control.derivative;
-        equivalent-=derivative*(voltageGuess(control.positive)-voltageGuess(control.negative));
+        equivalent-=derivative*(control.linearizationVoltage ?? (voltageGuess(control.positive)-voltageGuess(control.negative)));
         const cp=nodeIndex.get(control.positive),cn=nodeIndex.get(control.negative);
         if(fromIndex!==undefined) {
           if(cp!==undefined)matrix[fromIndex][cp]+=derivative;
@@ -317,8 +319,14 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const driveNegative=isPnp?baseNode:emitterNode;
       const outputPositive=isPnp?emitterNode:collectorNode;
       const outputNegative=isPnp?collectorNode:emitterNode;
-      const driveVoltage=voltageGuess(drivePositive)-voltageGuess(driveNegative);
-      const outputVoltage=voltageGuess(outputPositive)-voltageGuess(outputNegative);
+      const rawDrive=voltageGuess(drivePositive)-voltageGuess(driveNegative);
+      const rawOutput=voltageGuess(outputPositive)-voltageGuess(outputNegative);
+      const previousLinearization=bjtLinearizationVoltages.get(transistor.id)??{drive:rawDrive,output:rawOutput};
+      // Limit each Newton step in junction voltage so a 5 V initial guess cannot
+      // exponentiate the junction current to an absurd value on the first pass.
+      const driveVoltage=Math.max(previousLinearization.drive-0.2,Math.min(previousLinearization.drive+0.2,rawDrive));
+      const outputVoltage=Math.max(previousLinearization.output-0.5,Math.min(previousLinearization.output+0.5,rawOutput));
+      bjtLinearizationVoltages.set(transistor.id,{drive:driveVoltage,output:outputVoltage});
       const saturationCurrent=Math.max(1e-18,Math.min(1e-10,numeric(transistor,"saturationCurrent",1e-14)));
       const beta=Math.max(1,Math.min(1000,numeric(transistor,"beta",100)));
       const forwardExp=Math.exp(Math.max(-40,Math.min(30,driveVoltage/thermalVoltage)));
@@ -333,11 +341,11 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const collectorDriveDerivative=forwardDerivative*saturationFactor;
       const collectorOutputDerivative=forwardCurrent*saturationSlope;
       stampNonlinearCurrent(drivePositive,driveNegative,baseCurrent,[
-        {positive:drivePositive,negative:driveNegative,derivative:baseDerivative},
+        {positive:drivePositive,negative:driveNegative,derivative:baseDerivative,linearizationVoltage:driveVoltage},
       ]);
       stampNonlinearCurrent(outputPositive,outputNegative,collectorCurrent,[
-        {positive:drivePositive,negative:driveNegative,derivative:collectorDriveDerivative},
-        {positive:outputPositive,negative:outputNegative,derivative:collectorOutputDerivative},
+        {positive:drivePositive,negative:driveNegative,derivative:collectorDriveDerivative,linearizationVoltage:driveVoltage},
+        {positive:outputPositive,negative:outputNegative,derivative:collectorOutputDerivative,linearizationVoltage:outputVoltage},
       ]);
     }
     const priorSolution=solution;
@@ -364,9 +372,10 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const on=positive-negative>=control.threshold;
       if(controlledOn.get(branch.component.id)!==on){controlledOn.set(branch.component.id,on);changed=true;}
     }
-    if(!changed) break;
+    if(!changed) { converged=true; break; }
   }
   if(!solution) return {result:failure("No se encontró una solución temporal."),state:previous};
+  if(!converged) return {result:failure("El modelo no lineal no convergió en 30 iteraciones. Revisá la polarización del transistor y los valores de los componentes."),state:previous};
   const voltageAt=(node:string)=>node===find(referenceNode)?0:solution![nodeIndex.get(node)!]??0;
   const capacitorVoltages={...previous.capacitorVoltages};
   const inductorCurrents={...previous.inductorCurrents};
