@@ -153,7 +153,6 @@ function popHeap(heap: SearchState[]): SearchState | undefined {
 }
 function aStar(start: Point, goal: Point, wire: CircuitWire, fromComponent: CircuitComponent, toComponent: CircuitComponent,
   circuit: Circuit, obstacles: RouteObstacle[], getPoint: TerminalPointFn): Point[] | null {
-  const startKey = Math.round(start.x / GRID) + ":" + Math.round(start.y / GRID) + ":4";
   const sx = Math.max(0, Math.min(MAX_X, Math.round(start.x / GRID) * GRID));
   const sy = Math.max(0, Math.min(MAX_Y, Math.round(start.y / GRID) * GRID));
   const gx = Math.max(0, Math.min(MAX_X, Math.round(goal.x / GRID) * GRID));
