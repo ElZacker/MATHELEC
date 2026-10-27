@@ -67,12 +67,12 @@ export function buildKnownCircuitProposal(prompt: string): KnownCircuitProposal 
       cpt("resistor",185,65,{resistance:47000,tolerance:5,unit:"Ω"}),
       cpt("capacitor",170,250,{capacitance:22,unit:"µF"}),
       cpt("resistor",355,75,{resistance:390,tolerance:5,unit:"Ω"}),
-      cpt("led",380,155,{color:"red",forwardVoltage:2,maxCurrent:20}),cpt("ground",330,260)];
+      cpt("led",380,155,{color:"red",forwardVoltage:2,maxCurrent:20}),cpt("capacitor",330,260,{capacitance:10,unit:"nF"})];
     const wires:W[]=[
       w(0,"positive",1,"vcc"),w(0,"negative",1,"gnd"),w(0,"positive",1,"reset"),
       w(0,"positive",2,"a"),w(2,"b",1,"discharge"),w(1,"discharge",3,"a"),
       w(3,"b",1,"threshold"),w(1,"threshold",1,"trigger"),w(1,"threshold",4,"a"),
-      w(4,"b",0,"negative"),w(1,"control",7,"gnd"),w(7,"gnd",0,"negative"),
+      w(4,"b",0,"negative"),w(1,"control",7,"a"),w(7,"b",0,"negative"),
       w(1,"output",5,"a"),w(5,"b",6,"anode"),w(6,"cathode",0,"negative")];
     return result("LED intermitente con NE555","Astable clásico: R1=10 kΩ, R2=47 kΩ y C1=22 µF. La salida conmuta; R3 limita la corriente del LED.",
       "Listo: armé el astable con NE555 y conecté sus patas funcionales. El LED debería encenderse y apagarse periódicamente en una simulación temporal.",
@@ -91,11 +91,12 @@ export function buildKnownCircuitProposal(prompt: string): KnownCircuitProposal 
       cpt("resistor",320,135,{resistance:390,unit:"Ω"}),cpt("led",375,135,{color:"blue",forwardVoltage:3,maxCurrent:20}),
       cpt("resistor",320,175,{resistance:390,unit:"Ω"}),cpt("led",375,175,{color:"red",forwardVoltage:2,maxCurrent:20}),
       cpt("resistor",320,215,{resistance:390,unit:"Ω"}),cpt("led",375,215,{color:"green",forwardVoltage:2,maxCurrent:20}),
-      cpt("resistor",320,255,{resistance:390,unit:"Ω"}),cpt("led",375,255,{color:"blue",forwardVoltage:3,maxCurrent:20})];
+      cpt("resistor",320,255,{resistance:390,unit:"Ω"}),cpt("led",375,255,{color:"blue",forwardVoltage:3,maxCurrent:20}),
+      cpt("capacitor",300,285,{capacitance:10,unit:"nF"})];
     const wires:W[]=[
       w(0,"positive",1,"vcc"),w(0,"negative",1,"gnd"),w(0,"positive",1,"reset"),
       w(0,"positive",2,"a"),w(2,"b",1,"discharge"),w(1,"discharge",3,"a"),w(3,"b",1,"threshold"),
-      w(1,"threshold",1,"trigger"),w(1,"threshold",4,"a"),w(4,"b",0,"negative"),w(1,"control",0,"negative"),
+      w(1,"threshold",1,"trigger"),w(1,"threshold",4,"a"),w(4,"b",0,"negative"),w(1,"control",18,"a"),w(18,"b",0,"negative"),
       w(0,"positive",5,"vdd"),w(0,"negative",5,"vss"),w(0,"negative",5,"enable"),w(0,"negative",5,"reset"),w(1,"output",5,"clock"),
       w(5,"q0",6,"a"),w(6,"b",7,"anode"),w(7,"cathode",0,"negative"),
       w(5,"q1",8,"a"),w(8,"b",9,"anode"),w(9,"cathode",0,"negative"),
@@ -145,7 +146,7 @@ export function buildKnownCircuitProposal(prompt: string): KnownCircuitProposal 
   if (/\b(detector de proximidad|sensor de proximidad|proximidad)\b/.test(text)) {
     const components:C[]=[
       cpt("battery",50,165,{voltage:5}),cpt("resistor",115,75,{resistance:220,unit:"Ω"}),
-      cpt("led",185,75,{color:"red",forwardVoltage:1.2,maxCurrent:30}),cpt("phototransistor",185,235),
+      cpt("led",185,75,{color:"infrared",forwardVoltage:1.2,maxCurrent:30}),cpt("phototransistor",185,235),
       cpt("resistor",265,75,{resistance:10000,unit:"Ω"}),cpt("npn_transistor",300,175),
       cpt("resistor",370,75,{resistance:390,unit:"Ω"}),cpt("led",390,165,{color:"green",forwardVoltage:2,maxCurrent:20}),
       cpt("resistor",235,235,{resistance:10000,unit:"Ω"})];
