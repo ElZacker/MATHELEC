@@ -151,21 +151,14 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   const nodeIndex=new Map(allNodes.map((node,index)=>[node,index]));
   const voltageSources=circuit.components.filter((component)=>["battery","cell","voltage_source_dc","voltage_source_ac"].includes(component.type));
   const voltageSourceIndex=new Map(voltageSources.map((component,index)=>[component.id,allNodes.length+index]));
-  const fixedSourceNodes=new Set<string>();
-  for(const source of voltageSources) for(const terminal of source.terminals) {
-    if(["positive","negative","a","b"].includes(terminal.id)) fixedSourceNodes.add(nodeOf(source.id,terminal.id));
-  }
   const sampleTime=previous.timeSeconds+dtSeconds;
   const diodeOn=new Map(circuit.components.filter((component)=>["led","diode","photodiode"].includes(component.type))
     .map((component)=>[component.id,previous.diodeOn[component.id] ?? true]));
-  const controlledOn=new Map(circuit.components.filter((component)=>["mosfet_n","mosfet_p"].includes(component.type))
+  const controlledOn=new Map(circuit.components.filter((component)=>["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type))
     .map((component)=>[component.id,previous.controlledOn[component.id] ?? false]));
-  const bjtComponents = circuit.components.filter((component)=>["npn_transistor","pnp_transistor"].includes(component.type));
   let solution:number[]|null=null;
   let branches:Branch[]=[];
-  let converged=false;
-  const bjtLinearizationVoltages=new Map<string,{drive:number;output:number}>();
-  for(let iteration=0;iteration<30;iteration++) {
+  for(let iteration=0;iteration<12;iteration++) {
     branches=[];
     for(const component of circuit.components) {
       const t=(id:string)=>component.terminals.find((terminal)=>terminal.id===id);
@@ -188,16 +181,23 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         const anode=t("anode")??first,cathode=t("cathode")??second;
         if(!anode||!cathode) return {result:failure(component.label+" no tiene ánodo y cátodo reconocibles."),state:previous};
         branches.push({id:component.id,component,a:nodeOf(component.id,anode.id),b:nodeOf(component.id,cathode.id),kind:"diode",value:numeric(component,"forwardVoltage",component.type==="led"?2:0.7),stateKey:component.id});
-      } else if(["npn_transistor","pnp_transistor"].includes(component.type)) {
-        // BJT is stamped as a simple exponential common-emitter model below,
-        // rather than incorrectly treating every transistor like a fixed switch.
-        continue;
-      } else if(["mosfet_n","mosfet_p"].includes(component.type)) {
-        const gate=t("gate"),drain=t("drain"),source=t("source");
+      } else if(["npn_transistor","pnp_transistor","mosfet_n","mosfet_p"].includes(component.type)) {
         let cp:string,cn:string,a:string,b:string,threshold:number;
-        if(component.type==="mosfet_n"&&gate&&drain&&source){cp=nodeOf(component.id,gate.id);cn=nodeOf(component.id,source.id);a=nodeOf(component.id,drain.id);b=nodeOf(component.id,source.id);threshold=numeric(component,"gateThreshold",2);}
-        else if(component.type==="mosfet_p"&&gate&&drain&&source){cp=nodeOf(component.id,source.id);cn=nodeOf(component.id,gate.id);a=nodeOf(component.id,source.id);b=nodeOf(component.id,drain.id);threshold=Math.abs(numeric(component,"gateThreshold",-2));}
-        else return {result:failure(component.label+" tiene terminales de control no reconocidos."),state:previous};
+        if(component.type==="npn_transistor"||component.type==="pnp_transistor") {
+          const base=t("base"),collector=t("collector"),emitter=t("emitter");
+          if(!base||!collector||!emitter) return {result:failure(component.label+" necesita terminales Base, Colector y Emisor."),state:previous};
+          const isPnp=component.type==="pnp_transistor";
+          cp=nodeOf(component.id,isPnp?emitter.id:base.id);
+          cn=nodeOf(component.id,isPnp?base.id:emitter.id);
+          a=nodeOf(component.id,isPnp?emitter.id:collector.id);
+          b=nodeOf(component.id,isPnp?collector.id:emitter.id);
+          threshold=numeric(component,"vbeOn",0.65);
+        } else {
+          const gate=t("gate"),drain=t("drain"),source=t("source");
+          if(!gate||!drain||!source) return {result:failure(component.label+" tiene terminales de control no reconocidos."),state:previous};
+          if(component.type==="mosfet_n"){cp=nodeOf(component.id,gate.id);cn=nodeOf(component.id,source.id);a=nodeOf(component.id,drain.id);b=nodeOf(component.id,source.id);threshold=numeric(component,"gateThreshold",2);}
+          else {cp=nodeOf(component.id,source.id);cn=nodeOf(component.id,gate.id);a=nodeOf(component.id,source.id);b=nodeOf(component.id,drain.id);threshold=Math.abs(numeric(component,"gateThreshold",-2));}
+        }
         const control:ControlledSwitch={controlPositive:cp,controlNegative:cn,threshold,onResistance:numeric(component,"onResistance",25),offResistance:1e9};
         branches.push({id:component.id,component,a,b,kind:"controlled",value:controlledOn.get(component.id)?control.onResistance:control.offResistance,control});
       } else if(component.type==="capacitor"||component.type==="polarized_capacitor") {
@@ -307,98 +307,9 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         rhs[k]=branch.value;
       }
     }
-    // Simplified exponential BJT model: base current is set by VBE and
-    // collector current follows beta*IB in forward active mode with a soft
-    // VCE saturation factor. This is useful for basic switching/amplifier
-    // demonstrations, but it is not a manufacturer Gummel-Poon/SPICE model.
-    const thermalVoltage=0.02585;
-    for(const transistor of bjtComponents) {
-      const base=transistor.terminals.find((terminal)=>terminal.id==="base");
-      const collector=transistor.terminals.find((terminal)=>terminal.id==="collector");
-      const emitter=transistor.terminals.find((terminal)=>terminal.id==="emitter");
-      if(!base||!collector||!emitter) return {result:failure(transistor.label+" necesita terminales Base, Colector y Emisor."),state:previous};
-      const baseNode=nodeOf(transistor.id,base.id),collectorNode=nodeOf(transistor.id,collector.id),emitterNode=nodeOf(transistor.id,emitter.id);
-      const isPnp=transistor.type==="pnp_transistor";
-      const drivePositive=isPnp?emitterNode:baseNode;
-      const driveNegative=isPnp?baseNode:emitterNode;
-      const outputPositive=isPnp?emitterNode:collectorNode;
-      const outputNegative=isPnp?collectorNode:emitterNode;
-      const rawDrive=voltageGuess(drivePositive)-voltageGuess(driveNegative);
-      const rawOutput=voltageGuess(outputPositive)-voltageGuess(outputNegative);
-      const previousLinearization=bjtLinearizationVoltages.get(transistor.id)??{drive:rawDrive,output:rawOutput};
-      // Limit each Newton step in junction voltage so a 5 V initial guess cannot
-      // exponentiate the junction current to an absurd value on the first pass.
-      const driveVoltage=Math.max(previousLinearization.drive-0.2,Math.min(previousLinearization.drive+0.2,rawDrive));
-      const outputVoltage=Math.max(previousLinearization.output-0.5,Math.min(previousLinearization.output+0.5,rawOutput));
-      bjtLinearizationVoltages.set(transistor.id,{drive:driveVoltage,output:outputVoltage});
-      const saturationCurrent=Math.max(1e-18,Math.min(1e-10,numeric(transistor,"saturationCurrent",1e-14)));
-      const beta=Math.max(1,Math.min(1000,numeric(transistor,"beta",100)));
-      const forwardExp=Math.exp(Math.max(-40,Math.min(40,driveVoltage/thermalVoltage)));
-      const forwardCurrent=saturationCurrent*(forwardExp-1);
-      const forwardDerivative=saturationCurrent/thermalVoltage*forwardExp;
-      const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
-      // Smooth VCE saturation approximation with a finite slope around VCE=0.
-      // The smooth reverse branch prevents Newton iteration from toggling between
-      // a zero-current state and an impossible large-current state.
-      const saturationDenominator=Math.sqrt(outputVoltage*outputVoltage+vceSaturation*vceSaturation);
-      const saturationFactor=outputVoltage/saturationDenominator;
-      const saturationSlope=(vceSaturation*vceSaturation)/(saturationDenominator*saturationDenominator*saturationDenominator);
-      const baseCurrent=forwardCurrent/beta;
-      const baseDerivative=forwardDerivative/beta;
-      const collectorCurrent=forwardCurrent*saturationFactor;
-      const collectorDriveDerivative=forwardDerivative*saturationFactor;
-      const collectorOutputDerivative=forwardCurrent*saturationSlope;
-      stampNonlinearCurrent(drivePositive,driveNegative,baseCurrent,[
-        {positive:drivePositive,negative:driveNegative,derivative:baseDerivative,linearizationVoltage:driveVoltage},
-      ]);
-      stampNonlinearCurrent(outputPositive,outputNegative,collectorCurrent,[
-        {positive:drivePositive,negative:driveNegative,derivative:collectorDriveDerivative,linearizationVoltage:driveVoltage},
-        {positive:outputPositive,negative:outputNegative,derivative:collectorOutputDerivative,linearizationVoltage:outputVoltage},
-      ]);
-    }
-    const priorSolution=solution;
-    const candidateSolution=solve(matrix,rhs);
-    if(!candidateSolution) return {result:failure("La matriz es singular. Revisá cortocircuitos, ramas desconectadas, fuentes ideales en conflicto o nodos flotantes."),state:previous};
-    // Damped Newton update on device-related node voltages keeps a heavily driven
-    // transistor from jumping straight from forward-active to an impossible negative VCE.
-    if(bjtComponents.length&&priorSolution) {
-      solution=[...candidateSolution];
-      for(let index=0;index<allNodes.length;index++) {
-        if(fixedSourceNodes.has(allNodes[index])) continue;
-        const delta=candidateSolution[index]-priorSolution[index];
-        const maximumStep=0.25;
-        solution[index]=Math.abs(delta)>maximumStep
-          ? priorSolution[index]+Math.sign(delta)*maximumStep
-          : candidateSolution[index];
-      }
-      for(let index=allNodes.length;index<candidateSolution.length;index++) solution[index]=candidateSolution[index];
-    } else {
-      solution=candidateSolution;
-    }
+    solution=solve(matrix,rhs);
+    if(!solution) return {result:failure("La matriz es singular. Revisá cortocircuitos, ramas desconectadas, fuentes ideales en conflicto o nodos flotantes."),state:previous};
     let changed=false;
-    if(bjtComponents.length) {
-      const maxDelta=priorSolution
-        ? solution.reduce((maximum,value,index)=>Math.max(maximum,Math.abs(value-(priorSolution[index]??0))),0)
-        : Infinity;
-      if(maxDelta>1e-6) changed=true;
-      for(const transistor of bjtComponents) {
-        const base=transistor.terminals.find((terminal)=>terminal.id==="base");
-        const collector=transistor.terminals.find((terminal)=>terminal.id==="collector");
-        const emitter=transistor.terminals.find((terminal)=>terminal.id==="emitter");
-        if(!base||!collector||!emitter) continue;
-        const isPnp=transistor.type==="pnp_transistor";
-        const drivePositive=nodeOf(transistor.id,isPnp?emitter.id:base.id);
-        const driveNegative=nodeOf(transistor.id,isPnp?base.id:emitter.id);
-        const outputPositive=nodeOf(transistor.id,isPnp?emitter.id:collector.id);
-        const outputNegative=nodeOf(transistor.id,isPnp?collector.id:emitter.id);
-        const actualDrive=(nodeIndex.has(drivePositive)?solution[nodeIndex.get(drivePositive)!]:0)-
-          (nodeIndex.has(driveNegative)?solution[nodeIndex.get(driveNegative)!]:0);
-        const actualOutput=(nodeIndex.has(outputPositive)?solution[nodeIndex.get(outputPositive)!]:0)-
-          (nodeIndex.has(outputNegative)?solution[nodeIndex.get(outputNegative)!]:0);
-        const linearization=bjtLinearizationVoltages.get(transistor.id);
-        if(!linearization||Math.abs(actualDrive-linearization.drive)>1e-4||Math.abs(actualOutput-linearization.output)>1e-4) changed=true;
-      }
-    }
     for(const branch of branches.filter((item)=>item.kind==="diode")) {
       const va=nodeIndex.has(branch.a)?solution[nodeIndex.get(branch.a)!]:0;
       const vb=nodeIndex.has(branch.b)?solution[nodeIndex.get(branch.b)!]:0;
@@ -412,10 +323,9 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const on=positive-negative>=control.threshold;
       if(controlledOn.get(branch.component.id)!==on){controlledOn.set(branch.component.id,on);changed=true;}
     }
-    if(!changed) { converged=true; break; }
+    if(!changed) break;
   }
   if(!solution) return {result:failure("No se encontró una solución temporal."),state:previous};
-  if(!converged) return {result:failure("El modelo no lineal no convergió en 30 iteraciones. Revisá la polarización del transistor y los valores de los componentes."),state:previous};
   const voltageAt=(node:string)=>node===find(referenceNode)?0:solution![nodeIndex.get(node)!]??0;
   const capacitorVoltages={...previous.capacitorVoltages};
   const inductorCurrents={...previous.inductorCurrents};
@@ -447,28 +357,6 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     if(branch.component.type==="led"&&current*1000>numeric(branch.component,"maxCurrent",20)) {
       measurements.push({label:"Advertencia "+branch.component.label,value:"Sobrecorriente: "+(current*1000).toFixed(2)+" mA"});
     }
-  }
-  // Report transistor terminal currents from the converged operating point.
-  const thermalVoltage=0.02585;
-  for(const transistor of bjtComponents) {
-    const base=transistor.terminals.find((terminal)=>terminal.id==="base")!;
-    const collector=transistor.terminals.find((terminal)=>terminal.id==="collector")!;
-    const emitter=transistor.terminals.find((terminal)=>terminal.id==="emitter")!;
-    const isPnp=transistor.type==="pnp_transistor";
-    const baseNode=nodeOf(transistor.id,base.id),collectorNode=nodeOf(transistor.id,collector.id),emitterNode=nodeOf(transistor.id,emitter.id);
-    const driveVoltage=isPnp?voltageAt(emitterNode)-voltageAt(baseNode):voltageAt(baseNode)-voltageAt(emitterNode);
-    const outputVoltage=isPnp?voltageAt(emitterNode)-voltageAt(collectorNode):voltageAt(collectorNode)-voltageAt(emitterNode);
-    const saturationCurrent=Math.max(1e-18,Math.min(1e-10,numeric(transistor,"saturationCurrent",1e-14)));
-    const beta=Math.max(1,Math.min(1000,numeric(transistor,"beta",100)));
-    const forwardExp=Math.exp(Math.max(-40,Math.min(40,driveVoltage/thermalVoltage)));
-    const forwardCurrent=saturationCurrent*(forwardExp-1);
-    const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
-    const saturationDenominator=Math.sqrt(outputVoltage*outputVoltage+vceSaturation*vceSaturation);
-    const saturationFactor=outputVoltage/saturationDenominator;
-    const baseCurrent=forwardCurrent/beta;
-    const collectorCurrent=forwardCurrent*saturationFactor;
-    measurements.push({label:transistor.label+": Vbe / Ib",value:driveVoltage.toFixed(3)+" V · "+(baseCurrent*1000).toFixed(3)+" mA"});
-    measurements.push({label:transistor.label+": Vce / Ic",value:outputVoltage.toFixed(3)+" V · "+(collectorCurrent*1000).toFixed(3)+" mA"});
   }
   const acSource=circuit.components.find((component)=>component.type==="voltage_source_ac");
   const nodeVoltages=Object.fromEntries([
