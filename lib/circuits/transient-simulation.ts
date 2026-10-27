@@ -237,6 +237,31 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       if(ib!==undefined) matrix[ib][ib]+=g;
       if(ia!==undefined&&ib!==undefined){matrix[ia][ib]-=g;matrix[ib][ia]-=g;}
     };
+    const voltageGuess=(node:string):number=>{
+      if(node===find(referenceNode)) return 0;
+      if(solution) return solution[nodeIndex.get(node)??-1]??0;
+      return previous.nodeVoltages[node]??0;
+    };
+    const stampNonlinearCurrent=(from:string,to:string,current:number,controls:{positive:string;negative:string;derivative:number}[])=>{
+      const fromIndex=nodeIndex.get(from),toIndex=nodeIndex.get(to);
+      let equivalent=current;
+      for(const control of controls) {
+        const derivative=control.derivative;
+        equivalent-=derivative*(voltageGuess(control.positive)-voltageGuess(control.negative));
+        const cp=nodeIndex.get(control.positive),cn=nodeIndex.get(control.negative);
+        if(fromIndex!==undefined) {
+          if(cp!==undefined)matrix[fromIndex][cp]+=derivative;
+          if(cn!==undefined)matrix[fromIndex][cn]-=derivative;
+        }
+        if(toIndex!==undefined) {
+          if(cp!==undefined)matrix[toIndex][cp]-=derivative;
+          if(cn!==undefined)matrix[toIndex][cn]+=derivative;
+        }
+      }
+      if(fromIndex!==undefined)rhs[fromIndex]-=equivalent;
+      if(toIndex!==undefined)rhs[toIndex]+=equivalent;
+    };
+
     for(const branch of branches) {
       if(["resistor","controlled"].includes(branch.kind)) {
         if(!Number.isFinite(branch.value)||branch.value<=0) return {result:failure(branch.component.label+" tiene una resistencia inválida."),state:previous};
@@ -276,9 +301,56 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         rhs[k]=branch.value;
       }
     }
-    solution=solve(matrix,rhs);
-    if(!solution) return {result:failure("La matriz es singular. Revisá cortocircuitos, ramas desconectadas, fuentes ideales en conflicto o nodos flotantes."),state:previous};
+    // Simplified exponential BJT model: base current is set by VBE and
+    // collector current follows beta*IB in forward active mode with a soft
+    // VCE saturation factor. This is useful for basic switching/amplifier
+    // demonstrations, but it is not a manufacturer Gummel-Poon/SPICE model.
+    const thermalVoltage=0.02585;
+    for(const transistor of bjtComponents) {
+      const base=transistor.terminals.find((terminal)=>terminal.id==="base");
+      const collector=transistor.terminals.find((terminal)=>terminal.id==="collector");
+      const emitter=transistor.terminals.find((terminal)=>terminal.id==="emitter");
+      if(!base||!collector||!emitter) return {result:failure(transistor.label+" necesita terminales Base, Colector y Emisor."),state:previous};
+      const baseNode=nodeOf(transistor.id,base.id),collectorNode=nodeOf(transistor.id,collector.id),emitterNode=nodeOf(transistor.id,emitter.id);
+      const isPnp=transistor.type==="pnp_transistor";
+      const drivePositive=isPnp?emitterNode:baseNode;
+      const driveNegative=isPnp?baseNode:emitterNode;
+      const outputPositive=isPnp?emitterNode:collectorNode;
+      const outputNegative=isPnp?collectorNode:emitterNode;
+      const driveVoltage=voltageGuess(drivePositive)-voltageGuess(driveNegative);
+      const outputVoltage=voltageGuess(outputPositive)-voltageGuess(outputNegative);
+      const saturationCurrent=Math.max(1e-18,Math.min(1e-10,numeric(transistor,"saturationCurrent",1e-14)));
+      const beta=Math.max(1,Math.min(1000,numeric(transistor,"beta",100)));
+      const forwardExp=Math.exp(Math.max(-40,Math.min(30,driveVoltage/thermalVoltage)));
+      const forwardCurrent=saturationCurrent*(forwardExp-1);
+      const forwardDerivative=saturationCurrent/thermalVoltage*forwardExp;
+      const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
+      const saturationFactor=Math.max(0,Math.min(1,outputVoltage/vceSaturation));
+      const saturationSlope=outputVoltage>0&&outputVoltage<vceSaturation?1/vceSaturation:0;
+      const baseCurrent=forwardCurrent/beta;
+      const baseDerivative=forwardDerivative/beta;
+      const collectorCurrent=forwardCurrent*saturationFactor;
+      const collectorDriveDerivative=forwardDerivative*saturationFactor;
+      const collectorOutputDerivative=forwardCurrent*saturationSlope;
+      stampNonlinearCurrent(drivePositive,driveNegative,baseCurrent,[
+        {positive:drivePositive,negative:driveNegative,derivative:baseDerivative},
+      ]);
+      stampNonlinearCurrent(outputPositive,outputNegative,collectorCurrent,[
+        {positive:drivePositive,negative:driveNegative,derivative:collectorDriveDerivative},
+        {positive:outputPositive,negative:outputNegative,derivative:collectorOutputDerivative},
+      ]);
+    }
+    const priorSolution=solution;
+    const candidateSolution=solve(matrix,rhs);
+    if(!candidateSolution) return {result:failure("La matriz es singular. Revisá cortocircuitos, ramas desconectadas, fuentes ideales en conflicto o nodos flotantes."),state:previous};
+    solution=candidateSolution;
     let changed=false;
+    if(bjtComponents.length) {
+      const maxDelta=priorSolution
+        ? solution.reduce((maximum,value,index)=>Math.max(maximum,Math.abs(value-(priorSolution[index]??0))),0)
+        : Infinity;
+      if(maxDelta>1e-6) changed=true;
+    }
     for(const branch of branches.filter((item)=>item.kind==="diode")) {
       const va=nodeIndex.has(branch.a)?solution[nodeIndex.get(branch.a)!]:0;
       const vb=nodeIndex.has(branch.b)?solution[nodeIndex.get(branch.b)!]:0;
@@ -327,13 +399,39 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       measurements.push({label:"Advertencia "+branch.component.label,value:"Sobrecorriente: "+(current*1000).toFixed(2)+" mA"});
     }
   }
+  // Report transistor terminal currents from the converged operating point.
+  const thermalVoltage=0.02585;
+  for(const transistor of bjtComponents) {
+    const base=transistor.terminals.find((terminal)=>terminal.id==="base")!;
+    const collector=transistor.terminals.find((terminal)=>terminal.id==="collector")!;
+    const emitter=transistor.terminals.find((terminal)=>terminal.id==="emitter")!;
+    const isPnp=transistor.type==="pnp_transistor";
+    const baseNode=nodeOf(transistor.id,base.id),collectorNode=nodeOf(transistor.id,collector.id),emitterNode=nodeOf(transistor.id,emitter.id);
+    const driveVoltage=isPnp?voltageAt(emitterNode)-voltageAt(baseNode):voltageAt(baseNode)-voltageAt(emitterNode);
+    const outputVoltage=isPnp?voltageAt(emitterNode)-voltageAt(collectorNode):voltageAt(collectorNode)-voltageAt(emitterNode);
+    const saturationCurrent=Math.max(1e-18,Math.min(1e-10,numeric(transistor,"saturationCurrent",1e-14)));
+    const beta=Math.max(1,Math.min(1000,numeric(transistor,"beta",100)));
+    const forwardExp=Math.exp(Math.max(-40,Math.min(30,driveVoltage/thermalVoltage)));
+    const forwardCurrent=saturationCurrent*(forwardExp-1);
+    const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
+    const saturationFactor=Math.max(0,Math.min(1,outputVoltage/vceSaturation));
+    const baseCurrent=forwardCurrent/beta;
+    const collectorCurrent=forwardCurrent*saturationFactor;
+    measurements.push({label:transistor.label+": Vbe / Ib",value:driveVoltage.toFixed(3)+" V · "+(baseCurrent*1000).toFixed(3)+" mA"});
+    measurements.push({label:transistor.label+": Vce / Ic",value:outputVoltage.toFixed(3)+" V · "+(collectorCurrent*1000).toFixed(3)+" mA"});
+  }
   const acSource=circuit.components.find((component)=>component.type==="voltage_source_ac");
+  const nodeVoltages=Object.fromEntries([
+    ...allNodes.map((node)=>[node,solution![nodeIndex.get(node)!]] as const),
+    [find(referenceNode),0] as const,
+  ]);
   const nextState:TransientState={
     timeSeconds:sampleTime,
     capacitorVoltages,
     inductorCurrents,
     diodeOn:Object.fromEntries(diodeOn),
     controlledOn:Object.fromEntries(controlledOn),
+    nodeVoltages,
   };
   return {
     result:{
@@ -349,7 +447,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         resistance:0,initialCurrentA:0,finalCurrentA:0,
         componentIds:reactiveComponentIds,ledIds,
       },
-      disclaimer:"Integración temporal backward Euler para redes RLC generales compatibles. Es robusta pero puede introducir amortiguamiento numérico; no calcula saturación, temperatura, acoplamiento magnético, modelos BJT/MOSFET de fabricante ni todos los integrados. No reemplaza un simulador SPICE validado.",
+      disclaimer:"Integración temporal backward Euler para redes RLC generales compatibles. BJT usa un modelo exponencial simplificado con ganancia beta y saturación VCE aproximada; MOSFET usa un interruptor de umbral. Puede introducir amortiguamiento numérico y no sustituye modelos de fabricante, análisis AC de pequeña señal ni un simulador SPICE validado.",
     },
     state:nextState,
   };
