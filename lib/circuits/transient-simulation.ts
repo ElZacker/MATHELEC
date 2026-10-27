@@ -369,7 +369,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         resistance:0,initialCurrentA:0,finalCurrentA:0,
         componentIds:reactiveComponentIds,ledIds,
       },
-      disclaimer:"Integración temporal backward Euler para redes RLC generales compatibles. BJT usa un modelo exponencial simplificado con ganancia beta y saturación VCE aproximada; MOSFET usa un interruptor de umbral. Puede introducir amortiguamiento numérico y no sustituye modelos de fabricante, análisis AC de pequeña señal ni un simulador SPICE validado.",
+      disclaimer:"Integración temporal backward Euler para redes RLC generales compatibles. NPN/PNP se aproximan como interruptores controlados por umbral VBE y resistencia de conducción; MOSFET usa un interruptor de umbral VGS. No calcula ganancia beta ni una región activa BJT física. Puede introducir amortiguamiento numérico y no sustituye modelos de fabricante, análisis AC de pequeña señal ni un simulador SPICE validado.",
     },
     state:nextState,
   };
