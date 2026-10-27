@@ -111,12 +111,15 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     if (p===key) return p;
     const root=find(p);parent.set(key,root);return root;
   };
+  const connectedTerminals = new Set<string>();
   for (const wire of circuit.wires) {
     if (!terminalExists(circuit,wire.from.componentId,wire.from.terminalId) || !terminalExists(circuit,wire.to.componentId,wire.to.terminalId)) {
       return {result:failure("Un cable apunta a un componente o terminal inexistente."),state:previous};
     }
     const a=wire.from.componentId+":"+wire.from.terminalId;
     const b=wire.to.componentId+":"+wire.to.terminalId;
+    connectedTerminals.add(a);
+    connectedTerminals.add(b);
     const ra=find(a),rb=find(b);
     if (ra!==rb) parent.set(ra,rb);
   }
@@ -147,8 +150,12 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     parent.set(internal,internal);
     internalNodes.add(internal);
   }
-  const allNodes=[...new Set([...circuit.components.flatMap((component)=>component.terminals.map((terminal)=>nodeOf(component.id,terminal.id))),...internalNodes].map(find))]
-    .filter((node)=>node!==find(referenceNode));
+  const allNodes=[...new Set([
+    ...circuit.components.flatMap((component)=>component.terminals
+      .filter((terminal)=>connectedTerminals.has(component.id+":"+terminal.id))
+      .map((terminal)=>nodeOf(component.id,terminal.id))),
+    ...internalNodes,
+  ].map(find))].filter((node)=>node!==find(referenceNode));
   const nodeIndex=new Map(allNodes.map((node,index)=>[node,index]));
   const voltageSources=circuit.components.filter((component)=>["battery","cell","voltage_source_dc","voltage_source_ac"].includes(component.type));
   const voltageSourceIndex=new Map(voltageSources.map((component,index)=>[component.id,allNodes.length+index]));
@@ -232,8 +239,12 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         branches.push({id:component.id+":coilL",component,a:internal,b:nodeOf(component.id,coil2.id),kind:"inductor",value:coilInductance,stateKey:component.id+":coil",measurementLabel:component.label+" inductancia de bobina"});
         const energized=controlledOn.get(component.id)===true;
         const contactResistance=Math.max(1e-3,numeric(component,"contactResistance",0.05));
-        branches.push({id:component.id+":NO",component,a:nodeOf(component.id,common.id),b:nodeOf(component.id,normallyOpen.id),kind:"resistor",value:energized?contactResistance:1e9,measurementLabel:component.label+" contacto NA"});
-        branches.push({id:component.id+":NC",component,a:nodeOf(component.id,common.id),b:nodeOf(component.id,normallyClosed.id),kind:"resistor",value:energized?1e9:contactResistance,measurementLabel:component.label+" contacto NC"});
+        if (connectedTerminals.has(component.id+":"+common.id) && connectedTerminals.has(component.id+":"+normallyOpen.id)) {
+          branches.push({id:component.id+":NO",component,a:nodeOf(component.id,common.id),b:nodeOf(component.id,normallyOpen.id),kind:"resistor",value:energized?contactResistance:1e9,measurementLabel:component.label+" contacto NA"});
+        }
+        if (connectedTerminals.has(component.id+":"+common.id) && connectedTerminals.has(component.id+":"+normallyClosed.id)) {
+          branches.push({id:component.id+":NC",component,a:nodeOf(component.id,common.id),b:nodeOf(component.id,normallyClosed.id),kind:"resistor",value:energized?1e9:contactResistance,measurementLabel:component.label+" contacto NC"});
+        }
       } else if(component.type==="motor") {
         if(!first||!second) return {result:failure(component.label+" no tiene dos terminales."),state:previous};
         const internal="@motor:"+component.id;
