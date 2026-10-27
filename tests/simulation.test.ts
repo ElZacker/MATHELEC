@@ -421,3 +421,28 @@ test("SCR: un disparo de compuerta enclava la conducción por encima de la corri
   assert.equal(step.state.controlledOn.SCR1, true);
   assert.ok(step.result.activeComponentIds?.includes("D1"));
 });
+
+
+test("TRIAC: el modelo simplificado responde al disparo de compuerta", () => {
+  const model = circuit([
+    source(9),
+    component("RLOAD", "resistor", ["a", "b"], { resistance: 390 }),
+    component("D1", "led", ["anode", "cathode"], { forwardVoltage: 2, maxCurrent: 20 }),
+    component("TRIAC1", "triac", ["mt1", "mt2", "gate"], {
+      gateTriggerVoltage: 0.7, holdingCurrent: 0.01, onResistance: 0.2,
+    }),
+    component("RG", "resistor", ["a", "b"], { resistance: 1000 }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "RLOAD", terminalId: "a" }),
+    wire("W2", { componentId: "RLOAD", terminalId: "b" }, { componentId: "D1", terminalId: "anode" }),
+    wire("W3", { componentId: "D1", terminalId: "cathode" }, { componentId: "TRIAC1", terminalId: "mt2" }),
+    wire("W4", { componentId: "TRIAC1", terminalId: "mt1" }, { componentId: "BAT1", terminalId: "negative" }),
+    wire("W5", { componentId: "BAT1", terminalId: "positive" }, { componentId: "RG", terminalId: "a" }),
+    wire("W6", { componentId: "RG", terminalId: "b" }, { componentId: "TRIAC1", terminalId: "gate" }),
+  ]);
+
+  const step = runTransientStep(model, 0.001, createTransientState());
+  assert.equal(step.result.supported, true, step.result.summary);
+  assert.equal(step.state.controlledOn.TRIAC1, true);
+  assert.ok(step.result.activeComponentIds?.includes("D1"));
+});
