@@ -91,6 +91,12 @@ test("Una petición explícita sin conexiones no activa plantillas cableadas", (
   assert.equal(buildKnownCircuitProposal("poneme componentes sueltos sin cables"), null);
 });
 
+test("Las plantillas completas no reemplazan el circuito cuando el usuario pide una edición incremental", () => {
+  assert.equal(buildKnownCircuitProposal("agrega un LED intermitente con NE555 al circuito actual"), null);
+  assert.equal(buildKnownCircuitProposal("conecta el LED al NE555 que ya puse"), null);
+  assert.equal(buildKnownCircuitProposal("mueve el NE555 a la derecha"), null);
+});
+
 test("Las plantillas de LED, NE555 y CD4017 son aceptadas por sus modelos de simulación", () => {
   const led = buildKnownCircuitProposal("genera un circuito cualquiera que prenda un led");
   assert.ok(led);
