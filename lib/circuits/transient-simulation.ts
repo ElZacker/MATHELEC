@@ -215,7 +215,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       } else {
         if(!first||!second) return {result:failure(component.label+" no tiene dos terminales."),state:previous};
         const a=nodeOf(component.id,first.id),b=nodeOf(component.id,second.id);
-        let resistance=numeric(component,"resistance",component.type==="motor"?12:component.type==="lamp"?20:component.type==="fuse"?0.05:10000);
+        let resistance=numeric(component,"resistance",component.type==="lamp"?20:component.type==="fuse"?0.05:10000);
         if(["switch","switch_spst"].includes(component.type)||component.type==="fuse") {
           const closed=component.type==="fuse"||component.properties.closed===true;
           resistance=closed?(component.type==="fuse"?0.05:1e-3):1e9;
