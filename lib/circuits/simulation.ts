@@ -239,10 +239,19 @@ function getAstable555Params(circuit: Circuit): Astable555Params | null {
   const sourceNegative = topology.nodeFor(source.id, minus.id);
   const dischargeNode = topology.nodeFor(timer.id, "discharge");
   const thresholdNode = topology.nodeFor(timer.id, "threshold");
+  const controlNode = topology.nodeFor(timer.id, "control");
+  const controlCapacitor = circuit.components.some((component) => {
+    if (component.type !== "capacitor" && component.type !== "polarized_capacitor") return false;
+    const terminals = branchTerminals(component);
+    if (!terminals) return false;
+    const a = topology.nodeFor(component.id, terminals.a.id);
+    const b = topology.nodeFor(component.id, terminals.b.id);
+    return (a === controlNode && b === sourceNegative) || (b === controlNode && a === sourceNegative);
+  });
   if (vccNode !== sourcePositive || returnNode !== sourceNegative ||
       topology.nodeFor(timer.id, "reset") !== sourcePositive ||
       topology.nodeFor(timer.id, "trigger") !== thresholdNode ||
-      topology.nodeFor(timer.id, "control") !== sourceNegative) return null;
+      (controlNode !== sourceNegative && !controlCapacitor)) return null;
   const ra = resistorAcross(circuit, topology, sourcePositive, dischargeNode);
   const rb = resistorAcross(circuit, topology, dischargeNode, thresholdNode);
   const capacitor = circuit.components.find((component) => {
