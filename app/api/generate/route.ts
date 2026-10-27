@@ -56,7 +56,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const model = "gemini-3.6-flash";
   const activeModel = model;
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  const asksForCircuitDesign = /\b(circuito|circuit|detector|amplificador|oscilador|contador|proximidad|motor|transistor|555|4017|led)\b/i.test(prompt);
+  const asksForCircuitDesign = /\b(circuito|circuit|detector|amplificador|oscilador|contador|proximidad|motor|transistor|555|4017|led|diseñ\w*|disen\w*|gener\w*|cre\w*|arm\w*|mont\w*|constru\w*|sistema|control|sensor|alarma|inversor)\b/i.test(prompt);
   const useGoogleSearch = asksForCircuitDesign && !/\b(agrega|agregá|añade|anade|borra|elimina|mueve|rota|conecta|desconecta|valor de|explica qué es)\b/i.test(prompt);
   const requestBody = JSON.stringify({
     systemInstruction: { parts: [{ text: systemInstruction }] },
