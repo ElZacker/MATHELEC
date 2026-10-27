@@ -337,8 +337,12 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const forwardCurrent=saturationCurrent*(forwardExp-1);
       const forwardDerivative=saturationCurrent/thermalVoltage*forwardExp;
       const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
-      const saturationFactor=outputVoltage>0?outputVoltage/(outputVoltage+vceSaturation):0;
-      const saturationSlope=outputVoltage>0?vceSaturation/((outputVoltage+vceSaturation)*(outputVoltage+vceSaturation)):0;
+      // Smooth VCE saturation approximation with a finite slope around VCE=0.
+      // The smooth reverse branch prevents Newton iteration from toggling between
+      // a zero-current state and an impossible large-current state.
+      const saturationDenominator=Math.sqrt(outputVoltage*outputVoltage+vceSaturation*vceSaturation);
+      const saturationFactor=outputVoltage/saturationDenominator;
+      const saturationSlope=(vceSaturation*vceSaturation)/(saturationDenominator*saturationDenominator*saturationDenominator);
       const baseCurrent=forwardCurrent/beta;
       const baseDerivative=forwardDerivative/beta;
       const collectorCurrent=forwardCurrent*saturationFactor;
@@ -459,7 +463,8 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     const forwardExp=Math.exp(Math.max(-40,Math.min(40,driveVoltage/thermalVoltage)));
     const forwardCurrent=saturationCurrent*(forwardExp-1);
     const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
-    const saturationFactor=outputVoltage>0?outputVoltage/(outputVoltage+vceSaturation):0;
+    const saturationDenominator=Math.sqrt(outputVoltage*outputVoltage+vceSaturation*vceSaturation);
+    const saturationFactor=outputVoltage/saturationDenominator;
     const baseCurrent=forwardCurrent/beta;
     const collectorCurrent=forwardCurrent*saturationFactor;
     measurements.push({label:transistor.label+": Vbe / Ib",value:driveVoltage.toFixed(3)+" V · "+(baseCurrent*1000).toFixed(3)+" mA"});
