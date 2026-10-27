@@ -420,7 +420,7 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
     union(a, b);
   }
   const nodeOf = (c: CircuitComponent, terminalId: string) => find(`${c.id}:${terminalId}`);
-  const sources = circuit.components.filter((c) => ["battery", "cell", "voltage_source_dc", "voltage_source_ac"].includes(c.type));
+  const sources = circuit.components.filter((c) => ["battery", "cell", "voltage_source_dc", "voltage_source_ac", "current_source"].includes(c.type));
   if (!sources.length) return unsupported("No se encontró una fuente DC independiente. Agregá una batería o fuente DC para calcular el punto de operación.");
   for (const c of circuit.components) {
     if (c.terminals.some((t) => !circuit.wires.some((w) => (w.from.componentId === c.id && w.from.terminalId === t.id) || (w.to.componentId === c.id && w.to.terminalId === t.id)))) return unsupported(`${c.label} tiene un terminal sin cable. Completá las conexiones antes de simular.`);
