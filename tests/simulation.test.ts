@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { runDcSimulation } from "../lib/circuits/simulation";
+import { createTransientState, runTransientStep } from "../lib/circuits/transient-simulation";
 import type { Circuit, CircuitComponent, ComponentType } from "../lib/circuits/types";
 
 function component(
@@ -233,5 +234,66 @@ test("Fuente AC: el solver cambia la tensión instantánea con la fase", () => {
   assert.equal(peak.supported, true, peak.summary);
   const current = peak.measurements.find((item) => item.label === "R1: V / I");
   assert.ok(current?.value.includes("7.071 mA"));
+});
+
+test("Backward Euler: la carga RC avanza un paso temporal coherente", () => {
+  const model = circuit([
+    source(5),
+    component("R1", "resistor", ["a", "b"], { resistance: 1000 }),
+    component("C1", "capacitor", ["a", "b"], { capacitance: 10, unit: "µF" }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "R1", terminalId: "a" }),
+    wire("W2", { componentId: "R1", terminalId: "b" }, { componentId: "C1", terminalId: "a" }),
+    wire("W3", { componentId: "C1", terminalId: "b" }, { componentId: "BAT1", terminalId: "negative" }),
+  ]);
+  const step = runTransientStep(model, 0.001, createTransientState());
+  assert.equal(step.result.supported, true, step.result.summary);
+  assert.equal(step.result.transient?.kind, "network");
+  assert.ok(step.state.timeSeconds > 0);
+  const cap = step.result.measurements.find((item) => item.label === "C1: V / I");
+  assert.ok(cap);
+  const volts = Number(cap.value.match(/([\d.]+) V/)?.[1]);
+  assert.ok(volts > 0.4 && volts < 0.5, "Primer paso RC debería ser cercano a 0,455 V.");
+  const next = runTransientStep(model, 0.001, step.state);
+  const capNext = next.result.measurements.find((item) => item.label === "C1: V / I");
+  assert.ok(capNext);
+  const voltsNext = Number(capNext.value.match(/([\d.]+) V/)?.[1]);
+  assert.ok(voltsNext > volts, "La tensión del capacitor debe crecer durante la carga.");
+});
+
+test("Backward Euler: red RL guarda y acumula corriente del inductor", () => {
+  const model = circuit([
+    source(5),
+    component("R1", "resistor", ["a", "b"], { resistance: 100 }),
+    component("L1", "inductor", ["a", "b"], { inductance: 10, unit: "mH" }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "R1", terminalId: "a" }),
+    wire("W2", { componentId: "R1", terminalId: "b" }, { componentId: "L1", terminalId: "a" }),
+    wire("W3", { componentId: "L1", terminalId: "b" }, { componentId: "BAT1", terminalId: "negative" }),
+  ]);
+  const first = runTransientStep(model, 0.001, createTransientState());
+  assert.equal(first.result.supported, true, first.result.summary);
+  const second = runTransientStep(model, 0.001, first.state);
+  assert.equal(second.result.supported, true, second.result.summary);
+  assert.ok((second.state.inductorCurrents.L1 ?? 0) > (first.state.inductorCurrents.L1 ?? 0));
+});
+
+test("Fuente AC: pasos temporales adyacentes producen distinta tensión instantánea", () => {
+  const model = circuit([
+    component("VAC1", "voltage_source_ac", ["positive", "negative"], { voltage: 5, frequency: 50, unit: "V RMS" }),
+    component("R1", "resistor", ["a", "b"], { resistance: 1000 }),
+  ], [
+    wire("W1", { componentId: "VAC1", terminalId: "positive" }, { componentId: "R1", terminalId: "a" }),
+    wire("W2", { componentId: "R1", terminalId: "b" }, { componentId: "VAC1", terminalId: "negative" }),
+  ]);
+  const state0 = createTransientState();
+  const first = runTransientStep(model, 0.001, state0);
+  assert.equal(first.result.supported, true, first.result.summary);
+  const second = runTransientStep(model, 0.001, first.state);
+  assert.equal(second.result.supported, true, second.result.summary);
+  const current1 = Number(first.result.measurements.find((item) => item.label === "R1: V / I")?.value.match(/([\d.]+) mA/)?.[1]);
+  const current2 = Number(second.result.measurements.find((item) => item.label === "R1: V / I")?.value.match(/([\d.]+) mA/)?.[1]);
+  assert.ok(Number.isFinite(current1) && Number.isFinite(current2));
+  assert.notEqual(current1,current2);
 });
 
