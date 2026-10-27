@@ -320,12 +320,12 @@ test("Backward Euler: resuelve dos ramas RC en paralelo en el mismo paso", () =>
   assert.ok((step.state.capacitorVoltages.C2 ?? 0) > 0);
 });
 
-test("BJT exponencial: resuelve corriente de base y colector en la carga", () => {
+test("BJT: el modelo de umbral conmuta una carga LED", () => {
   const model = circuit([
     source(5),
     component("RLED", "resistor", ["a", "b"], { resistance: 390 }),
     component("D1", "led", ["anode", "cathode"], { forwardVoltage: 2, maxCurrent: 20 }),
-    component("Q1", "npn_transistor", ["base", "collector", "emitter"], { beta: 100, saturationCurrent: 1e-14, vceSaturation: 0.2 }),
+    component("Q1", "npn_transistor", ["base", "collector", "emitter"], { vbeOn: 0.65, onResistance: 25 }),
     component("RB", "resistor", ["a", "b"], { resistance: 1000 }),
   ], [
     wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "RLED", terminalId: "a" }),
@@ -337,13 +337,6 @@ test("BJT exponencial: resuelve corriente de base y colector en la carga", () =>
   ]);
   const result = runTransientStep(model, 0.001, createTransientState());
   assert.equal(result.result.supported, true, result.result.summary);
-  const base = result.result.measurements.find((item) => item.label === "Q1: Vbe / Ib");
-  const collector = result.result.measurements.find((item) => item.label === "Q1: Vce / Ic");
-  assert.ok(base, "Debe mostrar VBE y corriente de base.");
-  assert.ok(collector, "Debe mostrar VCE y corriente de colector.");
-  const vbe = Number(base.value.match(/([\d.]+) V/)?.[1]);
-  const icMa = Number(collector.value.match(/([\d.]+) mA/)?.[1]);
-  assert.ok(vbe > 0.5 && vbe < 0.9, "VBE debería caer cerca del valor directo típico.");
-  assert.ok(icMa > 1 && icMa < 30, "La corriente de colector debe quedar limitada por la carga.");
+  assert.ok(result.result.activeComponentIds?.includes("D1"), "Con la base por encima del umbral, el NPN debe conducir y encender la carga LED.");
+  assert.ok(result.result.measurements.some((item) => item.label === "Q1: V / I"), "Debe informar la tensión y corriente de rama del transistor.");
 });
-
