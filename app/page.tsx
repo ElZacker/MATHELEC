@@ -1292,13 +1292,15 @@ function handleMoveComponent(
             {simulationResult.sequencer && <p className="simulation-animation-status">Paso activo: {simulationResult.sequencer.steps[Math.floor((simulationTick * 50) / simulationResult.sequencer.stepMs) % simulationResult.sequencer.steps.length]?.label ?? "Q0"}</p>}
             {simulationResult.transient && (
               <p className="simulation-animation-status">
-                {simulationResult.transient.kind === "ac"
-                  ? "Fuente AC: " + (simulationResult.transient.frequencyHz ?? 0).toFixed(2) + " Hz · t = " + (simulationTick * 50).toFixed(0) + " ms"
-                  : simulationResult.transient.kind === "rc"
-                    ? "Carga RC · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.initialCurrentA * Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1)) * 1000).toFixed(2) + " mA"
-                    : simulationResult.transient.kind === "rl"
-                      ? "Crecimiento RL · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.finalCurrentA * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1))) * 1000).toFixed(2) + " mA"
-                      : "Motor DC · t = " + (simulationTick * 50).toFixed(0) + " ms · velocidad relativa ≈ " + (100 * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.mechanicalTimeConstantMs ?? 250)))).toFixed(0) + "%"}
+                {simulationResult.transient.kind === "network"
+                  ? "Red RLC multirrama · t ≈ " + (simulationResult.transient.frequencyHz ? (simulationTick * 50).toFixed(0) : (simulationTick * 50).toFixed(0)) + " ms · paso de 1 ms"
+                  : simulationResult.transient.kind === "ac"
+                    ? "Fuente AC: " + (simulationResult.transient.frequencyHz ?? 0).toFixed(2) + " Hz · t = " + (simulationTick * 50).toFixed(0) + " ms"
+                    : simulationResult.transient.kind === "rc"
+                      ? "Carga RC · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.initialCurrentA * Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1)) * 1000).toFixed(2) + " mA"
+                      : simulationResult.transient.kind === "rl"
+                        ? "Crecimiento RL · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.finalCurrentA * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1))) * 1000).toFixed(2) + " mA"
+                        : "Motor DC · t = " + (simulationTick * 50).toFixed(0) + " ms · velocidad relativa ≈ " + (100 * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.mechanicalTimeConstantMs ?? 250)))).toFixed(0) + "%"}
               </p>
             )}
             {simulationResult.measurements.length > 0 && <ul>{simulationResult.measurements.map((measurement) => <li key={measurement.label}><span>{measurement.label}</span><b>{measurement.value}</b></li>)}</ul>}
@@ -1327,7 +1329,7 @@ function handleMoveComponent(
           : simulationResult?.transient
             ? (() => {
                 const transient = simulationResult.transient!;
-                if (transient.kind === "ac") return simulationResult.activeComponentIds ?? [];
+                if (transient.kind === "ac" || transient.kind === "network") return simulationResult.activeComponentIds ?? [];
                 const elapsedMs = simulationTick * 50;
                 const tau = Math.max(0.001, transient.timeConstantMs ?? 1);
                 const currentA = transient.kind === "rc"
