@@ -1112,3 +1112,58 @@ Criterios de aceptación:
 - El circuito serie LED sencillo queda dispuesto con fuente, resistencia, LED y retorno claramente separados.
 - El simulador devuelve mediciones solo para la topología que sabe resolver; para cualquier otra topología explica por qué no puede calcularla.
 - Las advertencias técnicas y las limitaciones del modelo permanecen visibles.
+
+---
+
+## Implementación técnica — recuperación de generación, modelos transitorios y pruebas (octubre de 2026)
+
+### Generación
+- Se fija la integración a un único modelo configurado: Gemini 3.6 Flash. No se cambia silenciosamente a Gemini 3.8 Flash.
+- Peticiones conocidas tienen plantillas deterministas validadas antes de modificar el esquema: LED con resistencia; astable NE555 con LED; secuenciador NE555 + CD4017 de seis salidas; indicador didáctico GSR; proximidad infrarroja; inversión de giro con DPDT; y amplificador de base común.
+- Cada plantilla se valida contra los terminales reales de la biblioteca, comprueba duplicados y rechaza terminales abiertos antes de entregarse al editor.
+- Los valores explícitos de fuentes, resistencias, capacitores y LED se aplican a los componentes creados.
+- Para pedidos de diseño no cubiertos por las plantillas, se habilita grounding de Google Search y se devuelven las fuentes que Gemini reporte. Esto no sustituye una revisión independiente de datasheets ni la comprobación eléctrica posterior.
+- Las llamadas a reparación de JSON y de cableado tienen límites de tiempo menores; una respuesta que no puede repararse no debe aplicarse como circuito completo.
+
+### Modelos que ya se pueden ejecutar
+- MNA DC para fuentes de tensión, redes resistivas, diodos/LED con un modelo lineal por tramos, interruptores SPST, fusibles, cargas resistivas, potenciómetros de tres terminales, fuentes de corriente y fotodiodos aproximados.
+- NPN/PNP y MOSFET de canal N/P como **interruptores controlados por umbral**. No son modelos de amplificación analógica ni modelos de fabricante.
+- Solver temporal MNA con integración backward Euler para redes RLC multirrama compatibles, con estado persistente de tensiones de capacitor y corrientes de inductor.
+- Se conservan soluciones analíticas especializadas para lazos RC/RL y una aproximación R-L + constante mecánica para el arranque del motor.
+- Fuente sinusoidal AC para análisis instantáneo por fase; no equivale a un análisis AC complejo de pequeña señal ni a respuesta en frecuencia.
+- Modelo funcional de astable NE555 que calcula Ton/Toff/frecuencia y anima LED en la salida.
+- Modelo digital ideal de CD4017 limitado a seis estados Q0–Q5 cuando está conectado a un NE555 compatible.
+- Puertas lógicas combinacionales con entradas que llegan a niveles HIGH/LOW definidos.
+
+### Verificación automatizada
+La CI ejecuta `npm test`, comprobación de TypeScript, ESLint y compilación de producción. Las pruebas de regresión actuales cubren:
+- LED en directa e inversa.
+- Constantes de tiempo RC y RL.
+- Arranque aproximado del motor.
+- Frecuencia del astable NE555.
+- Conmutación de una carga LED con un NPN en el modelo de umbral.
+- Fuente de corriente, potenciómetro, fase AC y pasos temporales RC/RL/RLC.
+- Plantillas de LED, astable NE555 y secuenciador CD4017 ejecutadas contra el mismo despachador de simulación.
+- Enrutador ortogonal A*: segmentos rectos, obstáculos de componentes, rutas de cables previos y preservación de dobleces manuales; las pruebas cubren casos de cruce y obstáculos concretos.
+
+### Límites importantes que siguen abiertos
+Esto amplía los modelos, pero no constituye un simulador universal ni una equivalencia con Proteus/Livewire. Siguen pendientes: modelos SPICE no lineales completos para BJT/MOSFET y pruebas de referencia adicionales para RLC grandes; análisis AC de pequeña señal y frecuencia; modelos temporales completos de integrados y lógica secuencial arbitraria; validación de contacto/retención para relés, disparo por cuadrantes y conmutación AC real de TRIAC, recuperación inversa y límites reales de SCR; modelos electroópticos o mecánicos acoplados; comprobación topológica global para evitar cortos y redes flotantes; pruebas de plantillas y bibliotecas de circuitos contra referencias externas verificadas. El enrutador identifica y bloquea visualmente muchos cruces, pero no garantiza cero cruces geométricos en toda topología posible.
+
+**Regla de aceptación:** si un componente no tiene modelo específico, el simulador debe identificarlo con su nombre y explicar qué cálculo no puede hacer. No debe inventar corrientes, formas de onda, ganancia, velocidad ni comportamiento físico.
+
+### Actualización de verificación — 27 de octubre de 2026
+- Se corrigió la conexión de CONTROL del NE555 en las plantillas astables: utiliza un capacitor de desacople de 10 nF a masa, en vez de conectar el pin directamente a tierra. El modelo de oscilador acepta esta conexión estándar.
+- La validación de las plantillas comprueba terminales reales, terminales abiertos, cables duplicados y cortocircuitos obvios entre alimentación, LED y componentes pasivos.
+- Se agregaron pruebas de integración para demostrar que los circuitos básicos LED, NE555 astable y CD4017 de seis salidas son reconocidos por el despachador de simulación.
+- El enrutador A* mantiene sus carriles dentro del área visible del esquema; cuando la geometría no admite un recorrido limpio, el fallback sigue siendo heurístico. No se afirma una garantía universal de cero cruces para cualquier esquema.
+- El modelo BJT activo por umbral es un interruptor de baja resistencia cuando VBE supera el umbral configurado; entrega una corriente de rama aproximada, pero **no calcula ganancia analógica ni corriente de base de manera física**. El amplificador de base común sigue siendo una plantilla de esquema, no una simulación de amplificación validada.
+
+
+
+
+### Compatibilidad del modelo de IA — aviso de mantenimiento (27 de octubre de 2026)
+- Mathelect está fijado deliberadamente a `gemini-3.6-flash`; no cambia a otro modelo automáticamente.
+- La documentación oficial de Google consultada indica retiro de Gemini 3.6 Flash el **19 de noviembre de 2026**. Antes de esa fecha deberá evaluarse un cambio explícito, probado y aprobado; no cambiar el modelo en silencio.
+- La búsqueda con Google Search se activa solo en pedidos de diseño no cubiertos por plantillas y su cuota/costo debe revisarse antes de habilitar un volumen elevado. Si no se puede confirmar la fuente, Mathelect no debe afirmar que realizó investigación.
+- Las reparaciones secundarias de JSON y cableado tienen un timeout de 8 segundos; si la propuesta sigue incompleta, se rechaza con un diagnóstico en vez de esperar una segunda llamada larga sin límite práctico.
+- SCR/TRIAC cuentan con un modelo funcional inicial de disparo/enclavamiento, no con el modelo de fabricante completo; especialmente, no debe afirmarse que la simulación cubre los cuatro cuadrantes del TRIAC ni los parámetros de recuperación de un SCR.

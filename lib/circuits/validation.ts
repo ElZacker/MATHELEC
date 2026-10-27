@@ -237,6 +237,9 @@ export function validateCircuit(
   for (const component of circuit.components) {
     for (const terminal of component.terminals) {
       if (connectedTerminals.has(`${component.id}:${terminal.id}`)) continue;
+      // A relay's normally-open/normally-closed contacts may intentionally be unused.
+      // Its coil is still required to be connected by the transient solver.
+      if (component.type === "relay" && ["common", "normally_open", "normally_closed"].includes(terminal.id)) continue;
       issues.push({
         severity: component.terminals.length === 2 ? "error" : "warning",
         code: "UNCONNECTED_TERMINAL",

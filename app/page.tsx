@@ -10,6 +10,7 @@ import {
   removeComponent,
   rotateComponent,
   moveComponent,
+  updateComponentProperties,
 } from "@/lib/circuits/circuit-model";
 
 
@@ -17,6 +18,8 @@ import { validateCircuit } from "@/lib/circuits/validation";
 import { getAvailableComponentTypes } from "@/lib/circuits/components";
 import { importSpiceNetlist } from "@/lib/circuits/import-spice";
 import { runDcSimulation, type SimulationResult } from "@/lib/circuits/simulation";
+import { createTransientState, runTransientStep, type TransientState } from "@/lib/circuits/transient-simulation";
+import { findWireRoutingIssues, routeOrthogonalWires } from "@/lib/circuits/wire-routing";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
 type Message = {
@@ -129,67 +132,8 @@ function CircuitPreview({
     };
   }
 
-  type WirePoint = { x: number; y: number };
-  const routeMap = new Map<string, WirePoint[]>();
-  const isCrossing = (a: WirePoint, b: WirePoint, c: WirePoint, d: WirePoint) => {
-    const horizontalA = Math.abs(a.y - b.y) < 0.01;
-    const horizontalB = Math.abs(c.y - d.y) < 0.01;
-    if (horizontalA === horizontalB) return false;
-    const h1 = horizontalA ? a : c, h2 = horizontalA ? b : d;
-    const v1 = horizontalA ? c : a, v2 = horizontalA ? d : b;
-    const x = v1.x, y = h1.y;
-    return x > Math.min(h1.x, h2.x) + 1 && x < Math.max(h1.x, h2.x) - 1 &&
-      y > Math.min(v1.y, v2.y) + 1 && y < Math.max(v1.y, v2.y) - 1;
-  };
-  const pathLength = (points: WirePoint[]) => points.slice(1).reduce((sum, point, i) => sum + Math.abs(point.x - points[i].x) + Math.abs(point.y - points[i].y), 0);
-  const intersectsComponent = (a: WirePoint, b: WirePoint, component: Circuit["components"][number]) => {
-    const x1 = component.position.x - 32, x2 = component.position.x + 32;
-    const y1 = component.position.y - 28, y2 = component.position.y + 28;
-    if (Math.abs(a.y - b.y) < 0.01) return a.y > y1 && a.y < y2 && Math.max(Math.min(a.x,b.x),x1) < Math.min(Math.max(a.x,b.x),x2);
-    if (Math.abs(a.x - b.x) < 0.01) return a.x > x1 && a.x < x2 && Math.max(Math.min(a.y,b.y),y1) < Math.min(Math.max(a.y,b.y),y2);
-    return true;
-  };
-  // Enruta cada cable evitando, cuando existe alternativa, cruces con cables ya trazados
-  // y atravesar los cuerpos de componentes. Los cables se procesan de forma determinista.
-  for (const wire of circuit.wires) {
-    const fromComponent = circuit.components.find((item) => item.id === wire.from.componentId);
-    const toComponent = circuit.components.find((item) => item.id === wire.to.componentId);
-    if (!fromComponent || !toComponent) continue;
-    const from = getTerminalPoint(fromComponent, wire.from.terminalId);
-    const to = getTerminalPoint(toComponent, wire.to.terminalId);
-    if (wire.points?.length) {
-      routeMap.set(wire.id, [from, ...wire.points, to]);
-      continue;
-    }
-    const midX = Math.round((from.x + to.x) / 2), midY = Math.round((from.y + to.y) / 2);
-    const candidates: WirePoint[][] = [
-      [from, { x: midX, y: from.y }, { x: midX, y: to.y }, to],
-      [from, { x: from.x, y: midY }, { x: to.x, y: midY }, to],
-      [from, { x: from.x, y: 20 }, { x: to.x, y: 20 }, to],
-      [from, { x: from.x, y: 310 }, { x: to.x, y: 310 }, to],
-      [from, { x: 18, y: from.y }, { x: 18, y: to.y }, to],
-      [from, { x: 422, y: from.y }, { x: 422, y: to.y }, to],
-    ];
-    let best = candidates[0], bestScore = Infinity;
-    for (const candidate of candidates) {
-      let score = pathLength(candidate);
-      for (let i = 1; i < candidate.length; i++) {
-        const a = candidate[i - 1], b = candidate[i];
-        for (const [otherId, otherPath] of routeMap) {
-          if (otherId === wire.id) continue;
-          for (let j = 1; j < otherPath.length; j++) if (isCrossing(a,b,otherPath[j-1],otherPath[j])) score += 100000;
-        }
-        for (const component of circuit.components) {
-          if (component.id === fromComponent.id || component.id === toComponent.id) continue;
-          if (intersectsComponent(a,b,component)) score += 5000;
-        }
-      }
-      // Penalizar quiebres redundantes y preferir recorridos compactos.
-      score += candidate.length * 2;
-      if (score < bestScore) { best = candidate; bestScore = score; }
-    }
-    routeMap.set(wire.id, best);
-  }
+  const routeMap = routeOrthogonalWires(circuit, getTerminalPoint);
+  const routingIssues = findWireRoutingIssues(circuit, routeMap, getTerminalPoint);
 
   function handleTerminalClick(componentId: string, terminalId: string) {
     if (!wireDraft) {
@@ -287,6 +231,14 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
       </defs>
 
       <rect width="440" height="330" fill="url(#circuit-grid)" />
+      {routingIssues.size > 0 && (
+        <g pointerEvents="none" aria-label={`${routingIssues.size} cable(s) con problemas de enrutamiento`}>
+          <rect x="8" y="8" width="258" height="25" rx="5" fill="#481c1c" stroke="#ff6868" strokeWidth="1" />
+          <text x="16" y="24" fontSize="10" fill="#ffe8e8" stroke="none">
+            {routingIssues.size} cable(s) con cruces o sin ruta limpia
+          </text>
+        </g>
+      )}
 
       {circuit.wires.map((wire) => {
         const from = circuit.components.find((component) => component.id === wire.from.componentId);
@@ -294,12 +246,23 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         if (!from || !to) return null;
         const fromPoint = getTerminalPoint(from, wire.from.terminalId);
         const toPoint = getTerminalPoint(to, wire.to.terminalId);
-        const points = routeMap.get(wire.id) ?? [fromPoint, { x: Math.round((fromPoint.x + toPoint.x) / 2), y: fromPoint.y }, { x: Math.round((fromPoint.x + toPoint.x) / 2), y: toPoint.y }, toPoint];
+        const points = routeMap.get(wire.id) ?? [];
         const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
-
+        const routeIssue = routingIssues.get(wire.id);
+        if (points.length < 2) {
+          return (
+            <g key={wire.id} className="circuit-wire circuit-wire-error" data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+              <title>{routeIssue ?? "No se encontró una ruta limpia para este cable."} Hacé clic para eliminarlo.</title>
+              <circle cx={(fromPoint.x + toPoint.x) / 2} cy={(fromPoint.y + toPoint.y) / 2} r="8" fill="#ff6868" stroke="#2a0808" strokeWidth="2" />
+              <text x={(fromPoint.x + toPoint.x) / 2} y={(fromPoint.y + toPoint.y) / 2 + 4} textAnchor="middle" fontSize="11" fill="#ffffff" stroke="none">!</text>
+            </g>
+          );
+        }
+        const isError = Boolean(routeIssue) || highlightedWireIds.includes(wire.id);
         return (
-          <g key={wire.id} className={highlightedWireIds.includes(wire.id) ? "circuit-wire circuit-item-highlighted" : "circuit-wire"} data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
-            <polyline points={pointString} fill="none" stroke={highlightedWireIds.includes(wire.id) ? "#ff7373" : componentColor} strokeWidth={highlightedWireIds.includes(wire.id) ? "4" : "2"} />
+          <g key={wire.id} className={isError ? "circuit-wire circuit-item-highlighted" : "circuit-wire"} data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+            {routeIssue && <title>{routeIssue} Hacé clic para eliminar el cable.</title>}
+            <polyline points={pointString} fill="none" stroke={isError ? "#ff6868" : componentColor} strokeWidth={isError ? "3" : "2"} />
             <polyline points={pointString} fill="none" stroke="transparent" strokeWidth="12" />
           </g>
         );
@@ -467,6 +430,7 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
                 </g>
               ) : ["motor", "lamp"].includes(component.type) ? (
                 <g>
+                  {component.type === "motor" && activeComponentIds.includes(component.id) && <circle cx="0" cy="0" r="23" fill="#45f59a" opacity="0.15" stroke="none" />}
                   <line x1="-28" y1="0" x2="-17" y2="0" />
                   <circle cx="0" cy="0" r="17" />
                   <line x1="17" y1="0" x2="28" y2="0" />
@@ -592,6 +556,63 @@ const [circuit, setCircuit] = useState<Circuit>(() => ({
 
 const [selectedValidationIssue, setSelectedValidationIssue] = useState<ValidationIssue | null>(null);
 const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+const [simulationTick, setSimulationTick] = useState(0);
+const [transientState, setTransientState] = useState<TransientState | null>(null);
+const previousCircuitJson = useRef(JSON.stringify(circuit));
+
+useEffect(() => {
+  const nextJson = JSON.stringify(circuit);
+  if (nextJson !== previousCircuitJson.current) {
+    previousCircuitJson.current = nextJson;
+    setSimulationResult(null);
+    setTransientState(null);
+    setSimulationTick(0);
+  }
+}, [circuit]);
+
+// Keep the running simulation's latest values without restarting its timer on
+// every animation frame. The previous dependency list recreated setInterval
+// after every tick, making the simulated time drift and creating avoidable work.
+const simulationRuntime = useRef({ circuit, simulationResult, simulationTick, transientState });
+useEffect(() => {
+  simulationRuntime.current = { circuit, simulationResult, simulationTick, transientState };
+}, [circuit, simulationResult, simulationTick, transientState]);
+
+useEffect(() => {
+  const result = simulationResult;
+  if (!result?.oscillation && !result?.sequencer && !result?.transient) return;
+  const intervalId = window.setInterval(() => {
+    const current = simulationRuntime.current;
+    const tick = current.simulationTick + 1;
+    simulationRuntime.current = { ...current, simulationTick: tick };
+    setSimulationTick(tick);
+    const transient = current.simulationResult?.transient;
+
+    // Integrate 50 × 1 ms steps per visual frame to retain useful resolution for 50/60 Hz AC.
+    if (transient?.kind === "network" && current.transientState) {
+      let state: TransientState | null = current.transientState;
+      let latest = current.simulationResult;
+      for (let index = 0; index < 50 && state; index += 1) {
+        const step = runTransientStep(current.circuit, 0.001, state);
+        if (!step.result.supported) {
+          latest = step.result;
+          state = null;
+          break;
+        }
+        state = step.state;
+        latest = step.result;
+      }
+      simulationRuntime.current = { ...simulationRuntime.current, transientState: state, simulationResult: latest };
+      setTransientState(state);
+      setSimulationResult(latest);
+    } else if (transient?.kind === "ac") {
+      const latest = runDcSimulation(current.circuit, tick * 0.05);
+      simulationRuntime.current = { ...simulationRuntime.current, simulationResult: latest };
+      setSimulationResult(latest);
+    }
+  }, 50);
+  return () => window.clearInterval(intervalId);
+}, [circuit.id, simulationResult?.oscillation?.periodMs, simulationResult?.sequencer?.stepMs, simulationResult?.transient?.kind, simulationResult?.transient?.frequencyHz, simulationResult?.transient?.timeConstantMs]);
 const [validationIssues, setValidationIssues] = useState(() =>
   validateCircuit({
     id: "circuit-principal",
@@ -605,9 +626,27 @@ const [validationIssues, setValidationIssues] = useState(() =>
 );
 
 function handleStartSimulation() {
+  setSimulationTick(0);
   const issues = validateCircuit(circuit);
   setValidationIssues(issues);
   const errors = issues.filter((issue) => issue.severity === "error");
+  const getTerminalPoint = (component: Circuit["components"][number], terminalId: string) => {
+    const terminal = component.terminals.find((item) => item.id === terminalId);
+    if (!terminal) return component.position;
+    const angle = (component.rotation * Math.PI) / 180;
+    return {
+      x: component.position.x + terminal.position.x * Math.cos(angle) - terminal.position.y * Math.sin(angle),
+      y: component.position.y + terminal.position.x * Math.sin(angle) + terminal.position.y * Math.cos(angle),
+    };
+  };
+  const routeMap = routeOrthogonalWires(circuit, getTerminalPoint);
+  const routeIssues = findWireRoutingIssues(circuit, routeMap, getTerminalPoint);
+  const routeMessages = [...routeIssues.entries()].map(([wireId, reason]) => {
+    const wire = circuit.wires.find((item) => item.id === wireId);
+    const from = circuit.components.find((item) => item.id === wire?.from.componentId);
+    const to = circuit.components.find((item) => item.id === wire?.to.componentId);
+    return `Cable ${from?.label ?? "?"}.${wire?.from.terminalId ?? "?"} → ${to?.label ?? "?"}.${wire?.to.terminalId ?? "?"}: ${reason}`;
+  });
   if (errors.length > 0) {
     const result: SimulationResult = {
       supported: false,
@@ -623,21 +662,53 @@ function handleStartSimulation() {
       messages: [...chat.messages, {
         id: `diagnostico-${Date.now()}`,
         role: "assistant" as const,
-        text: `No inicié la simulación porque encontré ${errors.length} error(es):\n${errors.map((issue, index) => `${index + 1}. ${issue.message}`).join("\n")}\n\nCorregí estas conexiones y volvé a intentarlo.`,
+        text: `No inicié la simulación porque encontré ${errors.length} error(es):\n${errors.map((issue, index) => `${index + 1}. ${issue.message}`).join("\n")}\n\nCorregí estas conexiones y volvé a intentarlo.${routeMessages.length ? "\n\nProblemas visuales de cableado:\n" + routeMessages.map((message, index) => `${index + 1}. ${message}`).join("\n") : ""}`,
       }],
     } : chat));
     return;
   }
-  const result = runDcSimulation(circuit);
+  const staticResult = runDcSimulation(circuit);
+  let result = staticResult;
+  let nextTransientState: TransientState | null = null;
+  const hasAcSource = circuit.components.some((component) => component.type === "voltage_source_ac");
+  const hasBjt = circuit.components.some((component) => ["npn_transistor", "pnp_transistor"].includes(component.type));
+  const hasReactiveParts = circuit.components.some((component) =>
+    ["capacitor", "polarized_capacitor", "inductor"].includes(component.type));
+  const hasExactSingleLoopTransient = staticResult.supported &&
+    ["rc", "rl", "motor"].includes(staticResult.transient?.kind ?? "");
+  // If the DC solver declines a topology, always try the general transient
+  // engine; it may support devices (such as relays or op-amps) outside the DC solver.
+  if ((hasAcSource || hasBjt || !staticResult.supported) && !hasExactSingleLoopTransient) {
+    const initialStep = runTransientStep(circuit, 0.001, createTransientState());
+    if (initialStep.result.supported) {
+      result = initialStep.result;
+      nextTransientState = initialStep.state;
+    } else if (!staticResult.supported) {
+      result = initialStep.result;
+    }
+  }
+  setTransientState(nextTransientState);
   setSimulationResult(result);
-  setNotice(result.supported ? "Análisis de punto de operación DC terminado." : "La topología requiere un modelo eléctrico todavía no implementado.");
+  if (routeMessages.length > 0) {
+    setChats((current) => current.map((chat) => chat.id === activeChatId ? {
+      ...chat,
+      messages: [...chat.messages, {
+        id: `rutas-${Date.now()}`,
+        role: "assistant" as const,
+        text: `Detecté ${routeMessages.length} problema(s) visual(es) en el cableado. La simulación usa las conexiones del netlist, pero el dibujo necesita corregirse:\n${routeMessages.map((message, index) => `${index + 1}. ${message}`).join("\n")}\n\nMové componentes para abrir espacio o eliminá y volvé a trazar los cables señalados.`,
+      }],
+    } : chat));
+  }
+  setNotice(result.supported
+    ? result.transient?.kind === "network" ? "Simulación temporal iniciada (paso de 1 ms)." : result.transient ? "Modelo transitorio calculado." : "Análisis de punto de operación terminado."
+    : "La topología requiere conexiones o modelos eléctricos todavía no implementados.");
   if (!result.supported) {
     setChats((current) => current.map((chat) => chat.id === activeChatId ? {
       ...chat,
       messages: [...chat.messages, {
-        id: `diagnostico-${Date.now()}`,
+        id: "diagnostico-" + Date.now(),
         role: "assistant" as const,
-        text: `Todavía no puedo calcular esta topología con fiabilidad.\n\nMotivo: ${result.summary}\n\nNo voy a mostrar mediciones inventadas. El diagnóstico indica qué modelo o conexión falta para esta topología.`,
+        text: "Todavía no puedo calcular esta topología con fiabilidad.\n\nMotivo: " + result.summary + "\n\nNo voy a mostrar mediciones inventadas. Corregí las conexiones indicadas o usá componentes con modelos eléctricos implementados.",
       }],
     } : chat));
   }
@@ -808,7 +879,7 @@ function handleMoveComponent(
         actions?: Record<string, unknown>[];
         response?: string;
         title?: string; explanation?: string;
-        components?: { type: ComponentType; x: number; y: number }[];
+        components?: { type: ComponentType; x: number; y: number; properties?: Record<string, string | number | boolean> }[];
         wires?: { from: { componentIndex: number; terminalId: string }; to: { componentIndex: number; terminalId: string } }[];
         confirmedRequirements?: string[]; assumptions?: string[];
         missingInformation?: string[]; warnings?: string[]; error?: string;
@@ -879,7 +950,9 @@ function handleMoveComponent(
             throw new Error("La propuesta contiene un tipo de componente no admitido.");
           }
           nextCircuit = addComponent(nextCircuit, item.type, item.x, item.y);
-          componentIds.push(nextCircuit.components[nextCircuit.components.length - 1].id);
+          const createdComponentId = nextCircuit.components[nextCircuit.components.length - 1].id;
+          componentIds.push(createdComponentId);
+          if (item.properties) nextCircuit = updateComponentProperties(nextCircuit, createdComponentId, item.properties);
         }
       }
       if (data.wires?.length && !hasIncrementalMutation) {
@@ -1272,13 +1345,28 @@ function handleMoveComponent(
         </div>
 
         <div className="simulation-toolbar">
-          <div><strong>Simulación eléctrica</strong><small>Experimental · análisis DC de redes resistivas y diodos compatibles</small></div>
+          <div><strong>Simulación eléctrica</strong><small>DC, lógica digital y transitorios de primer orden para topologías compatibles</small></div>
           <button type="button" className="simulation-start-button" onClick={handleStartSimulation} disabled={circuit.components.length === 0}>▶ Iniciar simulación</button>
           {simulationResult && <button type="button" className="simulation-stop-button" onClick={() => setSimulationResult(null)}>Cerrar resultados</button>}
         </div>
         {simulationResult && (
           <div className={simulationResult.supported ? "simulation-result" : "simulation-result simulation-result-limited"} role="status" aria-live="polite">
             <strong>{simulationResult.title}</strong><p>{simulationResult.summary}</p>
+            {simulationResult.oscillation && <p className="simulation-animation-status">{((simulationTick * 50) % simulationResult.oscillation.periodMs) < simulationResult.oscillation.highMs ? "Salida NE555: ALTA" : "Salida NE555: BAJA"} · animación en tiempo real</p>}
+            {simulationResult.sequencer && <p className="simulation-animation-status">Paso activo: {simulationResult.sequencer.steps[Math.floor((simulationTick * 50) / simulationResult.sequencer.stepMs) % simulationResult.sequencer.steps.length]?.label ?? "Q0"}</p>}
+            {simulationResult.transient && (
+              <p className="simulation-animation-status">
+                {simulationResult.transient.kind === "network"
+                  ? "Red RLC multirrama · t ≈ " + (simulationResult.transient.frequencyHz ? (simulationTick * 50).toFixed(0) : (simulationTick * 50).toFixed(0)) + " ms · paso de 1 ms"
+                  : simulationResult.transient.kind === "ac"
+                    ? "Fuente AC: " + (simulationResult.transient.frequencyHz ?? 0).toFixed(2) + " Hz · t = " + (simulationTick * 50).toFixed(0) + " ms"
+                    : simulationResult.transient.kind === "rc"
+                      ? "Carga RC · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.initialCurrentA * Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1)) * 1000).toFixed(2) + " mA"
+                      : simulationResult.transient.kind === "rl"
+                        ? "Crecimiento RL · t = " + (simulationTick * 50).toFixed(0) + " ms · I ≈ " + (simulationResult.transient.finalCurrentA * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.timeConstantMs ?? 1))) * 1000).toFixed(2) + " mA"
+                        : "Motor DC · t = " + (simulationTick * 50).toFixed(0) + " ms · velocidad relativa ≈ " + (100 * (1 - Math.exp(-(simulationTick * 50) / (simulationResult.transient.mechanicalTimeConstantMs ?? 250)))).toFixed(0) + "%"}
+              </p>
+            )}
             {simulationResult.measurements.length > 0 && <ul>{simulationResult.measurements.map((measurement) => <li key={measurement.label}><span>{measurement.label}</span><b>{measurement.value}</b></li>)}</ul>}
             <small>{simulationResult.disclaimer}</small>
           </div>
@@ -1295,7 +1383,28 @@ function handleMoveComponent(
     onDeleteWire={handleDeleteWire}
     highlightedComponentIds={selectedValidationIssue?.componentIds ?? []}
     highlightedWireIds={selectedValidationIssue?.wireIds ?? []}
-    activeComponentIds={simulationResult?.activeComponentIds ?? []}
+    activeComponentIds={
+      simulationResult?.sequencer
+        ? (simulationResult.sequencer.steps[Math.floor((simulationTick * 50) / simulationResult.sequencer.stepMs) % simulationResult.sequencer.steps.length]?.componentIds ?? [])
+        : simulationResult?.oscillation
+          ? (((simulationTick * 50) % simulationResult.oscillation.periodMs) < simulationResult.oscillation.highMs
+            ? simulationResult.oscillation.componentIds
+            : [])
+          : simulationResult?.transient
+            ? (() => {
+                const transient = simulationResult.transient!;
+                if (transient.kind === "ac" || transient.kind === "network") return simulationResult.activeComponentIds ?? [];
+                const elapsedMs = simulationTick * 50;
+                const tau = Math.max(0.001, transient.timeConstantMs ?? 1);
+                const currentA = transient.kind === "rc"
+                  ? transient.initialCurrentA * Math.exp(-elapsedMs / tau)
+                  : transient.finalCurrentA * (1 - Math.exp(-elapsedMs / tau));
+                const activeIds = currentA > 0.001 ? [...transient.ledIds] : [];
+                if (transient.kind === "motor" && elapsedMs > (transient.mechanicalTimeConstantMs ?? 250) * 0.05) activeIds.push(...transient.componentIds);
+                return activeIds;
+              })()
+            : (simulationResult?.activeComponentIds ?? [])
+    }
   />
 ) : (
 

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAvailableComponentTypes, getComponentDefinition } from "@/lib/circuits/components";
 import type { ComponentType } from "@/lib/circuits/types";
+import { buildKnownCircuitProposal } from "@/lib/circuits/known-circuit-templates";
 
-type ProposalComponent = { type: ComponentType; x: number; y: number };
+type ProposalComponent = { type: ComponentType; x: number; y: number; properties?: Record<string, string | number | boolean> };
 type ProposalWire = {
   from: { componentIndex: number; terminalId: string };
   to: { componentIndex: number; terminalId: string };
@@ -22,7 +23,6 @@ type Proposal = {
 };
 
 const supportedTypes = new Set<string>(getAvailableComponentTypes());
-
 // Límite básico por IP para evitar bucles accidentales y abuso del endpoint.
 // En despliegues con varias instancias, reemplazar por un limitador compartido.
 const RATE_WINDOW_MS = 60_000;
@@ -50,60 +50,37 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("Falta GEMINI_API_KEY en el entorno del servidor.");
 
-  const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
   const circuitContext = JSON.stringify(currentCircuit);
-  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Si preguntan cuáles son tus capacidades, respondé de forma concreta y honesta: podés explicar electrónica, proponer circuitos con toda la biblioteca disponible, añadir uno o varios componentes, conectar y desconectar cables, rotar/mover/eliminar componentes, cambiar propiedades admitidas, explicar errores y sugerir sustitutos; no podés simular eléctricamente ni garantizar que un circuito funcione, y no debes afirmar capacidades inexistentes. Si el usuario pide diseñar, generar, crear o armar un circuito, la salida debe incluir conexiones eléctricas válidas por defecto; jamás entregues componentes sueltos solo por comodidad. Solo omitas cables si el usuario pide explícitamente "sin conexiones", "sin conectar" o equivalente. Cada conexión debe usar terminales reales y respetar polaridad, función, requisitos eléctricos y límites físicos; no inventes una topología que no puedas justificar. Antes de elegir componentes, seguí un procedimiento de diseño obligatorio: (1) identifica la función y los requisitos de entrada/salida; (2) descompone el diseño en etapas (alimentación, sensor/entrada, acondicionamiento, control, driver y carga); (3) elige topología y componentes reales de la biblioteca; (4) asigna cada terminal por su nombre y función eléctrica; (5) calcula valores de polarización, corriente, tensión, potencia y frecuencias relevantes; (6) cablea cada etapa y sus referencias de alimentación/masa; (7) revisa el netlist terminal por terminal, detecta pines obligatorios flotantes, cortos, polaridad invertida y conexiones duplicadas; (8) recién entonces responde. Para circuitos conocidos (por ejemplo detector de proximidad, control de giro de motor, amplificador de base común, oscilador NE555 o contador CD4017), usa topologías electrónicas estándar de conocimiento técnico, no una cadena aleatoria de componentes. No afirmes que hiciste investigación web ni consultaste hojas de datos si no hay una herramienta de búsqueda conectada; si un dato depende de un datasheet específico y no es seguro, decláralo como supuesto. Si el circuito excede el alcance verificable, entrega una propuesta por etapas y lista exactamente qué requiere validación. Calcula valores básicos cuando sea posible y explica límites relevantes (por ejemplo, un detector de conductancia cutánea no demuestra que alguien mienta). Si faltan datos críticos, usa supuestos explícitos y conservadores o pregunta, sin presentar el diseño como validado. Si piden un circuito aleatorio, elegí un diseño didáctico coherente y conectado; si es complejo, divide en etapas funcionales conectadas y explica lo que no puede verificarse. En pedidos singulares como “agrega otro LED”, ejecutá exactamente una unidad salvo que indiquen una cantidad distinta; no dupliques acciones. Para desconectar, usa una acción disconnect por cada pareja de componentes conectada que el usuario indique, sin tocar cables no relacionados. Si solicitan un componente inexistente, explicá cuál falta y ofrecé la alternativa más cercana disponible, sin inventar que existe. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. Si el usuario dice que elijas vos, que sea aleatorio o pide componentes conectados sin especificar cuáles, elegí una combinación coherente y realizá el cambio en vez de pedirle que elija. Si pide conectar componentes que ya están colocados, conectá los existentes usando sus referencias y terminales reales. Si pide agregar un componente conectado, agregá el componente y conectalo a la topología existente cuando sea eléctricamente razonable. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 30 componentes totales y 40 cables nuevos. No afirmes validación o simulación eléctrica. Tipos y terminales disponibles (fuente de verdad): ${JSON.stringify(Object.fromEntries(getAvailableComponentTypes().map((type) => [type, getComponentDefinition(type).terminals.map((terminal) => ({ id: terminal.id, name: terminal.name }))])))}. Usá únicamente estos tipos y terminales. Coordenadas x=30..410, y=40..290. Distribuí los componentes como un esquema electrónico convencional: fuente a la izquierda, protección/entrada primero, procesamiento en el centro y carga/salida a la derecha; usá filas alineadas, separación suficiente para etiquetas y cables, evitá superposiciones y priorizá recorridos ordenados. Enrutá cables por trayectos ortogonales, no hagas que se crucen entre sí ni atraviesen símbolos; si dos redes se cruzan, mantenelas eléctricamente separadas y usa un puente visual o un desvío claro. Nunca conectes nodos solo porque se cruzan en pantalla. No inventes componentes ni terminales. Máximo 30 componentes totales y 40 cables nuevos. Respeta la cantidad exacta solicitada; “otro/un/una” significa exactamente uno. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación o simulación eléctrica. La salida debe ser JSON completo y válido, sin Markdown, sin comentarios, sin texto antes o después del objeto. Mantené response breve y priorizá la validez de la estructura, índices de componentes correctos y terminales existentes. `;
-  // HTTP 503/504 significa saturación temporal del proveedor. Si el modelo elegido
-  // sigue saturado, intentamos un modelo alternativo general en lugar de fallar enseguida.
-  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.8-flash";
-  const modelsToTry = [...new Set([model, fallbackModel])];
-  let response: Response | undefined;
-  let lastTransientError: unknown;
-  let activeModel = model;
-
-  for (const candidateModel of modelsToTry) {
-    activeModel = candidateModel;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${candidateModel}:generateContent?key=${apiKey}`;
-    const requestBody = JSON.stringify({
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\\n" + prompt + "\\n\\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\\n" + circuitContext }] }],
-      generationConfig: {
-        // Reservar pocos tokens para acciones simples reduce la latencia; las consultas técnicas
-        // reciben más espacio para explicar sin imponer respuestas largas a cada turno.
-        maxOutputTokens: /\b(aleatori|complej|todos|biblioteca|componentes conectados|conectalos|conectá|conecta|circuito|detector|amplificador|motor|ne ?555|4017)\b/i.test(prompt) ? 3072 : /\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\b/i.test(prompt) ? 1536 : prompt.length < 90 ? 768 : 1280,
-        responseMimeType: "application/json",
-        thinkingConfig: { thinkingLevel: "LOW" },
-      },
+  const systemInstruction = `Sos Mathelect, un asistente conversacional en español natural, cálido y directo. Adaptá la longitud al pedido: para saludos y acciones simples, respondé en 1-3 frases claras; para preguntas técnicas, explicá el porqué y los pasos útiles; si el usuario pide detalle, desarrollá la respuesta sin quedarte en una frase genérica. No termines siempre con una pregunta innecesaria. Si preguntan cuáles son tus capacidades, respondé de forma concreta y honesta: podés explicar electrónica, proponer circuitos con la biblioteca, añadir componentes, conectar y desconectar cables, rotar/mover/eliminar componentes, cambiar propiedades, revisar errores y ejecutar análisis eléctricos limitados desde el botón de simulación. No digas que cualquier circuito se puede simular: los modelos actuales cubren redes DC compatibles, algunos transitorios RLC, lógica combinacional, un astable NE555 y un CD4017 de seis estados, y transistores/MOSFET como interruptores de umbral. No afirmes que eso equivale a Proteus/SPICE ni que el funcionamiento físico está validado. Si el usuario pide diseñar, generar, crear o armar un circuito, la salida debe incluir conexiones eléctricas válidas por defecto; jamás entregues componentes sueltos solo por comodidad. Solo omitas cables si el usuario pide explícitamente "sin conexiones", "sin conectar" o equivalente. Cada conexión debe usar terminales reales y respetar polaridad, función, requisitos eléctricos y límites físicos; no inventes una topología que no puedas justificar. Antes de elegir componentes, seguí un procedimiento de diseño obligatorio: (1) identifica la función y los requisitos de entrada/salida; (2) descompone el diseño en etapas (alimentación, sensor/entrada, acondicionamiento, control, driver y carga); (3) elige topología y componentes reales de la biblioteca; (4) asigna cada terminal por su nombre y función eléctrica; (5) calcula valores de polarización, corriente, tensión, potencia y frecuencias relevantes; (6) cablea cada etapa y sus referencias de alimentación/masa; (7) revisa el netlist terminal por terminal, detecta pines obligatorios flotantes, cortos, polaridad invertida y conexiones duplicadas; (8) recién entonces responde. Para circuitos conocidos (por ejemplo detector de proximidad, control de giro de motor, amplificador de base común, oscilador NE555 o contador CD4017), usa topologías electrónicas estándar de conocimiento técnico, no una cadena aleatoria de componentes. No afirmes que hiciste investigación web ni consultaste hojas de datos si no hay una herramienta de búsqueda conectada; si un dato depende de un datasheet específico y no es seguro, decláralo como supuesto. Si el circuito excede el alcance verificable, entrega una propuesta por etapas y lista exactamente qué requiere validación. Calcula valores básicos cuando sea posible y explica límites relevantes (por ejemplo, un detector de conductancia cutánea no demuestra que alguien mienta). Si faltan datos críticos, usa supuestos explícitos y conservadores o pregunta, sin presentar el diseño como validado. Si piden un circuito aleatorio, elegí un diseño didáctico coherente y conectado; si es complejo, divide en etapas funcionales conectadas y explica lo que no puede verificarse. En pedidos singulares como “agrega otro LED”, ejecutá exactamente una unidad salvo que indiquen una cantidad distinta; no dupliques acciones. Para desconectar, usa una acción disconnect por cada pareja de componentes conectada que el usuario indique, sin tocar cables no relacionados. Si solicitan un componente inexistente, explicá cuál falta y ofrecé la alternativa más cercana disponible, sin inventar que existe. Cuando agregues un componente, confirmá cuál agregaste y, si es relevante, explicá brevemente su función o qué falta para usarlo; no afirmes que un circuito está completo si no lo está. No muestres títulos robóticos, listas de metadatos ni advertencias genéricas en cada turno. Devolvé JSON con response, title, explanation, components, wires, actions, confirmedRequirements, assumptions, missingInformation y warnings. Interpretá TODAS las instrucciones del usuario usando el estado completo del circuito actual como contexto; nunca ejecutes acciones por palabras clave en el servidor o el cliente. El circuito actual debe preservarse salvo que el usuario pida modificarlo. Para editar elementos existentes, devolvé acciones en actions: add_component {type, componentType, x, y}; rotate_component {type, reference, quarterTurns}; move_component {type, reference, x, y}; delete_component {type, reference}; connect {type, fromReference, fromTerminal, toReference, toTerminal}; disconnect {type, fromReference, toReference}; clear_circuit {type}; update_properties {type, reference, properties}. Usá las referencias visibles como R1, D1, BAT1, SW1 y GND1; podés usar los IDs incluidos en el contexto si hace falta. Las terminales válidas están descritas por cada componente en el contexto; nunca inventes terminales. Para añadir componentes nuevos, preferí acciones add_component cuando se trate de una edición incremental. Para generar un circuito desde cero o una propuesta de varios componentes, usá components y wires como elementos nuevos. Si el usuario dice que elijas vos, que sea aleatorio o pide componentes conectados sin especificar cuáles, elegí una combinación coherente y realizá el cambio en vez de pedirle que elija. Si pide conectar componentes que ya están colocados, conectá los existentes usando sus referencias y terminales reales. Si pide agregar un componente conectado, agregá el componente y conectalo a la topología existente cuando sea eléctricamente razonable. No devuelvas una acción si no estás seguro de qué elemento quiere modificar el usuario: preguntá en response y dejá actions vacías. La rotación es de 90 grados por cuarto de vuelta y quarterTurns puede ser 1, 2, 3 o 4. Máximo 30 componentes totales y 40 cables nuevos. No afirmes validación física ni simulación completa. Solo describí análisis que el motor implementado pueda ejecutar y distinguí sus aproximaciones. Tipos y terminales disponibles (fuente de verdad): ${JSON.stringify(Object.fromEntries(getAvailableComponentTypes().map((type) => [type, getComponentDefinition(type).terminals.map((terminal) => ({ id: terminal.id, name: terminal.name }))])))}. Usá únicamente estos tipos y terminales. Coordenadas x=30..410, y=40..290. Distribuí los componentes como un esquema electrónico convencional: fuente a la izquierda, protección/entrada primero, procesamiento en el centro y carga/salida a la derecha; usá filas alineadas, separación suficiente para etiquetas y cables, evitá superposiciones y priorizá recorridos ordenados. Enrutá cables por trayectos ortogonales, no hagas que se crucen entre sí ni atraviesen símbolos; si dos redes se cruzan, mantenelas eléctricamente separadas y usa un puente visual o un desvío claro. Nunca conectes nodos solo porque se cruzan en pantalla. No inventes componentes ni terminales. Máximo 30 componentes totales y 40 cables nuevos. Respeta la cantidad exacta solicitada; “otro/un/una” significa exactamente uno. Si no se modifica el circuito, devolvé listas vacías sin convertirlo en error. No afirmes validación física ni simulación completa. Solo describí análisis que el motor implementado pueda ejecutar y distinguí sus aproximaciones. La salida debe ser JSON completo y válido, sin Markdown, sin comentarios, sin texto antes o después del objeto. Mantené response breve y priorizá la validez de la estructura, índices de componentes correctos y terminales existentes. `;
+  // Mathelect uses only Gemini 3.6 Flash. No silent switch to a slower model.
+  const model = "gemini-3.6-flash";
+  const activeModel = model;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const asksForCircuitDesign = /\b(circuito|circuit|detector|amplificador|oscilador|contador|proximidad|motor|transistor|555|4017|led|diseñ\w*|disen\w*|gener\w*|cre\w*|arm\w*|mont\w*|constru\w*|sistema|control|sensor|alarma|inversor)\b/i.test(prompt);
+  const useGoogleSearch = asksForCircuitDesign && !/\b(agrega|agregá|añade|anade|borra|elimina|mueve|rota|conecta|desconecta|valor de|explica qué es)\b/i.test(prompt);
+  const requestBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents: [{ role: "user", parts: [{ text: "PEDIDO DEL USUARIO:\n" + prompt + "\n\nESTADO ACTUAL DEL CIRCUITO (solo contexto; no lo recrees):\n" + circuitContext }] }],
+    ...(useGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
+    generationConfig: {
+      maxOutputTokens: /\b(complej|todos|detector|amplificador|motor|proximidad|base comun|ne ?555|4017)\b/i.test(prompt) ? 3072
+        : /\b(explic[aá]|detall|paso a paso|por qué|por que|compar|informe|completo|desarroll)\b/i.test(prompt) ? 1536
+        : prompt.length < 90 ? 768 : 1280,
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: "LOW" },
+    },
+  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody,
+      signal: AbortSignal.timeout(18000),
     });
-
-    // Dos intentos por modelo, con una espera corta para errores transitorios.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: requestBody,
-          signal: AbortSignal.timeout(30000),
-        });
-        if (response.ok) break;
-        if (response.status !== 503 && response.status !== 504) break;
-        lastTransientError = new Error(`Gemini ${candidateModel} respondió HTTP ${response.status}`);
-      } catch (error) {
-        lastTransientError = error;
-        const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-        if (!timedOut) throw error;
-      }
-      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1000));
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error("Gemini 3.6 tardó más de 18 segundos. Los circuitos conocidos tienen plantillas locales; para un diseño nuevo, probá de nuevo en unos segundos.");
     }
-    if (response?.ok) break;
-    if (response && response.status !== 503 && response.status !== 504) break;
-    response = undefined;
-  }
-
-  if (!response) {
-    throw lastTransientError instanceof Error
-      ? new Error(lastTransientError.message + ". Se intentó el modelo principal y el alternativo.")
-      : new Error("Gemini no respondió. Se intentaron el modelo principal y el alternativo.");
+    throw error;
   }
 
   if (!response.ok) {
@@ -115,7 +92,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     // Mensajes accionables; nunca incluir la clave en la respuesta al navegador.
     if (response.status === 429) throw new Error("Gemini agotó la cuota o el límite de solicitudes del nivel gratuito. Revisá el uso y los límites del proyecto en Google AI Studio y probá más tarde.");
     if (response.status === 401 || response.status === 403) throw new Error("Gemini rechazó la clave o el acceso a la API (HTTP " + response.status + "). Verificá que GEMINI_API_KEY sea la clave de AI Studio correcta y que la API Gemini esté habilitada para ese proyecto.");
-    if (response.status === 404) throw new Error("Gemini no encontró el modelo '" + activeModel + "' (HTTP 404). Cambiá GEMINI_MODEL o GEMINI_FALLBACK_MODEL por un modelo disponible para tu proyecto.");
+    if (response.status === 404) throw new Error("Gemini 3.6 Flash no está disponible para esta clave/proyecto (HTTP 404). Verificá el acceso al modelo en Google AI Studio.");
     if (response.status === 400) throw new Error("Gemini rechazó la solicitud (HTTP 400)." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá el modelo y el formato de la solicitud."));
     throw new Error("Gemini respondió HTTP " + response.status + "." + (providerMessage ? " Detalle: " + providerMessage.slice(0, 240) : " Revisá la configuración e intentá nuevamente."));
   }
@@ -124,7 +101,15 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
   if (typeof payload !== "object" || payload === null || !("candidates" in payload)) {
     throw new Error("La respuesta de Gemini no tiene el formato esperado.");
   }
-  const candidates = (payload as { candidates?: { content?: { parts?: { text?: string }[] } }[] }).candidates;
+  const candidates = (payload as {
+    candidates?: {
+      content?: { parts?: { text?: string }[] };
+      groundingMetadata?: { groundingChunks?: { web?: { uri?: string; title?: string } }[] };
+    }[]
+  }).candidates;
+  const researchWarnings = (candidates?.[0]?.groundingMetadata?.groundingChunks ?? [])
+    .flatMap((chunk) => chunk.web?.uri ? [`Fuente consultada: ${chunk.web.title || chunk.web.uri} — ${chunk.web.uri}`] : [])
+    .slice(0, 5);
   const raw = candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
   if (!raw) throw new Error("Gemini devolvió una respuesta vacía. Puede que el pedido haya sido bloqueado o que se haya agotado la cuota.");
 
@@ -163,7 +148,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
           contents: [{ role: "user", parts: [{ text: "Repará este JSON incompleto de Mathelect y devolvé el objeto completo. Tipos disponibles: " + JSON.stringify(getAvailableComponentTypes()) + "\\nJSON truncado:\\n" + raw }] }],
           generationConfig: { responseMimeType: "application/json", maxOutputTokens: 3072, thinkingConfig: { thinkingLevel: "LOW" } },
         }),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(8000),
       });
       if (repairResponse.ok) {
         const repairPayload = await repairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -213,7 +198,16 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     const x = typeof component.x === "number" && Number.isFinite(component.x) ? component.x : 220;
     const y = typeof component.y === "number" && Number.isFinite(component.y) ? component.y : 165;
     if (!normalizedType) throw new Error("Gemini propuso un tipo de componente no disponible en la biblioteca.");
-    return { type: normalizedType, x: Math.max(30, Math.min(410, x)), y: Math.max(40, Math.min(290, y)) };
+        const rawProperties = typeof component.properties === "object" && component.properties !== null && !Array.isArray(component.properties)
+      ? component.properties as Record<string, unknown> : {};
+    const properties: Record<string, string | number | boolean> = {};
+    for (const [key, property] of Object.entries(rawProperties).slice(0, 20)) {
+      if (key.length > 64) continue;
+      if (typeof property === "string" || typeof property === "boolean" || (typeof property === "number" && Number.isFinite(property))) {
+        properties[key] = typeof property === "string" ? property.slice(0, 100) : property;
+      }
+    }
+    return { type: normalizedType, x: Math.max(30, Math.min(410, x)), y: Math.max(40, Math.min(290, y)), ...(Object.keys(properties).length ? { properties } : {}) };
   });
 
   const wireWarnings: string[] = [];
@@ -278,7 +272,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
           contents: [{ role: "user", parts: [{ text: wireRepairPrompt }] }],
           generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: "LOW" } },
         }),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(8000),
       });
       if (wireRepairResponse.ok) {
         const wirePayload = await wireRepairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -378,7 +372,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
             contents: [{ role: "user", parts: [{ text: `El circuito está incompleto. Devolvé un objeto JSON {"wires":[...]} con la lista COMPLETA de conexiones corregidas, incluyendo estas conexiones existentes: ${JSON.stringify(wires)}. Terminales abiertos: ${JSON.stringify(openTerminals)}. Pedido original: ${prompt}. Componentes y terminales reales: ${JSON.stringify(components.map((item,index)=>({componentIndex:index,type:item.type,terminals:terminalMap[item.type]})))}. Conectá los terminales requeridos y conservá una topología eléctricamente coherente.` }] }],
             generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: "LOW" } },
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(8000),
         });
         if (repairResponse.ok) {
           const repairPayload = await repairResponse.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
@@ -439,7 +433,7 @@ async function buildAiProposal(prompt: string, currentCircuit: { components: { t
     confirmedRequirements: stringList("confirmedRequirements"),
     assumptions: stringList("assumptions"),
     missingInformation: stringList("missingInformation"),
-    warnings: [...stringList("warnings"), ...wireWarnings],
+    warnings: [...stringList("warnings"), ...wireWarnings, ...researchWarnings],
   };
 }
 
@@ -559,6 +553,9 @@ export async function POST(request: Request) {
     if (prompt.length > 2000) {
       return NextResponse.json({ error: "El pedido no puede superar los 2000 caracteres." }, { status: 413 });
     }
+
+    const knownCircuit = buildKnownCircuitProposal(prompt);
+    if (knownCircuit) return NextResponse.json({ mode: "demo", ...knownCircuit });
 
     if (process.env.GEMINI_API_KEY) {
       const rawCircuit = "currentCircuit" in body ? body.currentCircuit : null;
