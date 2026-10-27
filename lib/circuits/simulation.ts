@@ -26,7 +26,7 @@ export type SimulationResult = {
 };
 
 type ControlledSwitch = { controlPositive: string; controlNegative: string; threshold: number; onResistance: number; offResistance: number };
-type Branch = { component: CircuitComponent; a: string; b: string; kind: "resistor" | "source" | "current" | "diode" | "controlled"; value: number; resistance?: number; control?: ControlledSwitch; measurementLabel?: string };
+type Branch = { component: CircuitComponent; id?: string; a: string; b: string; kind: "resistor" | "source" | "current" | "diode" | "controlled"; value: number; resistance?: number; control?: ControlledSwitch; measurementLabel?: string };
 
 function unsupported(summary: string): SimulationResult {
   return { supported: false, title: "Topología no compatible con los modelos actuales", summary, measurements: [], disclaimer: "No se muestran mediciones ficticias. El simulador actual resuelve redes DC con resistencias, fuentes independientes e indicadores LED/diodos mediante modelos aproximados. No es un reemplazo completo de SPICE, Livewire o Proteus." };
@@ -403,15 +403,16 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
   if (circuit.components.some((component) => component.type.startsWith("logic_gate_"))) return simulateCombinationalLogic(circuit);
   const transientResult = firstOrderTransient(circuit);
   if (transientResult) return transientResult;
-  const allowed = new Set(["battery", "cell", "voltage_source_dc", "voltage_source_ac", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "ground", "ground_earth", "npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p", "current_source", "potentiometer", "photodiode"]);
+  const allowed = new Set(["battery", "cell", "voltage_source_dc", "voltage_source_ac", "resistor", "led", "diode", "switch", "switch_spst", "fuse", "lamp", "motor", "ldr", "thermistor", "ground", "ground_earth", "npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p", "current_source", "potentiometer", "photodiode", "op_amp"]);
   const unsupportedComponents = circuit.components.filter((c) => !allowed.has(c.type));
   if (unsupportedComponents.length) return unsupported("Todavía faltan modelos eléctricos para: " + unsupportedComponents.map((c) => `${c.label} (${c.type})`).join(", ") + ". La biblioteca visual es más amplia que los modelos de simulación; no se puede afirmar que esos componentes funcionen físicamente todavía.");
   if (circuit.components.some((c) => {
     if ((c.type === "ground" || c.type === "ground_earth") && c.terminals.length === 1) return false;
     if (["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(c.type) && c.terminals.length === 3) return false;
     if (c.type === "potentiometer" && c.terminals.length === 3) return false;
+    if (c.type === "op_amp" && c.terminals.length === 5) return false;
     return c.terminals.length !== 2;
-  })) return unsupported("Este análisis admite componentes de dos terminales, tierra y transistores/MOSFET usados como interruptores controlados. Los integrados multipin requieren modelos específicos.");
+  })) return unsupported("Este análisis admite componentes de dos terminales, tierra, NPN/PNP y MOSFET como interruptores de umbral, y un operacional ideal usado como comparador. Los integrados multipin restantes requieren modelos específicos.");
   const terminalKeys = new Map<string, string>();
   for (const c of circuit.components) for (const t of c.terminals) terminalKeys.set(`${c.id}:${t.id}`, `${c.id}:${t.id}`);
   const parent = new Map([...terminalKeys.values()].map((key) => [key, key]));
@@ -447,7 +448,10 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
   // Arrancar con los diodos en conducción evita una matriz singular en redes
   // serie: la primera solución permite decidir si están polarizados en directa.
   const diodeOn = new Map(circuit.components.filter((c) => ["led", "diode", "photodiode"].includes(c.type)).map((c) => [c.id, true]));
-  const controlledOn = new Map(circuit.components.filter((c) => ["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(c.type)).map((c) => [c.id, false]));
+  const controlledOn = new Map<string, boolean>([
+    ...circuit.components.filter((c) => ["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(c.type)).map((c) => [c.id, false] as [string, boolean]),
+    ...circuit.components.filter((c) => c.type === "op_amp").flatMap((c) => [[c.id + ":high", false] as [string, boolean], [c.id + ":low", false] as [string, boolean]]),
+  ]);
   let solution: number[] | null = null;
   let branches: Branch[] = [];
   const branchNodes = (c: CircuitComponent) => ({ a: nodeOf(c, c.terminals[0].id), b: nodeOf(c, c.terminals[1].id) });
@@ -470,6 +474,31 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
         const anode = c.terminals.find((t) => t.id === "anode") ?? c.terminals[0];
         const cathode = c.terminals.find((t) => t.id === "cathode") ?? c.terminals[1];
         branches.push({ component: c, a: nodeOf(c, anode.id), b: nodeOf(c, cathode.id), kind: "diode", value: finiteProperty(c, "forwardVoltage", c.type === "led" ? 2 : c.type === "photodiode" ? 0.65 : 0.7), resistance: diodeOn.get(c.id) ? 1 : 1e9 });
+      } else if (c.type === "op_amp") {
+        const terminal = (id: string) => c.terminals.find((t) => t.id === id);
+        const nonInverting = terminal("non_inverting"), inverting = terminal("inverting");
+        const output = terminal("output"), vcc = terminal("vcc"), vee = terminal("vee");
+        if (!nonInverting || !inverting || !output || !vcc || !vee) return unsupported(c.label + ": al operacional le faltan entradas, salida o alimentación.");
+        const onResistance = finiteProperty(c, "outputResistance", 25);
+        const threshold = Math.max(0, finiteProperty(c, "inputOffset", 0.001));
+        const highControl: ControlledSwitch = {
+          controlPositive: nodeOf(c, nonInverting.id), controlNegative: nodeOf(c, inverting.id),
+          threshold, onResistance, offResistance: 1e9,
+        };
+        const lowControl: ControlledSwitch = {
+          controlPositive: nodeOf(c, inverting.id), controlNegative: nodeOf(c, nonInverting.id),
+          threshold, onResistance, offResistance: 1e9,
+        };
+        branches.push({
+          component: c, id: c.id + ":high", a: nodeOf(c, output.id), b: nodeOf(c, vcc.id),
+          kind: "controlled", value: controlledOn.get(c.id + ":high") ? onResistance : 1e9,
+          control: highControl, measurementLabel: c.label + " salida alta",
+        });
+        branches.push({
+          component: c, id: c.id + ":low", a: nodeOf(c, output.id), b: nodeOf(c, vee.id),
+          kind: "controlled", value: controlledOn.get(c.id + ":low") ? onResistance : 1e9,
+          control: lowControl, measurementLabel: c.label + " salida baja",
+        });
       } else if (["npn_transistor", "pnp_transistor", "mosfet_n", "mosfet_p"].includes(c.type)) {
         const terminal = (id: string) => c.terminals.find((t) => t.id === id);
         const base = terminal("base"), collector = terminal("collector"), emitter = terminal("emitter");
@@ -570,7 +599,8 @@ export function runDcSimulation(circuit: Circuit, timeSeconds = 0): SimulationRe
       const positive = nodeIndex.has(control.controlPositive) ? solution[nodeIndex.get(control.controlPositive)!] : 0;
       const negative = nodeIndex.has(control.controlNegative) ? solution[nodeIndex.get(control.controlNegative)!] : 0;
       const on = positive - negative >= control.threshold;
-      if (controlledOn.get(branch.component.id) !== on) { controlledOn.set(branch.component.id, on); changed = true; }
+      const stateKey = branch.id ?? branch.component.id;
+      if (controlledOn.get(stateKey) !== on) { controlledOn.set(stateKey, on); changed = true; }
     }
     if (!changed) break;
   }
