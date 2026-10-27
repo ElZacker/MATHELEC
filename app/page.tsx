@@ -630,6 +630,23 @@ function handleStartSimulation() {
   const issues = validateCircuit(circuit);
   setValidationIssues(issues);
   const errors = issues.filter((issue) => issue.severity === "error");
+  const getTerminalPoint = (component: Circuit["components"][number], terminalId: string) => {
+    const terminal = component.terminals.find((item) => item.id === terminalId);
+    if (!terminal) return component.position;
+    const angle = (component.rotation * Math.PI) / 180;
+    return {
+      x: component.position.x + terminal.position.x * Math.cos(angle) - terminal.position.y * Math.sin(angle),
+      y: component.position.y + terminal.position.x * Math.sin(angle) + terminal.position.y * Math.cos(angle),
+    };
+  };
+  const routeMap = routeOrthogonalWires(circuit, getTerminalPoint);
+  const routeIssues = findWireRoutingIssues(circuit, routeMap, getTerminalPoint);
+  const routeMessages = [...routeIssues.entries()].map(([wireId, reason]) => {
+    const wire = circuit.wires.find((item) => item.id === wireId);
+    const from = circuit.components.find((item) => item.id === wire?.from.componentId);
+    const to = circuit.components.find((item) => item.id === wire?.to.componentId);
+    return `Cable ${from?.label ?? "?"}.${wire?.from.terminalId ?? "?"} → ${to?.label ?? "?"}.${wire?.to.terminalId ?? "?"}: ${reason}`;
+  });
   if (errors.length > 0) {
     const result: SimulationResult = {
       supported: false,
@@ -645,7 +662,7 @@ function handleStartSimulation() {
       messages: [...chat.messages, {
         id: `diagnostico-${Date.now()}`,
         role: "assistant" as const,
-        text: `No inicié la simulación porque encontré ${errors.length} error(es):\n${errors.map((issue, index) => `${index + 1}. ${issue.message}`).join("\n")}\n\nCorregí estas conexiones y volvé a intentarlo.`,
+        text: `No inicié la simulación porque encontré ${errors.length} error(es):\n${errors.map((issue, index) => `${index + 1}. ${issue.message}`).join("\n")}\n\nCorregí estas conexiones y volvé a intentarlo.${routeMessages.length ? "\n\nProblemas visuales de cableado:\n" + routeMessages.map((message, index) => `${index + 1}. ${message}`).join("\n") : ""}`,
       }],
     } : chat));
     return;
@@ -670,6 +687,16 @@ function handleStartSimulation() {
   }
   setTransientState(nextTransientState);
   setSimulationResult(result);
+  if (routeMessages.length > 0) {
+    setChats((current) => current.map((chat) => chat.id === activeChatId ? {
+      ...chat,
+      messages: [...chat.messages, {
+        id: `rutas-${Date.now()}`,
+        role: "assistant" as const,
+        text: `Detecté ${routeMessages.length} problema(s) visual(es) en el cableado. La simulación usa las conexiones del netlist, pero el dibujo necesita corregirse:\n${routeMessages.map((message, index) => `${index + 1}. ${message}`).join("\n")}\n\nMové componentes para abrir espacio o eliminá y volvé a trazar los cables señalados.`,
+      }],
+    } : chat));
+  }
   setNotice(result.supported
     ? result.transient?.kind === "network" ? "Simulación temporal iniciada (paso de 1 ms)." : result.transient ? "Modelo transitorio calculado." : "Análisis de punto de operación terminado."
     : "La topología requiere conexiones o modelos eléctricos todavía no implementados.");
