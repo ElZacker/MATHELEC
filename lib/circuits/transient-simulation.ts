@@ -358,6 +358,23 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
         ? solution.reduce((maximum,value,index)=>Math.max(maximum,Math.abs(value-(priorSolution[index]??0))),0)
         : Infinity;
       if(maxDelta>1e-6) changed=true;
+      for(const transistor of bjtComponents) {
+        const base=transistor.terminals.find((terminal)=>terminal.id==="base");
+        const collector=transistor.terminals.find((terminal)=>terminal.id==="collector");
+        const emitter=transistor.terminals.find((terminal)=>terminal.id==="emitter");
+        if(!base||!collector||!emitter) continue;
+        const isPnp=transistor.type==="pnp_transistor";
+        const drivePositive=nodeOf(transistor.id,isPnp?emitter.id:base.id);
+        const driveNegative=nodeOf(transistor.id,isPnp?base.id:emitter.id);
+        const outputPositive=nodeOf(transistor.id,isPnp?emitter.id:collector.id);
+        const outputNegative=nodeOf(transistor.id,isPnp?collector.id:emitter.id);
+        const actualDrive=(nodeIndex.has(drivePositive)?solution[nodeIndex.get(drivePositive)!]:0)-
+          (nodeIndex.has(driveNegative)?solution[nodeIndex.get(driveNegative)!]:0);
+        const actualOutput=(nodeIndex.has(outputPositive)?solution[nodeIndex.get(outputPositive)!]:0)-
+          (nodeIndex.has(outputNegative)?solution[nodeIndex.get(outputNegative)!]:0);
+        const linearization=bjtLinearizationVoltages.get(transistor.id);
+        if(!linearization||Math.abs(actualDrive-linearization.drive)>1e-4||Math.abs(actualOutput-linearization.output)>1e-4) changed=true;
+      }
     }
     for(const branch of branches.filter((item)=>item.kind==="diode")) {
       const va=nodeIndex.has(branch.a)?solution[nodeIndex.get(branch.a)!]:0;
