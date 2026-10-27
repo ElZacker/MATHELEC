@@ -340,3 +340,41 @@ test("BJT: el modelo de umbral conmuta una carga LED", () => {
   assert.ok(result.result.activeComponentIds?.includes("D1"), "Con la base por encima del umbral, el NPN debe conducir y encender la carga LED.");
   assert.ok(result.result.measurements.some((item) => item.label === "Q1: V / I"), "Debe informar la tensión y corriente de rama del transistor.");
 });
+
+
+test("Relé: la bobina activa conmuta el contacto NA y enciende la carga", () => {
+  const model = circuit([
+    source(5),
+    component("K1", "relay", ["coil1", "coil2", "common", "normally_open", "normally_closed"], {
+      coilVoltage: 5,
+      coilResistance: 125,
+      coilInductance: 50,
+      coilInductanceUnit: "mH",
+      pickupCurrent: 0.025,
+      dropoutCurrent: 0.015,
+      contactResistance: 0.05,
+    }),
+    component("R1", "resistor", ["a", "b"], { resistance: 390 }),
+    component("D1", "led", ["anode", "cathode"], { forwardVoltage: 2, maxCurrent: 20 }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "K1", terminalId: "coil1" }),
+    wire("W2", { componentId: "K1", terminalId: "coil2" }, { componentId: "BAT1", terminalId: "negative" }),
+    wire("W3", { componentId: "BAT1", terminalId: "positive" }, { componentId: "R1", terminalId: "a" }),
+    wire("W4", { componentId: "R1", terminalId: "b" }, { componentId: "K1", terminalId: "common" }),
+    wire("W5", { componentId: "K1", terminalId: "normally_open" }, { componentId: "D1", terminalId: "anode" }),
+    wire("W6", { componentId: "D1", terminalId: "cathode" }, { componentId: "BAT1", terminalId: "negative" }),
+  ]);
+
+  let state = createTransientState();
+  let result = runTransientStep(model, 0.001, state);
+  assert.equal(result.result.supported, true, result.result.summary);
+  state = result.state;
+  for (let index = 0; index < 5; index += 1) {
+    result = runTransientStep(model, 0.001, state);
+    assert.equal(result.result.supported, true, result.result.summary);
+    state = result.state;
+  }
+  assert.equal(state.controlledOn.K1, true, "La corriente de la bobina debe superar el umbral de captación.");
+  assert.ok(result.result.activeComponentIds?.includes("D1"), "El contacto NA cerrado debe alimentar el LED.");
+  assert.ok(result.result.measurements.some((item) => item.label === "K1 estado" && item.value.includes("NA cerrado")));
+});
