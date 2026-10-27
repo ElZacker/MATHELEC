@@ -7,12 +7,11 @@ export type TransientState = {
   inductorCurrents: Record<string, number>;
   diodeOn: Record<string, boolean>;
   controlledOn: Record<string, boolean>;
-  nodeVoltages: Record<string, number>;
 };
 export type TransientStep = { result: SimulationResult; state: TransientState };
 
 export function createTransientState(): TransientState {
-  return { timeSeconds: 0, capacitorVoltages: {}, inductorCurrents: {}, diodeOn: {}, controlledOn: {}, nodeVoltages: {} };
+  return { timeSeconds: 0, capacitorVoltages: {}, inductorCurrents: {}, diodeOn: {}, controlledOn: {} };
 }
 
 type ControlledSwitch = { controlPositive: string; controlNegative: string; threshold: number; onResistance: number; offResistance: number };
@@ -243,31 +242,6 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       if(ib!==undefined) matrix[ib][ib]+=g;
       if(ia!==undefined&&ib!==undefined){matrix[ia][ib]-=g;matrix[ib][ia]-=g;}
     };
-    const voltageGuess=(node:string):number=>{
-      if(node===find(referenceNode)) return 0;
-      if(solution) return solution[nodeIndex.get(node)??-1]??0;
-      return previous.nodeVoltages[node]??0;
-    };
-    const stampNonlinearCurrent=(from:string,to:string,current:number,controls:{positive:string;negative:string;derivative:number;linearizationVoltage?:number}[])=>{
-      const fromIndex=nodeIndex.get(from),toIndex=nodeIndex.get(to);
-      let equivalent=current;
-      for(const control of controls) {
-        const derivative=control.derivative;
-        equivalent-=derivative*(control.linearizationVoltage ?? (voltageGuess(control.positive)-voltageGuess(control.negative)));
-        const cp=nodeIndex.get(control.positive),cn=nodeIndex.get(control.negative);
-        if(fromIndex!==undefined) {
-          if(cp!==undefined)matrix[fromIndex][cp]+=derivative;
-          if(cn!==undefined)matrix[fromIndex][cn]-=derivative;
-        }
-        if(toIndex!==undefined) {
-          if(cp!==undefined)matrix[toIndex][cp]-=derivative;
-          if(cn!==undefined)matrix[toIndex][cn]+=derivative;
-        }
-      }
-      if(fromIndex!==undefined)rhs[fromIndex]-=equivalent;
-      if(toIndex!==undefined)rhs[toIndex]+=equivalent;
-    };
-
     for(const branch of branches) {
       if(["resistor","controlled"].includes(branch.kind)) {
         if(!Number.isFinite(branch.value)||branch.value<=0) return {result:failure(branch.component.label+" tiene una resistencia inválida."),state:previous};
@@ -359,17 +333,12 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     }
   }
   const acSource=circuit.components.find((component)=>component.type==="voltage_source_ac");
-  const nodeVoltages=Object.fromEntries([
-    ...allNodes.map((node)=>[node,solution![nodeIndex.get(node)!]] as const),
-    [find(referenceNode),0] as const,
-  ]);
   const nextState:TransientState={
     timeSeconds:sampleTime,
     capacitorVoltages,
     inductorCurrents,
     diodeOn:Object.fromEntries(diodeOn),
     controlledOn:Object.fromEntries(controlledOn),
-    nodeVoltages,
   };
   return {
     result:{
