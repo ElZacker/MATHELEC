@@ -10,7 +10,7 @@ export type SimulationResult = {
   oscillation?: { periodMs: number; highMs: number; componentIds: string[] };
   sequencer?: { stepMs: number; steps: { label: string; componentIds: string[] }[] };
   transient?: {
-    kind: "ac" | "rc" | "rl" | "motor";
+    kind: "ac" | "rc" | "rl" | "motor" | "network";
     frequencyHz?: number;
     timeConstantMs?: number;
     sourceVoltage: number;
