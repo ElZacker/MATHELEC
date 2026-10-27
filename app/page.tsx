@@ -19,7 +19,7 @@ import { getAvailableComponentTypes } from "@/lib/circuits/components";
 import { importSpiceNetlist } from "@/lib/circuits/import-spice";
 import { runDcSimulation, type SimulationResult } from "@/lib/circuits/simulation";
 import { createTransientState, runTransientStep, type TransientState } from "@/lib/circuits/transient-simulation";
-import { routeOrthogonalWires } from "@/lib/circuits/wire-routing";
+import { findWireRoutingIssues, routeOrthogonalWires } from "@/lib/circuits/wire-routing";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
 type Message = {
@@ -133,6 +133,7 @@ function CircuitPreview({
   }
 
   const routeMap = routeOrthogonalWires(circuit, getTerminalPoint);
+  const routingIssues = findWireRoutingIssues(circuit, routeMap, getTerminalPoint);
 
   function handleTerminalClick(componentId: string, terminalId: string) {
     if (!wireDraft) {
@@ -230,6 +231,14 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
       </defs>
 
       <rect width="440" height="330" fill="url(#circuit-grid)" />
+      {routingIssues.size > 0 && (
+        <g pointerEvents="none" aria-label={`${routingIssues.size} cable(s) con problemas de enrutamiento`}>
+          <rect x="8" y="8" width="258" height="25" rx="5" fill="#481c1c" stroke="#ff6868" strokeWidth="1" />
+          <text x="16" y="24" fontSize="10" fill="#ffe8e8" stroke="none">
+            {routingIssues.size} cable(s) con cruces o sin ruta limpia
+          </text>
+        </g>
+      )}
 
       {circuit.wires.map((wire) => {
         const from = circuit.components.find((component) => component.id === wire.from.componentId);
@@ -237,12 +246,23 @@ function getSvgPoint(event: React.PointerEvent<SVGElement>) {
         if (!from || !to) return null;
         const fromPoint = getTerminalPoint(from, wire.from.terminalId);
         const toPoint = getTerminalPoint(to, wire.to.terminalId);
-        const points = routeMap.get(wire.id) ?? [fromPoint, { x: Math.round((fromPoint.x + toPoint.x) / 2), y: fromPoint.y }, { x: Math.round((fromPoint.x + toPoint.x) / 2), y: toPoint.y }, toPoint];
+        const points = routeMap.get(wire.id) ?? [];
         const pointString = points.map((point) => `${point.x},${point.y}`).join(" ");
-
+        const routeIssue = routingIssues.get(wire.id);
+        if (points.length < 2) {
+          return (
+            <g key={wire.id} className="circuit-wire circuit-wire-error" data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+              <title>{routeIssue ?? "No se encontró una ruta limpia para este cable."} Hacé clic para eliminarlo.</title>
+              <circle cx={(fromPoint.x + toPoint.x) / 2} cy={(fromPoint.y + toPoint.y) / 2} r="8" fill="#ff6868" stroke="#2a0808" strokeWidth="2" />
+              <text x={(fromPoint.x + toPoint.x) / 2} y={(fromPoint.y + toPoint.y) / 2 + 4} textAnchor="middle" fontSize="11" fill="#ffffff" stroke="none">!</text>
+            </g>
+          );
+        }
+        const isError = Boolean(routeIssue) || highlightedWireIds.includes(wire.id);
         return (
-          <g key={wire.id} className={highlightedWireIds.includes(wire.id) ? "circuit-wire circuit-item-highlighted" : "circuit-wire"} data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
-            <polyline points={pointString} fill="none" stroke={highlightedWireIds.includes(wire.id) ? "#ff7373" : componentColor} strokeWidth={highlightedWireIds.includes(wire.id) ? "4" : "2"} />
+          <g key={wire.id} className={isError ? "circuit-wire circuit-item-highlighted" : "circuit-wire"} data-circuit-item="true" onClick={(event) => { event.stopPropagation(); onDeleteWire(wire.id); }} style={{ cursor: "pointer" }}>
+            {routeIssue && <title>{routeIssue} Hacé clic para eliminar el cable.</title>}
+            <polyline points={pointString} fill="none" stroke={isError ? "#ff6868" : componentColor} strokeWidth={isError ? "3" : "2"} />
             <polyline points={pointString} fill="none" stroke="transparent" strokeWidth="12" />
           </g>
         );
