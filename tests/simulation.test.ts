@@ -396,3 +396,28 @@ test("Validación: una bobina de relé puede usarse con contactos NO/NC sin cabl
   assert.ok(!issues.some((issue) => issue.severity === "error"), issues.map((issue) => issue.message).join("\n"));
   assert.ok(!issues.some((issue) => issue.code === "UNCONNECTED_TERMINAL" && issue.componentIds?.includes("K1")));
 });
+
+
+test("SCR: un disparo de compuerta enclava la conducción por encima de la corriente de retención", () => {
+  const model = circuit([
+    source(9),
+    component("RL", "resistor", ["a", "b"], { resistance: 390 }),
+    component("D1", "led", ["anode", "cathode"], { forwardVoltage: 2, maxCurrent: 20 }),
+    component("SCR1", "thyristor_scr", ["anode", "cathode", "gate"], {
+      gateTriggerVoltage: 0.7, holdingCurrent: 0.01, onResistance: 0.2,
+    }),
+    component("RG", "resistor", ["a", "b"], { resistance: 1000 }),
+  ], [
+    wire("W1", { componentId: "BAT1", terminalId: "positive" }, { componentId: "RL", terminalId: "a" }),
+    wire("W2", { componentId: "RL", terminalId: "b" }, { componentId: "D1", terminalId: "anode" }),
+    wire("W3", { componentId: "D1", terminalId: "cathode" }, { componentId: "SCR1", terminalId: "anode" }),
+    wire("W4", { componentId: "SCR1", terminalId: "cathode" }, { componentId: "BAT1", terminalId: "negative" }),
+    wire("W5", { componentId: "BAT1", terminalId: "positive" }, { componentId: "RG", terminalId: "a" }),
+    wire("W6", { componentId: "RG", terminalId: "b" }, { componentId: "SCR1", terminalId: "gate" }),
+  ]);
+
+  const step = runTransientStep(model, 0.001, createTransientState());
+  assert.equal(step.result.supported, true, step.result.summary);
+  assert.equal(step.state.controlledOn.SCR1, true);
+  assert.ok(step.result.activeComponentIds?.includes("D1"));
+});
