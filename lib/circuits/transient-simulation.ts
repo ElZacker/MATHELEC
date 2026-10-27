@@ -437,7 +437,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     const outputVoltage=isPnp?voltageAt(emitterNode)-voltageAt(collectorNode):voltageAt(collectorNode)-voltageAt(emitterNode);
     const saturationCurrent=Math.max(1e-18,Math.min(1e-10,numeric(transistor,"saturationCurrent",1e-14)));
     const beta=Math.max(1,Math.min(1000,numeric(transistor,"beta",100)));
-    const forwardExp=Math.exp(Math.max(-40,Math.min(30,driveVoltage/thermalVoltage)));
+    const forwardExp=Math.exp(Math.max(-40,Math.min(40,driveVoltage/thermalVoltage)));
     const forwardCurrent=saturationCurrent*(forwardExp-1);
     const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
     const saturationFactor=Math.max(0,Math.min(1,outputVoltage/vceSaturation));
