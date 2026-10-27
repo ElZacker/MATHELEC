@@ -8,12 +8,16 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "forceConsistentCasingInFileNames": true
   },
   "include": [
     "tests/simulation.test.ts",
     "lib/circuits/simulation.ts",
-    "lib/circuits/types.ts"
+    "lib/circuits/types.ts",
+    "tests/wire-routing.test.ts",
+    "lib/circuits/wire-routing.ts"
   ]
 }
