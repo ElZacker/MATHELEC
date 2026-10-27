@@ -151,6 +151,10 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
   const nodeIndex=new Map(allNodes.map((node,index)=>[node,index]));
   const voltageSources=circuit.components.filter((component)=>["battery","cell","voltage_source_dc","voltage_source_ac"].includes(component.type));
   const voltageSourceIndex=new Map(voltageSources.map((component,index)=>[component.id,allNodes.length+index]));
+  const fixedSourceNodes=new Set<string>();
+  for(const source of voltageSources) for(const terminal of source.terminals) {
+    if(["positive","negative","a","b"].includes(terminal.id)) fixedSourceNodes.add(nodeOf(source.id,terminal.id));
+  }
   const sampleTime=previous.timeSeconds+dtSeconds;
   const diodeOn=new Map(circuit.components.filter((component)=>["led","diode","photodiode"].includes(component.type))
     .map((component)=>[component.id,previous.diodeOn[component.id] ?? true]));
@@ -333,8 +337,8 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
       const forwardCurrent=saturationCurrent*(forwardExp-1);
       const forwardDerivative=saturationCurrent/thermalVoltage*forwardExp;
       const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
-      const saturationFactor=Math.max(0,Math.min(1,outputVoltage/vceSaturation));
-      const saturationSlope=outputVoltage>0&&outputVoltage<vceSaturation?1/vceSaturation:0;
+      const saturationFactor=outputVoltage>0?outputVoltage/(outputVoltage+vceSaturation):0;
+      const saturationSlope=outputVoltage>0?vceSaturation/((outputVoltage+vceSaturation)*(outputVoltage+vceSaturation)):0;
       const baseCurrent=forwardCurrent/beta;
       const baseDerivative=forwardDerivative/beta;
       const collectorCurrent=forwardCurrent*saturationFactor;
@@ -351,7 +355,22 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     const priorSolution=solution;
     const candidateSolution=solve(matrix,rhs);
     if(!candidateSolution) return {result:failure("La matriz es singular. Revisá cortocircuitos, ramas desconectadas, fuentes ideales en conflicto o nodos flotantes."),state:previous};
-    solution=candidateSolution;
+    // Damped Newton update on device-related node voltages keeps a heavily driven
+    // transistor from jumping straight from forward-active to an impossible negative VCE.
+    if(bjtComponents.length&&priorSolution) {
+      solution=[...candidateSolution];
+      for(let index=0;index<allNodes.length;index++) {
+        if(fixedSourceNodes.has(allNodes[index])) continue;
+        const delta=candidateSolution[index]-priorSolution[index];
+        const maximumStep=0.25;
+        solution[index]=Math.abs(delta)>maximumStep
+          ? priorSolution[index]+Math.sign(delta)*maximumStep
+          : candidateSolution[index];
+      }
+      for(let index=allNodes.length;index<candidateSolution.length;index++) solution[index]=candidateSolution[index];
+    } else {
+      solution=candidateSolution;
+    }
     let changed=false;
     if(bjtComponents.length) {
       const maxDelta=priorSolution
@@ -440,7 +459,7 @@ export function runTransientStep(circuit: Circuit, dtSeconds: number, previous: 
     const forwardExp=Math.exp(Math.max(-40,Math.min(40,driveVoltage/thermalVoltage)));
     const forwardCurrent=saturationCurrent*(forwardExp-1);
     const vceSaturation=Math.max(0.05,Math.min(0.5,numeric(transistor,"vceSaturation",0.2)));
-    const saturationFactor=Math.max(0,Math.min(1,outputVoltage/vceSaturation));
+    const saturationFactor=outputVoltage>0?outputVoltage/(outputVoltage+vceSaturation):0;
     const baseCurrent=forwardCurrent/beta;
     const collectorCurrent=forwardCurrent*saturationFactor;
     measurements.push({label:transistor.label+": Vbe / Ib",value:driveVoltage.toFixed(3)+" V · "+(baseCurrent*1000).toFixed(3)+" mA"});
