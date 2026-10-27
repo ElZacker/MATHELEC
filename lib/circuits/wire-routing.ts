@@ -217,26 +217,130 @@ function aStar(start: Point, goal: Point, wire: CircuitWire, fromComponent: Circ
   return points;
 }
 function fallbackRoute(from: Point, to: Point, wire: CircuitWire, fromComponent: CircuitComponent, toComponent: CircuitComponent,
-  circuit: Circuit, obstacles: RouteObstacle[], getPoint: TerminalPointFn): Point[] {
-  const candidates: Point[][] = [
-    [from,{x:from.x,y:MIN_Y},{x:to.x,y:MIN_Y},to],
-    [from,{x:from.x,y:MAX_Y},{x:to.x,y:MAX_Y},to],
-    [from,{x:MIN_X,y:from.y},{x:MIN_X,y:to.y},to],
-    [from,{x:MAX_X,y:from.y},{x:MAX_X,y:to.y},to],
-  ];
-  let best = candidates[0], bestScore = Infinity;
-  for (const path of candidates) {
-    let score = distance(from,to) + path.length * 4;
-    for (let i=1;i<path.length;i++) {
-      const a=path[i-1], b=path[i];
-      for (const component of circuit.components) {
-        if (component.id !== fromComponent.id && component.id !== toComponent.id && segmentHitsComponent(a,b,component)) score += 100000;
-      }
-      if (segmentConflictsWithRoutes(a,b,wire,obstacles,circuit.components,getPoint)) score += 1000000;
-    }
-    if (score < bestScore) {best=path;bestScore=score;}
+  circuit: Circuit, obstacles: RouteObstacle[], getPoint: TerminalPointFn): Point[] | null {
+  // When A* cannot find a path through component clearances, search all visible
+  // horizontal/vertical escape lanes. Never pick a route just because it is the
+  // least bad: a crossing-free path is required to draw it as a normal wire.
+  const candidates: Point[][] = [];
+  for (let y = MIN_Y; y <= MAX_Y; y += GRID) {
+    candidates.push([from, { x: from.x, y }, { x: to.x, y }, to]);
   }
-  return simplifyPath(best);
+  for (let x = MIN_X; x <= MAX_X; x += GRID) {
+    candidates.push([from, { x, y: from.y }, { x, y: to.y }, to]);
+  }
+  const midX = Math.round((from.x + to.x) / (GRID * 2)) * GRID;
+  const midY = Math.round((from.y + to.y) / (GRID * 2)) * GRID;
+  candidates.push(
+    [from, { x: midX, y: from.y }, { x: midX, y: to.y }, to],
+    [from, { x: from.x, y: midY }, { x: to.x, y: midY }, to],
+  );
+
+  let best: Point[] | null = null;
+  let bestScore = Infinity;
+  for (const candidate of candidates) {
+    const path = simplifyPath(candidate);
+    let valid = true;
+    let length = 0;
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1], b = path[i];
+      length += distance(a, b);
+      if (circuit.components.some((component) =>
+        component.id !== fromComponent.id &&
+        component.id !== toComponent.id &&
+        segmentHitsComponent(a, b, component))) {
+        valid = false;
+        break;
+      }
+      if (segmentConflictsWithRoutes(a, b, wire, obstacles, circuit.components, getPoint)) {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid) continue;
+    const bends = Math.max(0, path.length - 2);
+    const score = length + bends * 14;
+    if (score < bestScore) {
+      best = path;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+export type WireRoutingIssue = {
+  wireId: string;
+  reason: string;
+};
+
+/** Verify the final paths, including manually pinned routes. */
+export function findWireRoutingIssues(
+  circuit: Circuit,
+  routes: Map<string, Point[]>,
+  getPoint: TerminalPointFn,
+): Map<string, string> {
+  const issues = new Map<string, string>();
+  const componentsById = new Map(circuit.components.map((component) => [component.id, component]));
+  const paths = circuit.wires.map((wire) => {
+    const fromComponent = componentsById.get(wire.from.componentId);
+    const toComponent = componentsById.get(wire.to.componentId);
+    const points = routes.get(wire.id) ?? [];
+    return { wire, fromComponent, toComponent, points };
+  });
+
+  for (const item of paths) {
+    if (!item.fromComponent || !item.toComponent) {
+      issues.set(item.wire.id, "El cable referencia un componente inexistente.");
+      continue;
+    }
+    if (item.points.length < 2) {
+      issues.set(item.wire.id, "No se encontró una ruta ortogonal sin cruces dentro del área visible.");
+      continue;
+    }
+    for (let i = 1; i < item.points.length; i++) {
+      const a = item.points[i - 1], b = item.points[i];
+      if (!isHorizontal(a, b) && !isVertical(a, b)) {
+        issues.set(item.wire.id, "El cable contiene un tramo diagonal.");
+      }
+      if (circuit.components.some((component) =>
+        component.id !== item.fromComponent!.id &&
+        component.id !== item.toComponent!.id &&
+        segmentHitsComponent(a, b, component))) {
+        issues.set(item.wire.id, "El recorrido atraviesa el cuerpo de otro componente.");
+      }
+    }
+  }
+
+  for (let i = 0; i < paths.length; i++) {
+    const current = paths[i];
+    if (current.points.length < 2 || !current.fromComponent || !current.toComponent) continue;
+    for (let j = i + 1; j < paths.length; j++) {
+      const other = paths[j];
+      if (other.points.length < 2 || !other.fromComponent || !other.toComponent) continue;
+      const shared = sharedTerminalPoints(current.wire, other.wire, getPoint, circuit.components);
+      let conflict = false;
+      for (let aIndex = 1; aIndex < current.points.length && !conflict; aIndex++) {
+        for (let bIndex = 1; bIndex < other.points.length; bIndex++) {
+          const hit = intersection(current.points[aIndex - 1], current.points[aIndex], other.points[bIndex - 1], other.points[bIndex]);
+          if (!hit) continue;
+          if (hit.overlap) {
+            const sharedTrunk = shared.length > 0 && shared.some((point) =>
+              (samePoint(current.points[aIndex - 1], point, 2) || samePoint(current.points[aIndex], point, 2)) &&
+              (samePoint(other.points[bIndex - 1], point, 2) || samePoint(other.points[bIndex], point, 2)));
+            if (!sharedTrunk) { conflict = true; break; }
+            continue;
+          }
+          if (hit.point && shared.some((point) => samePoint(hit.point!, point, 1))) continue;
+          conflict = true;
+          break;
+        }
+      }
+      if (conflict) {
+        issues.set(current.wire.id, "Se cruza o solapa con " + other.wire.id + ".");
+        issues.set(other.wire.id, "Se cruza o solapa con " + current.wire.id + ".");
+      }
+    }
+  }
+  return issues;
 }
 
 /**
@@ -269,6 +373,12 @@ export function routeOrthogonalWires(circuit: Circuit, getPoint: TerminalPointFn
   for (const item of automatic) {
     let points = aStar(item.from,item.to,item.wire,item.fromComponent,item.toComponent,circuit,obstacles,getPoint);
     if (!points) points = fallbackRoute(item.from,item.to,item.wire,item.fromComponent,item.toComponent,circuit,obstacles,getPoint);
+    if (!points) {
+      // An empty path is intentional: the UI flags an unroutable wire rather
+      // than drawing a misleading crossing that could be mistaken for a junction.
+      routes.set(item.wire.id, []);
+      continue;
+    }
     routes.set(item.wire.id,points);
     obstacles.push({wire:item.wire,points});
   }
