@@ -1112,3 +1112,40 @@ Criterios de aceptación:
 - El circuito serie LED sencillo queda dispuesto con fuente, resistencia, LED y retorno claramente separados.
 - El simulador devuelve mediciones solo para la topología que sabe resolver; para cualquier otra topología explica por qué no puede calcularla.
 - Las advertencias técnicas y las limitaciones del modelo permanecen visibles.
+
+---
+
+## Implementación técnica — recuperación de generación, modelos transitorios y pruebas (octubre de 2026)
+
+### Generación
+- Se fija la integración a un único modelo configurado: Gemini 3.6 Flash. No se cambia silenciosamente a Gemini 3.8 Flash.
+- Peticiones conocidas tienen plantillas deterministas validadas antes de modificar el esquema: LED con resistencia; astable NE555 con LED; secuenciador NE555 + CD4017 de seis salidas; indicador didáctico GSR; proximidad infrarroja; inversión de giro con DPDT; y amplificador de base común.
+- Cada plantilla se valida contra los terminales reales de la biblioteca, comprueba duplicados y rechaza terminales abiertos antes de entregarse al editor.
+- Los valores explícitos de fuentes, resistencias, capacitores y LED se aplican a los componentes creados.
+- Para pedidos de diseño no cubiertos por las plantillas, se habilita grounding de Google Search y se devuelven las fuentes que Gemini reporte. Esto no sustituye una revisión independiente de datasheets ni la comprobación eléctrica posterior.
+- Las llamadas a reparación de JSON y de cableado tienen límites de tiempo menores; una respuesta que no puede repararse no debe aplicarse como circuito completo.
+
+### Modelos que ya se pueden ejecutar
+- MNA DC para fuentes de tensión, redes resistivas, diodos/LED con un modelo lineal por tramos, interruptores SPST, fusibles, cargas resistivas, potenciómetros de tres terminales, fuentes de corriente y fotodiodos aproximados.
+- NPN/PNP y MOSFET de canal N/P como **interruptores controlados por umbral**. No son modelos de amplificación analógica ni modelos de fabricante.
+- Transitorio analítico RC de primer orden para una única red serie compatible.
+- Transitorio RL de primer orden y arranque eléctrico/mecánico didáctico para una carga de motor.
+- Fuente de tensión AC sinusoidal con resolución instantánea por fase en el solver nodal.
+- Modelo funcional de astable NE555 que calcula Ton/Toff/frecuencia y anima LED en la salida.
+- Modelo digital ideal de CD4017 limitado a seis estados Q0–Q5 cuando está conectado a un NE555 compatible.
+- Puertas lógicas combinacionales con entradas que llegan a niveles HIGH/LOW definidos.
+
+### Verificación automatizada
+La CI ejecuta `npm test`, comprobación de TypeScript, ESLint y compilación de producción. Las pruebas de regresión actuales cubren:
+- LED en directa e inversa.
+- Constantes de tiempo RC y RL.
+- Arranque aproximado del motor.
+- Frecuencia del astable NE555.
+- Conmutación de una carga LED con un NPN.
+- Fuente de corriente, potenciómetro y fase de la fuente AC.
+
+### Límites importantes que siguen abiertos
+Esto amplía los modelos, pero no constituye un simulador universal ni una equivalencia con Proteus/Livewire. Siguen pendientes: solucionador transitorio RLC general multi-rama; modelos SPICE no lineales completos para BJT/MOSFET; análisis AC de pequeña señal y frecuencia; modelos temporales completos de integrados y lógica secuencial arbitraria; contactos/relés/SCR/TRIAC y modelos electroópticos o mecánicos acoplados; comprobación topológica global para evitar cortos, redes flotantes y cruces visuales; pruebas de plantillas y bibliotecas de circuitos contra referencias externas verificadas.
+
+**Regla de aceptación:** si un componente no tiene modelo específico, el simulador debe identificarlo con su nombre y explicar qué cálculo no puede hacer. No debe inventar corrientes, formas de onda, ganancia, velocidad ni comportamiento físico.
+
