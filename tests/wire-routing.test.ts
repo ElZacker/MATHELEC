@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { routeOrthogonalWires } from "../lib/circuits/wire-routing";
+import { findWireRoutingIssues, routeOrthogonalWires } from "../lib/circuits/wire-routing";
 import type { Circuit, CircuitComponent, ComponentType, Point } from "../lib/circuits/types";
 
 function connector(id: string, x: number, y: number): CircuitComponent {
@@ -92,4 +92,37 @@ test("A* router preserves explicitly defined user bends", () => {
   assert.deepEqual(routes.get("manual"),[
     pointFor(components,"A","out"),{x:140,y:40},{x:290,y:40},pointFor(components,"B","in"),
   ]);
+});
+
+
+test("Manual wire crossings are flagged instead of being mistaken for a clean layout", () => {
+  const components = [
+    connector("A", 50, 100),
+    connector("B", 400, 100),
+    connector("C", 220, 20),
+    connector("D", 220, 300),
+  ];
+  const wires: Circuit["wires"] = [
+    {
+      id: "WH",
+      from: { componentId: "A", terminalId: "out" },
+      to: { componentId: "B", terminalId: "in" },
+      points: [{ x: 100, y: 100 }, { x: 350, y: 100 }],
+    },
+    {
+      id: "WV",
+      from: { componentId: "C", terminalId: "out" },
+      to: { componentId: "D", terminalId: "in" },
+      points: [{ x: 220, y: 20 }, { x: 220, y: 300 }],
+    },
+  ];
+  const model = circuit(components, wires);
+  const getPoint = (item: CircuitComponent, terminalId: string) => pointFor(components, item.id, terminalId);
+  const routes = routeOrthogonalWires(model, getPoint);
+  const issues = findWireRoutingIssues(model, routes, getPoint);
+
+  assert.ok(issues.has("WH"), "La ruta horizontal debe quedar marcada.");
+  assert.ok(issues.has("WV"), "La ruta vertical debe quedar marcada.");
+  assert.match(issues.get("WH") ?? "", /WV/);
+  assert.match(issues.get("WV") ?? "", /WH/);
 });
