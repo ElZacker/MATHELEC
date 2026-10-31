@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { inspectNativeEdaProject } from "@/lib/eda/native-project-inspector";
 
-export const runtime = "nodejs";
 
 const MAX_NATIVE_FILE_BYTES = 12 * 1024 * 1024;
 
