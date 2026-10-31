@@ -88,6 +88,10 @@ export type ProteusSchematicInspection = {
   header: "ISIS SCHEMATIC FILE";
   objectDataSectionCount: number;
   componentIdMarkersOutsideObjectData: number;
+  wireMarkerOffsets: number[];
+  terminalMarkerOffsets: number[];
+  terminalLabelMarkerOffsets: number[];
+  propertiesMarkerOffsets: number[];
   componentInstanceCount: number;
   componentInstances: ProteusSchematicComponentInstance[];
   unresolvedObjectCount: number;
@@ -390,6 +394,24 @@ function parseProteusDsnComponentInstances(
     Buffer.from([0]),
   ]);
   const objectDataOffsets = findAllBufferOccurrences(buffer, objectDataMarker);
+  // Inventory marker offsets only; these records have not yet been decoded into
+  // wire endpoints, pin terminals or electrical nets.
+  const wireMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("WIRE", "ascii"), Buffer.from([0])]),
+  );
+  const terminalMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("TERMINAL", "ascii"), Buffer.from([0])]),
+  );
+  const terminalLabelMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("TERMINAL LABEL", "ascii"), Buffer.from([0])]),
+  );
+  const propertiesMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("PROPERTIES", "ascii"), Buffer.from([0])]),
+  );
   const markersOutsideObjectData = offsets.filter((markerOffset) =>
     !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
   ).length;
@@ -534,6 +556,10 @@ function parseProteusDsnComponentInstances(
     header: "ISIS SCHEMATIC FILE",
     objectDataSectionCount: objectDataOffsets.length,
     componentIdMarkersOutsideObjectData: markersOutsideObjectData,
+    wireMarkerOffsets,
+    terminalMarkerOffsets,
+    terminalLabelMarkerOffsets,
+    propertiesMarkerOffsets,
     componentInstanceCount: componentInstances.length,
     componentInstances,
     unresolvedObjectCount: unresolvedObjects.length,
@@ -547,6 +573,7 @@ function parseProteusDsnComponentInstances(
       "Se conservan dos palabras binarias de 32 bits posteriores al designador como datos de colocación opacos; su significado y escala no están confirmados y no se etiquetan como coordenadas.",
       "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
       "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
+      "Se registran los offsets de WIRE, TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a cables, pines o nets reconstruidos.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
       "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
       "No se reconstruyen terminales, extremos de pines, cables ni nets eléctricos; no se puede afirmar que el circuito esté importado.",
