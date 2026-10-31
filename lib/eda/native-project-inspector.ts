@@ -81,6 +81,23 @@ export type ProteusSchematicPinConnection = {
   pinName: string;
   pinNumber: string;
   wireObjectOffset: number | null;
+  symbolRoot: { x: number; y: number } | null;
+  connectionPoint: { x: number; y: number } | null;
+  connectionPointMatchesWire: boolean | null;
+};
+
+export type ProteusSchematicSymbolPin = {
+  name: string;
+  number: string;
+  hidden: boolean;
+  base: { x: number; y: number };
+  direction: { x: number; y: number };
+};
+
+export type ProteusSchematicSymbolDefinition = {
+  offset: number;
+  byteLength: number;
+  pins: ProteusSchematicSymbolPin[];
 };
 
 export type ProteusSchematicLabelBlock = {
@@ -115,7 +132,13 @@ export type ProteusSchematicComponentInstance = {
   libraryNameMatchesDeviceMetadata: boolean | null;
   wireAddressReferences: ProteusSchematicWireAddressReference[];
   pinSlotTableOffset: number | null;
-  pinSlotMappingStatus: "matched-by-cdb-order" | "count-mismatch" | "unavailable" | "ambiguous";
+  pinSlotMappingStatus:
+    | "matched-by-symbol-geometry"
+    | "slot-table-valid-symbol-order-unverified"
+    | "count-mismatch"
+    | "unavailable"
+    | "ambiguous";
+  symbolDefinition: ProteusSchematicSymbolDefinition | null;
   pinConnections: ProteusSchematicPinConnection[];
   properties: Record<string, string>;
   matchesComponentMetadata: boolean;
@@ -599,6 +622,147 @@ function findProteusComponentRecord(
  * It still needs symbol-definition geometry and application-level validation
  * before physical pin endpoints or a fully simulated netlist can be claimed.
  */
+function parseProteusSymbolDefinition(
+  buffer: Buffer,
+  device: string,
+): ProteusSchematicSymbolDefinition | null {
+  const circuitMarker = Buffer.concat([
+    Buffer.from([0xff]),
+    Buffer.from("ISIS CIRCUIT FILE", "ascii"),
+  ]);
+  const libraryEnd = buffer.indexOf(circuitMarker);
+  if (libraryEnd < 0) return null;
+
+  const deviceBytes = Buffer.from(device, "latin1");
+  if (deviceBytes.length < 1 || deviceBytes.length > 60) return null;
+  const deviceTag = Buffer.alloc(2 + deviceBytes.length);
+  deviceTag.writeUInt16LE(deviceBytes.length, 0);
+  deviceBytes.copy(deviceTag, 2);
+
+  const entries: Array<{ offset: number; byteLength: number }> = [];
+  const tagOffsets = findAllBufferOccurrences(buffer.subarray(0, libraryEnd), deviceTag);
+  for (const offset of tagOffsets) {
+    const timestampOffset = offset + deviceTag.length;
+    if (timestampOffset + 4 > libraryEnd) continue;
+    const timestamp = buffer.readUInt32LE(timestampOffset);
+    if (timestamp <= 0x40000000 || timestamp >= 0x80000000) continue;
+
+    const headerLength = 2 + deviceBytes.length + 4 + 9;
+    const bodyLengthOffset = offset + headerLength;
+    if (bodyLengthOffset + 4 > libraryEnd) continue;
+    const bodyLength = buffer.readUInt32LE(bodyLengthOffset);
+    const totalLength = headerLength + bodyLength;
+    if (bodyLength < 20 || totalLength > libraryEnd - offset) continue;
+    entries.push({ offset, byteLength: totalLength });
+  }
+  if (entries.length === 0) return null;
+  entries.sort((left, right) => left.offset - right.offset);
+  const entry = entries[0];
+  const blockEnd = entry.offset + entry.byteLength;
+  const block = buffer.subarray(entry.offset, blockEnd);
+  const blockText = block.toString("latin1");
+  const markerPattern = /\\$PIN[A-Z]+\0/g;
+  const pins: ProteusSchematicSymbolPin[] = [];
+
+  for (const match of blockText.matchAll(markerPattern)) {
+    const markerOffset = entry.offset + (match.index ?? 0);
+    if (markerOffset < entry.offset + 16 || markerOffset >= blockEnd) continue;
+    const nameStart = markerOffset + match[0].length;
+    const nameEnd = buffer.indexOf(0, nameStart);
+    if (nameEnd < nameStart || nameEnd >= blockEnd) continue;
+    const numberStart = nameEnd + 1;
+    const numberEnd = buffer.indexOf(0, numberStart);
+    if (numberEnd < numberStart || numberEnd >= blockEnd) continue;
+
+    const name = buffer.subarray(nameStart, nameEnd).toString("latin1");
+    const number = buffer.subarray(numberStart, numberEnd).toString("latin1");
+    if (!name || [...name, ...number].some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 0x20 || code > 0x7e;
+    })) continue;
+
+    const flags = buffer.readUInt32LE(markerOffset - 16);
+    const rawX = buffer.readInt32LE(markerOffset - 12);
+    const rawY = buffer.readInt32LE(markerOffset - 8);
+    pins.push({
+      name,
+      number,
+      hidden: (flags & 0xff) === 0x07,
+      base: { x: rawX / 2540, y: rawY / 2540 },
+      direction: { x: 0, y: 0 },
+    });
+  }
+
+  if (pins.length === 0) return null;
+  const minX = Math.min(...pins.map((pin) => pin.base.x));
+  const maxX = Math.max(...pins.map((pin) => pin.base.x));
+  const minY = Math.min(...pins.map((pin) => pin.base.y));
+  const maxY = Math.max(...pins.map((pin) => pin.base.y));
+  for (const pin of pins) {
+    const { x, y } = pin.base;
+    if (minX !== maxX && x === minX) pin.direction = { x: -1, y: 0 };
+    else if (minX !== maxX && x === maxX) pin.direction = { x: 1, y: 0 };
+    else if (y === minY) pin.direction = { x: 0, y: -1 };
+    else if (y === maxY) pin.direction = { x: 0, y: 1 };
+  }
+
+  return {
+    offset: entry.offset,
+    byteLength: entry.byteLength,
+    pins,
+  };
+}
+
+function orderProteusCdbPinsBySymbolDefinition(
+  cdbPins: ProteusComponentPinMetadata[],
+  symbolPins: ProteusSchematicSymbolPin[],
+): { pins: ProteusComponentPinMetadata[]; matchedCount: number } {
+  const remaining = [...cdbPins];
+  const ordered: ProteusComponentPinMetadata[] = [];
+  for (const symbolPin of symbolPins) {
+    let index = remaining.findIndex((pin) => pin.name === symbolPin.name);
+    if (index < 0) {
+      const name = symbolPin.name.toLocaleLowerCase("en-US");
+      index = remaining.findIndex((pin) => pin.name.toLocaleLowerCase("en-US") === name);
+    }
+    if (index < 0 && symbolPin.number) {
+      index = remaining.findIndex((pin) => pin.number === symbolPin.number);
+    }
+    if (index >= 0) ordered.push(remaining.splice(index, 1)[0]);
+  }
+  return {
+    pins: [...ordered, ...remaining],
+    matchedCount: ordered.length,
+  };
+}
+
+function rotateProteusPoint(
+  point: { x: number; y: number },
+  degrees: number,
+): { x: number; y: number } {
+  const normalized = ((degrees % 360) + 360) % 360;
+  if (normalized % 90 === 0) {
+    const turns = Math.round(normalized / 90) % 4;
+    const rotated = [
+      { x: point.x, y: point.y },
+      { x: -point.y, y: point.x },
+      { x: -point.x, y: -point.y },
+      { x: point.y, y: -point.x },
+    ][turns];
+    return {
+      x: Math.round(rotated.x * 1e6) / 1e6,
+      y: Math.round(rotated.y * 1e6) / 1e6,
+    };
+  }
+  const radians = degrees * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return {
+    x: point.x * cosine - point.y * sine,
+    y: point.x * sine + point.y * cosine,
+  };
+}
+
 function parseProteusDsnComponentInstances(
   buffer: Buffer,
   libraryComponents: ProteusComponentMetadata[],
