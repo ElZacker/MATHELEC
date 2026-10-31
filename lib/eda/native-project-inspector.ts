@@ -554,7 +554,7 @@ function parseProteusComponentRecordAt(
     const attributeOffset = fontOffset + 13;
     if (
       attributeOffset >= buffer.length ||
-      !buffer.subarray(fontOffset, attributeOffset).equals(Buffer.from("Default Font\\0", "ascii"))
+      !buffer.subarray(fontOffset, attributeOffset).equals(Buffer.from("Default Font\0", "ascii"))
     ) {
       return fail(`label-${blockIndex}:default-font-mismatch`);
     }
@@ -894,7 +894,7 @@ function parseProteusTerminalPlacements(
       }
 
       const tailOffset = objectOffset + 15 + nameBytes.length;
-      const labelMarker = Buffer.from("TERMINAL LABEL\\0", "ascii");
+      const labelMarker = Buffer.from("TERMINAL LABEL\0", "ascii");
       const labelMarkerOffset = buffer.indexOf(labelMarker, tailOffset);
       if (labelMarkerOffset < tailOffset || labelMarkerOffset >= objectOffset + byteLength) continue;
 
