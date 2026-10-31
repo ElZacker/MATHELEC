@@ -59,6 +59,8 @@ export type ProteusComponentMetadataInspection = {
 
 export type ProteusSchematicComponentInstance = {
   reference: string;
+  sourceOffset: number;
+  rawPlacementWords: [string, string] | null;
   value: string | null;
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
@@ -66,12 +68,24 @@ export type ProteusSchematicComponentInstance = {
   matchesComponentMetadata: boolean;
 };
 
+export type ProteusSchematicUnresolvedObject = {
+  sourceOffset: number;
+  reference: string | null;
+  value: string | null;
+  libraryName: string | null;
+  reason: "missing-reference-designator" | "duplicate-reference";
+};
+
 export type ProteusSchematicInspection = {
   status: "partial" | "unavailable";
   source: "ROOT.DSN";
   header: "ISIS SCHEMATIC FILE";
+  objectDataSectionCount: number;
+  componentIdMarkersOutsideObjectData: number;
   componentInstanceCount: number;
   componentInstances: ProteusSchematicComponentInstance[];
+  unresolvedObjectCount: number;
+  unresolvedObjects: ProteusSchematicUnresolvedObject[];
   componentReferencesWithoutMetadata: string[];
   metadataReferencesWithoutSchematicInstance: string[];
   componentLibraryNamesWithoutDeviceMetadataMatch: string[];
@@ -334,14 +348,14 @@ function isProteusDesignator(value: string): boolean {
   return /^[A-Za-z]{1,5}[0-9]{1,5}$/.test(value.trim());
 }
 
-function extractProteusProperty(text: string, key: string): string | null {
-  const marker = `{${key}=`;
-  const start = text.indexOf(marker);
-  if (start < 0) return null;
-  const valueStart = start + marker.length;
-  const valueEnd = text.indexOf("}", valueStart);
-  if (valueEnd < 0) return null;
-  return text.slice(valueStart, valueEnd).trim();
+function extractProteusProperties(text: string): Record<string, string> {
+  const properties: Record<string, string> = {};
+  for (const match of text.matchAll(/\\{([^{}=\\r\\n]{1,64})=([^{}\\r\\n]{0,256})\\}/g)) {
+    const key = match[1].trim();
+    if (!/^[A-Za-z][A-Za-z0-9_. -]*$/.test(key)) continue;
+    if (!(key in properties)) properties[key] = match[2].trim();
+  }
+  return properties;
 }
 
 /**
@@ -365,25 +379,54 @@ function parseProteusDsnComponentInstances(
 
   const marker = Buffer.concat([Buffer.from("COMPONENT ID", "ascii"), Buffer.from([0])]);
   const offsets = findAllBufferOccurrences(buffer, marker);
+  const objectDataMarker = Buffer.concat([
+    Buffer.from("OBJECT DATA", "ascii"),
+    Buffer.from([0]),
+  ]);
+  const objectDataOffsets = findAllBufferOccurrences(buffer, objectDataMarker);
+  const markersOutsideObjectData = offsets.filter((markerOffset) =>
+    !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
+  ).length;
   const metadataReferences = new Set(libraryComponents.map((component) => component.reference));
   const seenReferences = new Set<string>();
   const componentInstances: ProteusSchematicComponentInstance[] = [];
+  const unresolvedObjects: ProteusSchematicUnresolvedObject[] = [];
 
   for (let index = 0; index < offsets.length; index += 1) {
     const markerOffset = offsets[index];
-    const recordEnd = offsets[index + 1] ?? buffer.length;
-    const searchStart = Math.max(0, markerOffset - 80);
+    const objectDataOffset = objectDataOffsets
+      .filter((objectOffset) => objectOffset < markerOffset)
+      .pop();
+    // Library/template definitions also contain COMPONENT ID markers. Only records
+    // nested after OBJECT DATA are placed schematic instances.
+    if (objectDataOffset === undefined) continue;
+
+    const nextComponentMarker = offsets[index + 1] ?? buffer.length;
+    const nextObjectDataMarker = objectDataOffsets.find((objectOffset) => objectOffset > markerOffset);
+    const recordEnd = Math.min(nextComponentMarker, nextObjectDataMarker ?? buffer.length);
+    const searchStart = Math.max(objectDataOffset + objectDataMarker.length, markerOffset - 80);
     let reference: string | null = null;
+    let referenceTokenEnd: number | null = null;
 
     for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
       if (buffer[candidate] !== 0xff) continue;
       const field = readProteusLengthPrefixedAscii(buffer, candidate, 16);
       if (field && isProteusDesignator(field.value)) {
         reference = field.value.trim();
+        referenceTokenEnd = field.next;
         break;
       }
     }
-    if (!reference || seenReferences.has(reference)) continue;
+
+    // Preserve two observed 32-bit words after the designator. Their semantics
+    // and units are unknown, so they are not exposed as X/Y coordinates.
+    const rawPlacementWords: [string, string] | null =
+      referenceTokenEnd !== null && referenceTokenEnd + 8 <= markerOffset
+        ? [
+            buffer.readUInt32LE(referenceTokenEnd).toString(16).padStart(8, "0"),
+            buffer.readUInt32LE(referenceTokenEnd + 4).toString(16).padStart(8, "0"),
+          ]
+        : null;
 
     const valueStart = markerOffset + marker.length;
     const valueLimit = Math.min(recordEnd, valueStart + 12);
@@ -409,19 +452,42 @@ function parseProteusDsnComponentInstances(
       componentValueMarkerOffset >= valueStart &&
       componentValueMarkerOffset + componentValueMarker.length <= recordEnd
     ) {
-      const libraryField = readProteusLengthPrefixedAscii(
-        buffer,
-        componentValueMarkerOffset + componentValueMarker.length,
-        128,
-      );
-      if (libraryField && libraryField.next <= recordEnd) libraryName = libraryField.value;
+      // The marker is followed by reserved/binary bytes before the FF-length token.
+      // Search only a small bounded window, just as for COMPONENT ID's visible value.
+      const libraryValueStart = componentValueMarkerOffset + componentValueMarker.length;
+      const libraryValueLimit = Math.min(recordEnd, libraryValueStart + 32);
+      for (let candidate = libraryValueStart; candidate < libraryValueLimit; candidate += 1) {
+        if (buffer[candidate] !== 0xff) continue;
+        const libraryField = readProteusLengthPrefixedAscii(buffer, candidate, 128);
+        if (libraryField && libraryField.next <= recordEnd) {
+          libraryName = libraryField.value;
+          break;
+        }
+      }
     }
 
     const recordText = buffer.subarray(markerOffset, recordEnd).toString("latin1");
-    const properties: Record<string, string> = {};
-    for (const key of ["PACKAGE", "PRIMTYPE"]) {
-      const property = extractProteusProperty(recordText, key);
-      if (property !== null) properties[key] = property;
+    const properties = extractProteusProperties(recordText);
+
+    if (!reference) {
+      unresolvedObjects.push({
+        sourceOffset: markerOffset,
+        reference: null,
+        value,
+        libraryName,
+        reason: "missing-reference-designator",
+      });
+      continue;
+    }
+    if (seenReferences.has(reference)) {
+      unresolvedObjects.push({
+        sourceOffset: markerOffset,
+        reference,
+        value,
+        libraryName,
+        reason: "duplicate-reference",
+      });
+      continue;
     }
 
     const metadata = libraryComponents.find((component) => component.reference === reference);
@@ -432,6 +498,8 @@ function parseProteusDsnComponentInstances(
     seenReferences.add(reference);
     componentInstances.push({
       reference,
+      sourceOffset: markerOffset,
+      rawPlacementWords,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
@@ -455,21 +523,28 @@ function parseProteusDsnComponentInstances(
     .sort((left, right) => left.localeCompare(right));
 
   return {
-    status: componentInstances.length > 0 ? "partial" : "unavailable",
+    status: componentInstances.length > 0 || unresolvedObjects.length > 0 ? "partial" : "unavailable",
     source: "ROOT.DSN",
     header: "ISIS SCHEMATIC FILE",
+    objectDataSectionCount: objectDataOffsets.length,
+    componentIdMarkersOutsideObjectData: markersOutsideObjectData,
     componentInstanceCount: componentInstances.length,
     componentInstances,
+    unresolvedObjectCount: unresolvedObjects.length,
+    unresolvedObjects,
     componentReferencesWithoutMetadata,
     metadataReferencesWithoutSchematicInstance,
     componentLibraryNamesWithoutDeviceMetadataMatch,
     limitations: [
-      "Se reconocen registros COMPONENT ID y se recuperan referencias/valores en formato FF + longitud + texto.",
-      "Las propiedades PACKAGE y PRIMTYPE solo se conservan cuando aparecen como texto dentro del mismo registro.",
+      "Se reconocen registros COMPONENT ID dentro de secciones OBJECT DATA para evitar confundir definiciones de biblioteca con instancias colocadas.",
+      "Se recuperan referencias y valores en formato FF + longitud + texto, junto con el offset del registro dentro de ROOT.DSN.",
+      "Se conservan dos palabras binarias de 32 bits posteriores al designador como datos de colocación opacos; su significado y escala no están confirmados y no se etiquetan como coordenadas.",
+      "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
+      "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
       "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
       "No se reconstruyen terminales, extremos de pines, cables ni nets eléctricos; no se puede afirmar que el circuito esté importado.",
-      "El subconjunto se contrastó con una única muestra Proteus 8.13 y requiere más proyectos de referencia antes de considerarse general.",
+      "El lector se contrastó con la muestra Proteus 8.13 del repositorio; los casos con instrumentos/objetos especiales requieren fixtures adicionales de la aplicación objetivo.",
     ],
   };
 }
@@ -662,4 +737,16 @@ export function inspectNativeEdaProject(
   if (extension === "pdsprj") return inspectProteusDocument(buffer);
 
   throw new Error("Formato no admitido. Se esperan archivos .lvw, .pcb o .pdsprj.");
+}
+
+
+/**
+ * Public read-only entry point for inspecting ROOT.DSN bytes independently of the
+ * .pdsprj ZIP wrapper. Useful for focused parser regression tests and diagnostics.
+ */
+export function inspectProteusSchematicBytes(
+  input: Uint8Array,
+  libraryComponents: ProteusComponentMetadata[] = [],
+): ProteusSchematicInspection {
+  return parseProteusDsnComponentInstances(Buffer.from(input), libraryComponents);
 }
