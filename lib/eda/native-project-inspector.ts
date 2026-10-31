@@ -356,7 +356,7 @@ function isProteusDesignator(value: string): boolean {
 
 function extractProteusProperties(text: string): Record<string, string> {
   const properties: Record<string, string> = {};
-  for (const match of text.matchAll(/\\{([^{}=\\r\\n]{1,64})=([^{}\\r\\n]{0,256})\\}/g)) {
+  for (const match of text.matchAll(/\{([^{}=\r\n]{1,64})=([^{}\r\n]{0,256})\}/g)) {
     const key = match[1].trim();
     if (!/^[A-Za-z][A-Za-z0-9_. -]*$/.test(key)) continue;
     if (!(key in properties)) properties[key] = match[2].trim();
@@ -369,7 +369,7 @@ function extractProteusProperties(text: string): Record<string, string> {
  * - component records anchored by "COMPONENT ID\\0";
  * - the nearest preceding FF-length-prefixed reference designator;
  * - the first FF-length-prefixed value immediately after the marker;
- * - printable PACKAGE / PRIMTYPE properties from the same record.
+ * - printable brace-delimited properties from the same instance record.
  *
  * This is not a full ISIS schematic decoder. In particular, it does not infer
  * graphical coordinates, symbol geometry, pin endpoints, wires or electrical nets.
