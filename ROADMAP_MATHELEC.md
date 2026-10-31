@@ -1261,15 +1261,15 @@ Se decodificó la tabla de patas de ROOT.CDB y se enlazó con las ranuras de pun
 - D1: A y K.
 - R1: 1 y 2.
 
-Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El lector solo declara `matched-by-cdb-order` cuando se cumple esa triple condición. Los grupos geométricos ahora también muestran sus nodos T y patas conectadas.
+Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El informe conserva los nombres CDB en orden de tabla, pero el estado correcto es `slot-table-valid-symbol-order-unverified` y cada pin usa `mappingBasis=cdb-order-unverified`: no hay una definición $PIN de esos dispositivos en el fixture que permita certificar el orden físico.
 
-Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.
+Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra con un fixture real, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.
 
 
-## Proteus 8.13 — colocación, $PIN y terminales POWER/GROUND (31 de octubre de 2026)
+## Proteus 8.13 — colocación, búsqueda de $PIN y terminales POWER/GROUND (31 de octubre de 2026)
 
-Se ha pasado del reconocimiento de componentes a la lectura estructural de sus registros: bloques de etiquetas, dispositivo, origen real, orientación/espejo y tabla exacta de punteros a WIRE. Se leen definiciones $PIN, se ordenan las patas CDB por nombre/número y se transforman sus coordenadas base al marco físico de cada instancia. Cada punto de conexión se comprueba contra el segmento del cable al que apunta.
+Se decodifica el registro de componente colocado: bloques de etiquetas, dispositivo, origen físico, orientación/espejo y tabla exacta de slots WIRE. La búsqueda de definiciones de biblioteca $PIN está instrumentada, pero el fixture `mathelecprueba.pdsprj` no contiene cabeceras de definición coincidentes para BATTERY, LED-RED o 10WATT1K. Por tanto, el nombre de pata se conserva provisionalmente en orden CDB y nunca se marca como correspondencia física confirmada.
 
-Se añadió además el formato de terminales $TERPOWER y $TERGROUND, incluidos origen, anclaje, punto de conexión y puntero WIRE. El test actual es sintético porque el proyecto real de referencia no tiene terminales colocados.
+Se añadió además el lector de terminales $TERPOWER/$TERGROUND, con origen, anclaje, punto de conexión y puntero WIRE. La prueba automatizada actual es sintética porque el proyecto real no contiene terminales colocados.
 
-**Pendiente:** comprobar estos parsers con proyectos guardados con rotaciones/espejos variados y varios dispositivos, validar terminales con un fixture real de Proteus 8.13, decodificar etiquetas de red e instrumentos virtuales, completar cuerpo gráfico de símbolos, y generar/escribir un proyecto nuevo que se pueda abrir y simular en Proteus.
+**Pendiente:** conseguir un proyecto Proteus 8.13 que incluya definiciones de biblioteca para validar $PIN en varios dispositivos y orientaciones; comparar terminales con un fixture real; decodificar etiquetas de red, instrumentos y cuerpo gráfico completo; y generar un proyecto que se pueda abrir y simular dentro de Proteus.
