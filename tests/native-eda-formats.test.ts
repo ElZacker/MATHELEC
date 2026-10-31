@@ -443,6 +443,9 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
     device: "RESISTOR",
     package: "RES180",
     properties: {},
+    pinEntryOffset: null,
+    pinEntryStatus: "unavailable",
+    pins: [],
   }]);
 
   assert.equal(result.objectDataSectionCount, 2);
