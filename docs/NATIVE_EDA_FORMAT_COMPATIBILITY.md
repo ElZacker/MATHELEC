@@ -12,7 +12,7 @@ The repository contains three reference projects under `archivosdeprueba/compati
 | `Mathelecprueba.pcb` | 1,093 bytes | Binary document beginning with the same `Dsg\\0` signature | Recognizable New Wave / PCB Wizard-family signature; body remains opaque |
 | `mathelecprueba.pdsprj` | 12,281 bytes | ZIP container | Contains `PROJECT.XML`, `ROOT.DSN`, `ROOT.CDB` and `SCRIPTS/PWRRAILS.DAT` |
 
-The Livewire and PCB Wizard samples share the first 38 bytes, but the binary content diverges at byte offset 38. Therefore, the signature and common prefix cannot distinguish these two applications; the file extension and application context are both required. Both samples contain the printable strings `page &p of &n` at byte offset 90 and `Arial` at byte offset 104. Mathelect now reports these exact offsets for regression and controlled-diff work; they are document metadata, not decoded circuit objects.
+The Livewire and PCB Wizard samples share the first 38 bytes, but the binary content diverges at byte offset 38. Therefore, the signature and common prefix cannot distinguish these two applications; the file extension is the only discriminator currently used by the inspector. The report now states this explicitly through `formatIdentification.selectedBy = "file-extension"` and does not claim an application-specific signature check. Both samples contain the printable strings `page &p of &n` at byte offset 90 and `Arial` at byte offset 104. Mathelect reports these offsets for regression and controlled-diff work; they are document metadata, not decoded circuit objects.
 
 The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `ROOT.DSN` and `ROOT.CDB` are binary. A valid ZIP wrapper is not sufficient to create a valid Proteus schematic: the DSN design content still needs a verified decoder/writer.
 
@@ -50,7 +50,7 @@ The registry is a version-target baseline, not a claim of native import/export c
 
 The next implementation milestone is not a native writer yet. It is to establish verified object-level decoding for the formats, in this order:
 
-1. **Proteus 8.13:** the reader now extracts reference, value, device, package and text properties from `ROOT.CDB`, plus a partial set of placed-component references/values from `ROOT.DSN` records anchored by `COMPONENT ID\\0`. On the repository fixture, the two sources match B1, D1 and R1. Next decode object coordinates, symbol references, pin identities and wire/net topology.
+1. **Proteus 8.13:** the reader isolates placed records under `OBJECT DATA\\0`, excluding a library/template `COMPONENT ID` marker outside that section. It extracts reference, visible value, the library identifier after `COMPONENT VALUE\\0`, brace-delimited instance properties, and two raw 32-bit words after the reference token. On the repository fixture, B1, D1 and R1 match their ROOT.CDB devices; the raw words are preserved as opaque bytes and are **not** yet interpreted as coordinates. Objects without a normal reference (for example virtual instruments) are retained in an unresolved-object list. Next decode coordinate semantics, symbols, pin identities and wire/net topology.
 2. **Livewire 1.11:** identify record boundaries and the serialized component / terminal / wire fields in the New Wave binary stream. A successful signature check is not enough.
 3. **PCB Wizard 3.50:** investigate its board-specific records independently, including board outline, footprints, numbered pads, nets and tracks. Do not reuse a Livewire decoder merely because both samples begin with `Dsg\\0`.
 
@@ -60,12 +60,12 @@ A decoder is accepted only when it reproduces the known reference circuit's comp
 
 - `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
 - The New Wave inspector checks the `Dsg\\0` signature and returns only metadata that can be established safely. It deliberately reports that component data is not decoded.
-- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. It recovers component reference/value/device/package/properties from `ROOT.CDB` and partially decodes `ROOT.DSN` records anchored by `COMPONENT ID\\0`. The fixture's B1, D1 and R1 references match across both records.
+- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. In `ROOT.DSN`, it scopes component records to `OBJECT DATA\\0`, recovers the visible value and library identifier across observed binary padding, reads brace-delimited properties, and cross-checks the device identifier against `ROOT.CDB`. The repository fixture's B1, D1 and R1 records all match. Duplicate or missing designators are reported as unresolved objects rather than silently discarded. Two 32-bit words after each designator are preserved in hexadecimal for later placement analysis; their units/meaning remain unknown.
 - `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report. The preview panel exposes this through **Inspeccionar archivo nativo**; it does not replace the current Mathelect circuit or claim to import it.
 - Proteus ZIP inspection is bounded: at most 256 entries, 16 MB per uncompressed entry, 32 MB total declared uncompressed data and 2 MB for `PROJECT.XML`. Local and central headers are cross-checked, unsafe entry paths are rejected, and extracted XML is size/CRC checked.
 - `tests/native-eda-formats.test.ts` uses the three repository samples as regression fixtures. In addition to recognition and container integrity, the Proteus fixture asserts the recovered B1 / D1 / R1 component metadata. These tests do not prove that a generated project opens or simulates in the desktop applications.
 
-This is still **inspection only**. Proteus metadata extraction now returns the three reference components present in the repository sample (B1, D1 and R1), but does not reconstruct their sheet placements, symbols, pin mappings or electrical connections. No format has native import or export yet.
+This is still **inspection only**. The Proteus reader now recovers three placed, metadata-matched components in the repository sample and preserves special unresolved objects plus raw placement words, but it does not reconstruct usable sheet coordinates, symbol geometry, pin mappings or electrical connections. A second public Proteus project was inspected manually to study a larger object list and virtual instruments; that file is not added to the automated fixtures, so automated regression coverage still relies on the repository's own sample plus synthetic edge-case records. No format has native import or export yet.
 
 ## What is still required for real import/export
 
@@ -117,3 +117,78 @@ These references establish the initial investigation only. They do not substitut
 - Livewire 1.11 and PCB Wizard 3.50 reports now include byte offsets for the two confirmed printable document markers. These offsets are tested against each repository fixture (90 for `page &p of &n`, 104 for `Arial`).
 - Proteus 8.13 inspection now also attempts to read the length-prefixed library/part identifier that follows the NUL-terminated `COMPONENT VALUE` marker. It reports whether that identifier matches the `device` field from ROOT.CDB as a diagnostic only; a mismatch is not silently rewritten or treated as a fatal decode error.
 - This is additional inspection metadata, not component placement, pin, wire, net, footprint-pad or track decoding. Native import/export and application-level tests remain unimplemented.
+
+
+## Proteus ROOT.DSN object-decoding increment — 31 October 2026
+
+- Placed components are now selected only when their `COMPONENT ID` marker occurs after an `OBJECT DATA` marker. This avoids mistaking a library/template definition elsewhere in the DSN for a component on the sheet.
+- For each placed component, the reader extracts the designator, visible value, library identifier following `COMPONENT VALUE` (scanning a bounded window because the marker is followed by binary padding), and all printable brace-delimited instance properties.
+- The library identifier is compared with the `device` field from `ROOT.CDB` as a diagnostic; a mismatch is reported, not guessed away.
+- Objects that lack a conventional designator, or repeat an already-seen designator, are preserved in `unresolvedObjects`. This matters for virtual instruments and unusual schematic objects.
+- Two 32-bit words immediately following the reference token are preserved as hex `rawPlacementWords`. Their semantics and units have not been confirmed; the implementation does not label them coordinates or use them to position components.
+- Regression coverage asserts the real fixture's B1/D1/R1 library mappings, per-instance properties and raw words, plus a synthetic case containing a library marker outside `OBJECT DATA`, a component, multiple object-data sections and an unlabelled virtual instrument.
+- A separate public Proteus project was inspected manually to compare the marker sequence and special instrument objects. It was not copied into the repository or treated as a passing CI fixture.
+
+The repository fixture's `ROOT.DSN` contains six placed `WIRE` objects. The inspector now validates their 34-byte object prefix, reads the little-endian vertex count, and decodes each following int32 X/Y pair using the empirically confirmed 2540-units-per-mil scale. The six wires have 2, 2, 3, 2, 2 and 3 vertices, with exact object offsets 72806, 72856, 72906, 72989, 73039 and 73089. It preserves the separate raw marker offsets (72831, 72881, 72931, 73014, 73064, 73114) and marker windows (50, 50, 83, 50, 50 and 69 bytes) as diagnostics.
+
+The inspector also groups wire objects when an actual vertex of one wire lies on a segment of another. On this fixture that gives two wire-only groups: `[72806, 72856, 72906]` and `[72989, 73039, 73089]`. A synthetic regression test confirms that an interior crossing without a shared vertex is not merged, while a T-contact at a wire vertex is. This is **not a complete electrical netlist**: component pins, placed terminals, net labels and T-junction node objects are not yet correlated with the groups. The 26 `TERMINAL` markers, three `PROPERTIES` markers (71921, 72249, 72661), and absence of `TERMINAL LABEL` markers remain a separate inventory; marker count is not treated as placed terminal count.
+
+The remaining Proteus schematic work is now specifically: identify the raw placement word semantics with controlled saves/moves; resolve symbol/part definitions to pin geometry; decode terminals, wires and net membership; then build a writer and test open + simulation in Proteus 8.13.
+
+
+## New Wave identification confidence — 31 October 2026
+
+Both repository samples begin with the same four-byte `Dsg\\0` family signature and share their first 38 bytes. The current inspector therefore reports `formatIdentification.selectedBy = "file-extension"` and `applicationSpecificSignatureVerified = false` for both Livewire and PCB Wizard. This prevents the file inspector from implying that the application-specific format has been independently identified from binary content. Component, terminal, wire and PCB object decoding remain open.
+
+
+### ROOT.DSN structural marker inventory
+
+The current repository sample is covered by exact offset regression assertions for all six `WIRE\\0` markers, all 26 `TERMINAL\\0` markers, all three `PROPERTIES\\0` markers and the absence of `TERMINAL LABEL\\0`. These are byte positions for later decoding, not interpreted wire counts, pin counts or net connectivity. The second public Proteus project inspected manually has a larger set of wire and terminal markers, but remains a research reference rather than an automated fixture.
+
+
+The WIRE window lengths are regression diagnostics bounded by the next visible marker/section boundary; they are not yet asserted to be canonical record lengths. Their variable size is a reason to retain raw offsets and defer endpoint decoding until the binary payload structure is established.
+
+
+## Proteus 8.13 WIRE geometry decode — 31 October 2026
+
+A binary WIRE decoder is now implemented and regression-tested against the repository's actual 8.13 `ROOT.DSN`. Each object is located 25 bytes before its `WIRE\\0` marker; the reader validates the fixed structural bytes while allowing the observed style/color bytes to vary, reads the vertex count from offset +32 and then reads int32 X/Y pairs from +34. Coordinates are converted to mils by dividing by 2540. The supported vertex count is bounded (2–256), and malformed markers are reported rather than treated as wires.
+
+The decoded object offsets, lengths and vertices are asserted exactly in CI. A geometric pass then groups wires only when a vertex of one lies on a segment of another, using integer raw coordinates to avoid floating-point drift. Zero-length two-point wires are retained and can participate in a shared-point contact. An interior crossing without a vertex is not enough to merge two wire groups.
+
+The reader now decodes the 8.13 CDB pin-entry table (one-byte-length pin name and number fields) and the matching u32 pin-slot pointer array at the end of each placed DSN component record. It links a slot to a CDB pin in table order only if the slot count exactly matches the pin-table count and every nonzero pointer resolves to an already validated WIRE object. For the repository fixture, all three two-pin components meet that criterion.
+
+The geometric groups now expose their junction-node offsets and the component pins that attach to their wires. These are **wire-connected groups**, not yet full schematic nets: power/ground terminals, net labels, symbol pin geometry/orientation and virtual instrument terminals remain to be decoded. Therefore, `wireTouchGroups` is a wire-only geometric diagnostic, not a complete netlist or a simulation-ready imported circuit.
+
+
+### Component-record wire address references
+
+The 8.13 fixture contains these pointer-sized values in the tails of the three placed component records:
+
+- B1: byte offsets 71975 and 71979 reference WIRE objects 73089 and 72906.
+- D1: byte offsets 72391 and 72395 reference WIRE objects 73039 and 72806.
+- R1: byte offsets 72773 and 72777 reference WIRE objects 72856 and 72989.
+
+The parser reports these as `wireAddressReferences` only when a 32-bit value exactly matches an already validated WIRE object address. It deliberately does not expose a pin index or pin name: the complete table boundary, zero-valued unconnected slots and library `$PIN` mapping remain unresolved.
+
+
+### Proteus 8.13 — CDB pin table and DSN pin-slot mapping
+
+The actual `ROOT.CDB` fixture includes the following pin-entry tables:
+
+| Component | CDB pin-entry byte offset | Pin slots in CDB order |
+|---|---:|---|
+| B1 | 96 | `+`, `-` |
+| D1 | 137 | `A`, `K` |
+| R1 | 178 | `1`, `2` |
+
+In this 8.13 sample, pin names and pin numbers use one-byte length prefixes (the number field may be empty). The reader does not assume the two-byte string lengths used by the later Proteus 9 reference parser.
+
+The corresponding DSN pin-slot arrays are:
+
+- B1: byte offset 71975 → `+` → WIRE object 73089; byte offset 71979 → `-` → WIRE object 72906.
+- D1: byte offset 72391 → `A` → WIRE object 73039; byte offset 72395 → `K` → WIRE object 72806.
+- R1: byte offset 72773 → pin `1` → WIRE object 72856; byte offset 72777 → pin `2` → WIRE object 72989.
+
+All three CDB pin tables contain two entries, all three DSN pin-slot arrays contain two WIRE pointers, and every pointer resolves to a validated WIRE object. The code therefore emits `pinSlotMappingStatus = "matched-by-cdb-order"` and includes these pins in `wireConnectedGroups`. If the count or pointers do not match, the mapping stays unresolved; the code does not assign pins by guesswork.
+
+These checks establish the CDB-name-to-DSN-slot association for this fixture, but not physical pin coordinates, symbol rotation, net labels or power-rail terminals. They also do not replace opening and checking the design in Proteus 8.13.

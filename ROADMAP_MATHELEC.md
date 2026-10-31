@@ -1216,3 +1216,51 @@ Se continúa en paralelo con los tres formatos, conservando un indicador indepen
 - **Proteus 8.13:** el lector amplía ROOT.DSN para recuperar, cuando existe el marcador, el identificador de biblioteca que sigue a `COMPONENT VALUE`; lo compara de forma diagnóstica con el campo `device` de ROOT.CDB. No reconstruye todavía geometría, pines ni conectividad.
 
 Los nuevos resultados deben superar pruebas de regresión, TypeScript, ESLint y compilación de producción antes de actualizar los indicadores de avance. No se cambia la matriz de capacidades para declarar importación o exportación hasta validar archivos en las aplicaciones de destino.
+
+
+---
+
+## Compatibilidad EDA — siguiente avance de Proteus (31 de octubre de 2026)
+
+El lector de Proteus ya diferencia definiciones de biblioteca de instancias colocadas usando el contexto `OBJECT DATA`. En las instancias recupera designador, valor visible, identificador de biblioteca, propiedades de texto y dos palabras binarias de colocación conservadas como hexadecimal sin atribuirles todavía unidades o significado de coordenadas.
+
+Los objetos que no tienen un designador habitual (por ejemplo, instrumentos virtuales) y las referencias duplicadas se conservan como objetos no resueltos para que una futura importación no los pierda sin aviso. El mapeo de los tres componentes B1, D1 y R1 de la muestra Mathelect se contrasta con ROOT.CDB; también se agregaron pruebas sintéticas para varias secciones OBJECT DATA y objetos especiales.
+
+**Siguiente criterio de aceptación:** verificar el significado de las palabras de colocación con proyectos de Proteus 8.13 guardados antes/después de mover un componente, resolver símbolos y pines, y decodificar cables/nets. Livewire 1.11 y PCB Wizard 3.50 continúan siendo trabajos independientes: la firma Dsg compartida no autoriza reutilizar un parser sin evidencia.
+
+
+### Matriz de compatibilidad — precisión del reconocimiento New Wave
+
+Livewire 1.11 y PCB Wizard 3.50 continúan compartiendo la firma de familia `Dsg\\0`. El inspector ahora expone que la selección entre ambos se hace por extensión y que no se ha verificado una firma exclusiva de aplicación. Esto no aumenta por sí solo la decodificación de circuitos, pero evita presentar una clasificación contextual como si fuera una identificación binaria concluyente.
+
+
+El inventario binario de `ROOT.DSN` ya conserva offsets exactos para marcadores `WIRE`, `TERMINAL`, `TERMINAL LABEL` y `PROPERTIES`. En la muestra de Mathelect se verifican seis marcadores WIRE, 26 TERMINAL y tres PROPERTIES. Todavía no se interpretan como segmentos, pines conectados o nets: la próxima etapa debe identificar la estructura de sus payloads y correlacionar terminales con instancias/footprints.
+
+
+Además del inventario de offsets, el lector guarda para cada marcador WIRE la ventana de bytes hasta el siguiente WIRE o el siguiente límite OBJECT DATA. En la muestra actual las ventanas miden 50, 50, 83, 50, 50 y 69 bytes. Se usan como evidencia estructural, no como longitudes de registro confirmadas ni como conexiones decodificadas.
+
+
+## Proteus 8.13 — decodificación geométrica de WIRE (31 de octubre de 2026)
+
+El lector ya valida el encabezado binario de cada objeto WIRE, recupera la cantidad de vértices y lee sus coordenadas X/Y como enteros little-endian. La escala observada en el fixture se verifica con 2540 unidades por mil. La CI comprueba los seis objetos de la muestra, sus posiciones, longitudes, vértices y un cable de longitud cero.
+
+Se añadió un agrupador geométrico basado en contactos exactos: un vértice de un cable debe caer sobre un segmento de otro. Los cruces interiores sin vértice común no se fusionan. Esto produce grupos de cables, no nets eléctricas completas: aún falta resolver los extremos contra los pines de símbolos, las ranuras de conexión de cada componente, los terminales de alimentación/tierra, etiquetas de red y objetos de nodo T.
+
+
+## Proteus 8.13 — referencias de cables dentro de registros de componentes
+
+El lector encuentra valores de 32 bits en las colas de los registros B1, D1 y R1 que coinciden exactamente con direcciones de objetos WIRE ya validados. Se conservan con su offset de origen: dos referencias por componente en el fixture actual. Esto crea el primer vínculo comprobable entre instancias y objetos de cable.
+
+Todavía no se declaran como índices de patas: falta reconstruir la tabla completa de slots, distinguir slots cero/no conectados y correlacionar cada índice con los nombres y números de pin de las definiciones de símbolo y biblioteca.
+
+
+## Proteus 8.13 — patas de componentes enlazadas a cables (31 de octubre de 2026)
+
+Se decodificó la tabla de patas de ROOT.CDB y se enlazó con las ranuras de punteros a WIRE en ROOT.DSN. En el archivo de referencia:
+- B1: + y -.
+- D1: A y K.
+- R1: 1 y 2.
+
+Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El lector solo declara `matched-by-cdb-order` cuando se cumple esa triple condición. Los grupos geométricos ahora también muestran sus nodos T y patas conectadas.
+
+Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.

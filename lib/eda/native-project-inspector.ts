@@ -26,6 +26,12 @@ export type NewWaveInspection = {
   recognized: true;
   byteLength: number;
   signature: "Dsg\\0";
+  formatIdentification: {
+    family: "New Wave Dsg";
+    selectedBy: "file-extension";
+    confidence: "shared-family-signature-plus-extension";
+    applicationSpecificSignatureVerified: false;
+  };
   textMarkers: string[];
   textMarkerOffsets: Array<{ marker: string; offset: number }>;
   status: "recognized-binary-not-yet-decoded";
@@ -41,12 +47,20 @@ export type ProteusZipEntry = {
   crc32: string;
 };
 
+export type ProteusComponentPinMetadata = {
+  name: string;
+  number: string;
+};
+
 export type ProteusComponentMetadata = {
   reference: string;
   value: string;
   device: string;
   package: string;
   properties: Record<string, string>;
+  pinEntryOffset: number | null;
+  pinEntryStatus: "decoded" | "unavailable" | "ambiguous";
+  pins: ProteusComponentPinMetadata[];
 };
 
 export type ProteusComponentMetadataInspection = {
@@ -57,21 +71,101 @@ export type ProteusComponentMetadataInspection = {
   limitations: string[];
 };
 
+export type ProteusSchematicWireAddressReference = {
+  byteOffset: number;
+  wireObjectOffset: number;
+};
+
+export type ProteusSchematicPinConnection = {
+  slotIndex: number;
+  pinName: string;
+  pinNumber: string;
+  wireObjectOffset: number | null;
+};
+
 export type ProteusSchematicComponentInstance = {
   reference: string;
+  recordStartOffset: number;
+  sourceOffset: number;
+  rawPlacementWords: [string, string] | null;
   value: string | null;
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
+  wireAddressReferences: ProteusSchematicWireAddressReference[];
+  pinSlotTableOffset: number | null;
+  pinSlotMappingStatus: "matched-by-cdb-order" | "count-mismatch" | "unavailable" | "ambiguous";
+  pinConnections: ProteusSchematicPinConnection[];
   properties: Record<string, string>;
   matchesComponentMetadata: boolean;
+};
+
+export type ProteusSchematicUnresolvedObject = {
+  sourceOffset: number;
+  reference: string | null;
+  value: string | null;
+  libraryName: string | null;
+  reason: "missing-reference-designator" | "duplicate-reference";
+};
+
+export type ProteusSchematicMarkerSpan = {
+  offset: number;
+  byteWindowLength: number;
+  nextBoundary: "wire-marker" | "object-data-marker" | "end-of-file";
+};
+
+export type ProteusSchematicWireSegment = {
+  objectOffset: number;
+  markerOffset: number;
+  byteLength: number;
+  vertexCount: number;
+  points: Array<{ x: number; y: number }>;
+  rawPoints: Array<{ x: number; y: number }>;
+};
+
+export type ProteusSchematicWireTouchGroup = {
+  wireObjectOffsets: number[];
+};
+
+export type ProteusSchematicJunctionNode = {
+  objectOffset: number;
+  x: number;
+  y: number;
+  rawX: number;
+  rawY: number;
+  wireObjectOffsets: number[];
+};
+
+export type ProteusSchematicWireConnectedGroup = {
+  wireObjectOffsets: number[];
+  junctionNodeOffsets: number[];
+  componentPins: Array<{
+    reference: string;
+    slotIndex: number;
+    pinName: string;
+    pinNumber: string;
+  }>;
 };
 
 export type ProteusSchematicInspection = {
   status: "partial" | "unavailable";
   source: "ROOT.DSN";
   header: "ISIS SCHEMATIC FILE";
+  objectDataSectionCount: number;
+  componentIdMarkersOutsideObjectData: number;
+  wireMarkerOffsets: number[];
+  wireMarkerSpans: ProteusSchematicMarkerSpan[];
+  wireSegments: ProteusSchematicWireSegment[];
+  unresolvedWireMarkerOffsets: number[];
+  wireTouchGroups: ProteusSchematicWireTouchGroup[];
+  junctionNodes: ProteusSchematicJunctionNode[];
+  wireConnectedGroups: ProteusSchematicWireConnectedGroup[];
+  terminalMarkerOffsets: number[];
+  terminalLabelMarkerOffsets: number[];
+  propertiesMarkerOffsets: number[];
   componentInstanceCount: number;
   componentInstances: ProteusSchematicComponentInstance[];
+  unresolvedObjectCount: number;
+  unresolvedObjects: ProteusSchematicUnresolvedObject[];
   componentReferencesWithoutMetadata: string[];
   metadataReferencesWithoutSchematicInstance: string[];
   componentLibraryNamesWithoutDeviceMetadataMatch: string[];
@@ -334,14 +428,14 @@ function isProteusDesignator(value: string): boolean {
   return /^[A-Za-z]{1,5}[0-9]{1,5}$/.test(value.trim());
 }
 
-function extractProteusProperty(text: string, key: string): string | null {
-  const marker = `{${key}=`;
-  const start = text.indexOf(marker);
-  if (start < 0) return null;
-  const valueStart = start + marker.length;
-  const valueEnd = text.indexOf("}", valueStart);
-  if (valueEnd < 0) return null;
-  return text.slice(valueStart, valueEnd).trim();
+function extractProteusProperties(text: string): Record<string, string> {
+  const properties: Record<string, string> = {};
+  for (const match of text.matchAll(/\{([^{}=\r\n]{1,64})=([^{}\r\n]{0,256})\}/g)) {
+    const key = match[1].trim();
+    if (!/^[A-Za-z][A-Za-z0-9_. -]*$/.test(key)) continue;
+    if (!(key in properties)) properties[key] = match[2].trim();
+  }
+  return properties;
 }
 
 /**
@@ -349,7 +443,7 @@ function extractProteusProperty(text: string, key: string): string | null {
  * - component records anchored by "COMPONENT ID\\0";
  * - the nearest preceding FF-length-prefixed reference designator;
  * - the first FF-length-prefixed value immediately after the marker;
- * - printable PACKAGE / PRIMTYPE properties from the same record.
+ * - printable brace-delimited properties from the same instance record.
  *
  * This is not a full ISIS schematic decoder. In particular, it does not infer
  * graphical coordinates, symbol geometry, pin endpoints, wires or electrical nets.
@@ -365,25 +459,246 @@ function parseProteusDsnComponentInstances(
 
   const marker = Buffer.concat([Buffer.from("COMPONENT ID", "ascii"), Buffer.from([0])]);
   const offsets = findAllBufferOccurrences(buffer, marker);
+  const objectDataMarker = Buffer.concat([
+    Buffer.from("OBJECT DATA", "ascii"),
+    Buffer.from([0]),
+  ]);
+  const objectDataOffsets = findAllBufferOccurrences(buffer, objectDataMarker);
+  // Inventory marker offsets only; these records have not yet been decoded into
+  // wire endpoints, pin terminals or electrical nets.
+  const wireMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("WIRE", "ascii"), Buffer.from([0])]),
+  );
+  const terminalMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("TERMINAL", "ascii"), Buffer.from([0])]),
+  );
+  const terminalLabelMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("TERMINAL LABEL", "ascii"), Buffer.from([0])]),
+  );
+  const propertiesMarkerOffsets = findAllBufferOccurrences(
+    buffer,
+    Buffer.concat([Buffer.from("PROPERTIES", "ascii"), Buffer.from([0])]),
+  );
+  const wireMarkerSpans = wireMarkerOffsets.map((offset): ProteusSchematicMarkerSpan => {
+    const nextWire = wireMarkerOffsets.find((candidate) => candidate > offset);
+    const nextObjectData = objectDataOffsets.find((candidate) => candidate > offset);
+    if (nextWire !== undefined && (nextObjectData === undefined || nextWire < nextObjectData)) {
+      return { offset, byteWindowLength: nextWire - offset, nextBoundary: "wire-marker" };
+    }
+    if (nextObjectData !== undefined) {
+      return { offset, byteWindowLength: nextObjectData - offset, nextBoundary: "object-data-marker" };
+    }
+    return { offset, byteWindowLength: buffer.length - offset, nextBoundary: "end-of-file" };
+  });
+  const wireSegments: ProteusSchematicWireSegment[] = [];
+  const unresolvedWireMarkerOffsets: number[] = [];
+  const wirePrefix = Buffer.from([
+    0x00, 0x1d, 0x00, 0x00, 0x00,
+    0x00, 0xc0, 0x9e, 0x00, 0x00,
+    // Bytes +10..+12 are style/color and intentionally remain variable.
+    0x00, 0x00, 0x00,
+    0x00, 0x01, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00,
+    0x02, 0x7f,
+    0x57, 0x49, 0x52, 0x45,
+    0x00, 0x00, 0x00,
+  ]);
+  for (const markerOffset of wireMarkerOffsets) {
+    const objectOffset = markerOffset - 25;
+    const objectDataStart = objectDataOffsets
+      .filter((candidate) => candidate < markerOffset)
+      .pop();
+    const objectDataEnd = objectDataOffsets.find((candidate) => candidate > markerOffset) ?? buffer.length;
+    if (objectDataStart === undefined || objectOffset < objectDataStart + objectDataMarker.length) {
+      unresolvedWireMarkerOffsets.push(markerOffset);
+      continue;
+    }
+
+    const prefixMatches =
+      objectOffset >= 0 &&
+      objectOffset + 34 <= objectDataEnd &&
+      buffer[objectOffset] === 0x00 &&
+      buffer.readUInt32LE(objectOffset + 1) === 0x1d &&
+      buffer.subarray(objectOffset + 5, objectOffset + 10).equals(wirePrefix.subarray(5, 10)) &&
+      buffer.subarray(objectOffset + 13, objectOffset + 32).equals(wirePrefix.subarray(13, 32));
+
+    if (!prefixMatches || buffer.toString("ascii", objectOffset + 25, objectOffset + 29) !== "WIRE") {
+      unresolvedWireMarkerOffsets.push(markerOffset);
+      continue;
+    }
+
+    const vertexCount = buffer.readUInt16LE(objectOffset + 32);
+    const byteLength = 34 + 8 * vertexCount;
+    if (
+      vertexCount < 2 ||
+      vertexCount > 256 ||
+      objectOffset + byteLength > objectDataEnd
+    ) {
+      unresolvedWireMarkerOffsets.push(markerOffset);
+      continue;
+    }
+
+    const rawPoints = Array.from({ length: vertexCount }, (_, index) => ({
+      x: buffer.readInt32LE(objectOffset + 34 + index * 8),
+      y: buffer.readInt32LE(objectOffset + 38 + index * 8),
+    }));
+    const points = rawPoints.map(({ x, y }) => ({ x: x / 2540, y: y / 2540 }));
+    wireSegments.push({
+      objectOffset,
+      markerOffset,
+      byteLength,
+      vertexCount,
+      points,
+      rawPoints,
+    });
+  }
+
+  const pointOnWireSegment = (
+    point: { x: number; y: number },
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+  ): boolean => {
+    if (start.x === end.x && start.y === end.y) {
+      return point.x === start.x && point.y === start.y;
+    }
+    const cross = (end.x - start.x) * (point.y - start.y) -
+      (end.y - start.y) * (point.x - start.x);
+    if (cross !== 0) return false;
+    const dot = (point.x - start.x) * (end.x - start.x) +
+      (point.y - start.y) * (end.y - start.y);
+    const squaredLength = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
+    return dot >= 0 && dot <= squaredLength;
+  };
+  const wireSegmentsTouch = (
+    left: ProteusSchematicWireSegment,
+    right: ProteusSchematicWireSegment,
+  ): boolean => {
+    for (const point of left.rawPoints) {
+      for (let index = 0; index < right.rawPoints.length - 1; index += 1) {
+        if (pointOnWireSegment(point, right.rawPoints[index], right.rawPoints[index + 1])) return true;
+      }
+    }
+    for (const point of right.rawPoints) {
+      for (let index = 0; index < left.rawPoints.length - 1; index += 1) {
+        if (pointOnWireSegment(point, left.rawPoints[index], left.rawPoints[index + 1])) return true;
+      }
+    }
+    return false;
+  };
+  const wireParents = wireSegments.map((_, index) => index);
+  const findWireRoot = (index: number): number => {
+    while (wireParents[index] !== index) {
+      wireParents[index] = wireParents[wireParents[index]];
+      index = wireParents[index];
+    }
+    return index;
+  };
+  for (let left = 0; left < wireSegments.length; left += 1) {
+    for (let right = left + 1; right < wireSegments.length; right += 1) {
+      if (!wireSegmentsTouch(wireSegments[left], wireSegments[right])) continue;
+      const leftRoot = findWireRoot(left);
+      const rightRoot = findWireRoot(right);
+      if (leftRoot !== rightRoot) wireParents[rightRoot] = leftRoot;
+    }
+  }
+  const wireGroups = new Map<number, number[]>();
+  wireSegments.forEach((segment, index) => {
+    const root = findWireRoot(index);
+    const group = wireGroups.get(root) ?? [];
+    group.push(segment.objectOffset);
+    wireGroups.set(root, group);
+  });
+  const wireTouchGroups = [...wireGroups.values()]
+    .map((wireObjectOffsets) => ({ wireObjectOffsets }))
+    .sort((left, right) => left.wireObjectOffsets[0] - right.wireObjectOffsets[0]);
+
+  const wireByObjectOffset = new Map(wireSegments.map((segment) => [segment.objectOffset, segment]));
+  const pointLiesOnWire = (
+    point: { x: number; y: number },
+    wire: ProteusSchematicWireSegment,
+  ): boolean => wire.rawPoints.some((vertex, index) =>
+    index < wire.rawPoints.length - 1 &&
+    pointOnWireSegment(point, vertex, wire.rawPoints[index + 1]),
+  );
+  const junctionNodes: ProteusSchematicJunctionNode[] = [];
+  for (const sectionStart of objectDataOffsets) {
+    const sectionEnd = objectDataOffsets.find((candidate) => candidate > sectionStart) ?? buffer.length;
+    for (let offset = sectionStart + objectDataMarker.length; offset + 25 <= sectionEnd; offset += 1) {
+      if (buffer[offset] !== 0x01) continue;
+      const refs = Array.from({ length: 4 }, (_, index) => buffer.readUInt32LE(offset + 9 + index * 4));
+      const nonZeroRefs = refs.filter((reference) => reference !== 0);
+      if (
+        nonZeroRefs.length < 3 ||
+        nonZeroRefs.length > 4 ||
+        refs.slice(0, nonZeroRefs.length).some((reference) => reference === 0) ||
+        refs.slice(nonZeroRefs.length).some((reference) => reference !== 0) ||
+        new Set(nonZeroRefs).size !== nonZeroRefs.length
+      ) {
+        continue;
+      }
+      const rawX = buffer.readInt32LE(offset + 1);
+      const rawY = buffer.readInt32LE(offset + 5);
+      const point = { x: rawX, y: rawY };
+      const referencedWires = nonZeroRefs.map((reference) => wireByObjectOffset.get(reference));
+      if (referencedWires.some((wire) => wire === undefined)) continue;
+      if (!referencedWires.every((wire) => pointLiesOnWire(point, wire!))) continue;
+      junctionNodes.push({
+        objectOffset: offset,
+        x: rawX / 2540,
+        y: rawY / 2540,
+        rawX,
+        rawY,
+        wireObjectOffsets: nonZeroRefs,
+      });
+      offset += 24;
+    }
+  }
+
+  const markersOutsideObjectData = offsets.filter((markerOffset) =>
+    !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
+  ).length;
   const metadataReferences = new Set(libraryComponents.map((component) => component.reference));
   const seenReferences = new Set<string>();
   const componentInstances: ProteusSchematicComponentInstance[] = [];
+  const unresolvedObjects: ProteusSchematicUnresolvedObject[] = [];
 
   for (let index = 0; index < offsets.length; index += 1) {
     const markerOffset = offsets[index];
-    const recordEnd = offsets[index + 1] ?? buffer.length;
-    const searchStart = Math.max(0, markerOffset - 80);
+    const objectDataOffset = objectDataOffsets
+      .filter((objectOffset) => objectOffset < markerOffset)
+      .pop();
+    // Library/template definitions also contain COMPONENT ID markers. Only records
+    // nested after OBJECT DATA are placed schematic instances.
+    if (objectDataOffset === undefined) continue;
+
+    const nextComponentMarker = offsets[index + 1] ?? buffer.length;
+    const nextObjectDataMarker = objectDataOffsets.find((objectOffset) => objectOffset > markerOffset);
+    const recordEnd = Math.min(nextComponentMarker, nextObjectDataMarker ?? buffer.length);
+    const searchStart = Math.max(objectDataOffset + objectDataMarker.length, markerOffset - 80);
     let reference: string | null = null;
+    let referenceTokenEnd: number | null = null;
 
     for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
       if (buffer[candidate] !== 0xff) continue;
       const field = readProteusLengthPrefixedAscii(buffer, candidate, 16);
       if (field && isProteusDesignator(field.value)) {
         reference = field.value.trim();
+        referenceTokenEnd = field.next;
         break;
       }
     }
-    if (!reference || seenReferences.has(reference)) continue;
+
+    // Preserve two observed 32-bit words after the designator. Their semantics
+    // and units are unknown, so they are not exposed as X/Y coordinates.
+    const rawPlacementWords: [string, string] | null =
+      referenceTokenEnd !== null && referenceTokenEnd + 8 <= markerOffset
+        ? [
+            buffer.readUInt32LE(referenceTokenEnd).toString(16).padStart(8, "0"),
+            buffer.readUInt32LE(referenceTokenEnd + 4).toString(16).padStart(8, "0"),
+          ]
+        : null;
 
     const valueStart = markerOffset + marker.length;
     const valueLimit = Math.min(recordEnd, valueStart + 12);
@@ -409,19 +724,42 @@ function parseProteusDsnComponentInstances(
       componentValueMarkerOffset >= valueStart &&
       componentValueMarkerOffset + componentValueMarker.length <= recordEnd
     ) {
-      const libraryField = readProteusLengthPrefixedAscii(
-        buffer,
-        componentValueMarkerOffset + componentValueMarker.length,
-        128,
-      );
-      if (libraryField && libraryField.next <= recordEnd) libraryName = libraryField.value;
+      // The marker is followed by reserved/binary bytes before the FF-length token.
+      // Search only a small bounded window, just as for COMPONENT ID's visible value.
+      const libraryValueStart = componentValueMarkerOffset + componentValueMarker.length;
+      const libraryValueLimit = Math.min(recordEnd, libraryValueStart + 32);
+      for (let candidate = libraryValueStart; candidate < libraryValueLimit; candidate += 1) {
+        if (buffer[candidate] !== 0xff) continue;
+        const libraryField = readProteusLengthPrefixedAscii(buffer, candidate, 128);
+        if (libraryField && libraryField.next <= recordEnd) {
+          libraryName = libraryField.value;
+          break;
+        }
+      }
     }
 
     const recordText = buffer.subarray(markerOffset, recordEnd).toString("latin1");
-    const properties: Record<string, string> = {};
-    for (const key of ["PACKAGE", "PRIMTYPE"]) {
-      const property = extractProteusProperty(recordText, key);
-      if (property !== null) properties[key] = property;
+    const properties = extractProteusProperties(recordText);
+
+    if (!reference) {
+      unresolvedObjects.push({
+        sourceOffset: markerOffset,
+        reference: null,
+        value,
+        libraryName,
+        reason: "missing-reference-designator",
+      });
+      continue;
+    }
+    if (seenReferences.has(reference)) {
+      unresolvedObjects.push({
+        sourceOffset: markerOffset,
+        reference,
+        value,
+        libraryName,
+        reason: "duplicate-reference",
+      });
+      continue;
     }
 
     const metadata = libraryComponents.find((component) => component.reference === reference);
@@ -432,12 +770,112 @@ function parseProteusDsnComponentInstances(
     seenReferences.add(reference);
     componentInstances.push({
       reference,
+      recordStartOffset: referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length),
+      sourceOffset: markerOffset,
+      rawPlacementWords,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
+      wireAddressReferences: [],
+      pinSlotTableOffset: null,
+      pinSlotMappingStatus: metadata?.pinEntryStatus === "ambiguous"
+        ? "ambiguous"
+        : metadata?.pins.length
+          ? "count-mismatch"
+          : "unavailable",
+      pinConnections: [],
       properties,
       matchesComponentMetadata: metadataReferences.has(reference),
     });
+  }
+
+  // The tail of each observed placed-component record contains 32-bit references
+  // to WIRE object addresses. Preserve the raw byte offsets without assuming a
+  // physical pin number/name; that mapping still needs the library pin table.
+  const knownWireOffsets = new Set(wireSegments.map((segment) => segment.objectOffset));
+  const orderedInstances = [...componentInstances].sort(
+    (left, right) => left.recordStartOffset - right.recordStartOffset,
+  );
+  for (let index = 0; index < orderedInstances.length; index += 1) {
+    const instance = orderedInstances[index];
+    const nextComponentStart = orderedInstances[index + 1]?.recordStartOffset;
+    const nextObjectStart = [
+      ...junctionNodes.map((node) => node.objectOffset),
+      ...unresolvedObjects.map((object) => object.sourceOffset),
+      ...wireSegments.map((wire) => wire.objectOffset),
+    ]
+      .filter((offset) => offset > instance.recordStartOffset)
+      .sort((left, right) => left - right)[0];
+    const boundaryCandidates = [nextComponentStart, nextObjectStart]
+      .filter((value): value is number => value !== undefined);
+    const recordBoundary = boundaryCandidates.length > 0
+      ? Math.min(...boundaryCandidates)
+      : buffer.length;
+    const tailStart = Math.max(instance.recordStartOffset, recordBoundary - 32);
+    for (let byteOffset = tailStart; byteOffset + 4 <= recordBoundary; byteOffset += 1) {
+      const wireObjectOffset = buffer.readUInt32LE(byteOffset);
+      if (!knownWireOffsets.has(wireObjectOffset)) continue;
+      instance.wireAddressReferences.push({ byteOffset, wireObjectOffset });
+    }
+  }
+
+  const metadataByReference = new Map(libraryComponents.map((component) => [component.reference, component]));
+  for (let index = 0; index < orderedInstances.length; index += 1) {
+    const instance = orderedInstances[index];
+    const metadata = metadataByReference.get(instance.reference);
+    if (!metadata || metadata.pinEntryStatus === "ambiguous" || metadata.pins.length === 0) continue;
+
+    const nextComponentStart = orderedInstances[index + 1]?.recordStartOffset;
+    const nextObjectStart = [
+      ...junctionNodes.map((node) => node.objectOffset),
+      ...unresolvedObjects.map((object) => object.sourceOffset),
+      ...wireSegments.map((wire) => wire.objectOffset),
+    ]
+      .filter((offset) => offset > instance.recordStartOffset)
+      .sort((left, right) => left - right)[0];
+    const boundaryCandidates = [nextComponentStart, nextObjectStart]
+      .filter((value): value is number => value !== undefined);
+    const recordBoundary = boundaryCandidates.length > 0
+      ? Math.min(...boundaryCandidates)
+      : buffer.length;
+    const slotCount = metadata.pins.length;
+    const candidateStarts: Array<{ offset: number; slots: number[] }> = [];
+
+    // The 8.13 sample places the u32 pin-slot array immediately before the
+    // next component/object, sometimes with one byte of record padding.
+    const minimumStart = Math.max(instance.recordStartOffset, recordBoundary - slotCount * 4 - 16);
+    const maximumStart = recordBoundary - slotCount * 4;
+    for (let candidate = minimumStart; candidate <= maximumStart; candidate += 1) {
+      const slots = Array.from({ length: slotCount }, (_, slot) =>
+        buffer.readUInt32LE(candidate + slot * 4),
+      );
+      if (slots.every((value) => value === 0 || knownWireOffsets.has(value))) {
+        const nonZero = slots.filter((value) => value !== 0);
+        if (
+          nonZero.length === instance.wireAddressReferences.length &&
+          nonZero.every((value) => instance.wireAddressReferences.some(
+            (reference) => reference.wireObjectOffset === value,
+          ))
+        ) {
+          candidateStarts.push({ offset: candidate, slots });
+        }
+      }
+    }
+
+    if (candidateStarts.length !== 1) {
+      instance.pinSlotMappingStatus = candidateStarts.length > 1 ? "ambiguous" : "count-mismatch";
+      continue;
+    }
+
+    const slotTable = candidateStarts[0];
+    instance.pinSlotTableOffset = slotTable.offset;
+    instance.pinSlotMappingStatus = "matched-by-cdb-order";
+    instance.pinConnections = metadata.pins.map((pin, slotIndex) => ({
+      slotIndex,
+      pinName: pin.name,
+      pinNumber: pin.number,
+      wireObjectOffset: slotTable.slots[slotIndex] || null,
+    }));
   }
 
   componentInstances.sort((left, right) => left.reference.localeCompare(right.reference));
@@ -449,29 +887,148 @@ function parseProteusDsnComponentInstances(
     .filter((component) => !decodedReferences.has(component.reference))
     .map((component) => component.reference)
     .sort((left, right) => left.localeCompare(right));
+  const wireConnectedGroups = wireTouchGroups.map((group): ProteusSchematicWireConnectedGroup => {
+    const wireOffsets = new Set(group.wireObjectOffsets);
+    return {
+      wireObjectOffsets: group.wireObjectOffsets,
+      junctionNodeOffsets: junctionNodes
+        .filter((node) => node.wireObjectOffsets.some((offset) => wireOffsets.has(offset)))
+        .map((node) => node.objectOffset),
+      componentPins: componentInstances.flatMap((instance) =>
+        instance.pinConnections
+          .filter((pin) => pin.wireObjectOffset !== null && wireOffsets.has(pin.wireObjectOffset))
+          .map((pin) => ({
+            reference: instance.reference,
+            slotIndex: pin.slotIndex,
+            pinName: pin.pinName,
+            pinNumber: pin.pinNumber,
+          })),
+      ),
+    };
+  });
   const componentLibraryNamesWithoutDeviceMetadataMatch = componentInstances
     .filter((instance) => instance.libraryNameMatchesDeviceMetadata === false)
     .map((instance) => instance.reference)
     .sort((left, right) => left.localeCompare(right));
 
   return {
-    status: componentInstances.length > 0 ? "partial" : "unavailable",
+    status: componentInstances.length > 0 || unresolvedObjects.length > 0 ? "partial" : "unavailable",
     source: "ROOT.DSN",
     header: "ISIS SCHEMATIC FILE",
+    objectDataSectionCount: objectDataOffsets.length,
+    componentIdMarkersOutsideObjectData: markersOutsideObjectData,
+    wireMarkerOffsets,
+    wireMarkerSpans,
+    wireSegments,
+    unresolvedWireMarkerOffsets,
+    wireTouchGroups,
+    junctionNodes,
+    wireConnectedGroups,
+    terminalMarkerOffsets,
+    terminalLabelMarkerOffsets,
+    propertiesMarkerOffsets,
     componentInstanceCount: componentInstances.length,
     componentInstances,
+    unresolvedObjectCount: unresolvedObjects.length,
+    unresolvedObjects,
     componentReferencesWithoutMetadata,
     metadataReferencesWithoutSchematicInstance,
     componentLibraryNamesWithoutDeviceMetadataMatch,
     limitations: [
-      "Se reconocen registros COMPONENT ID y se recuperan referencias/valores en formato FF + longitud + texto.",
-      "Las propiedades PACKAGE y PRIMTYPE solo se conservan cuando aparecen como texto dentro del mismo registro.",
+      "Se reconocen registros COMPONENT ID dentro de secciones OBJECT DATA para evitar confundir definiciones de biblioteca con instancias colocadas.",
+      "Se recuperan referencias y valores en formato FF + longitud + texto, junto con el offset del registro dentro de ROOT.DSN.",
+      "Se conservan dos palabras binarias de 32 bits posteriores al designador como datos de colocación opacos; su significado y escala no están confirmados y no se etiquetan como coordenadas.",
+      "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
+      "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
+      "Los bloques WIRE reconocidos se decodifican como cadenas de vértices int32 (mils = unidades / 2540); las ventanas de marcador permanecen como información diagnóstica aparte.",
+      "Se agrupan los objetos WIRE que comparten vértices con segmentos ajenos; los grupos son geometría wire-only, no redes eléctricas completas ni asignaciones de pines.",
+      "Se decodifican nodos de unión de 25 bytes solo cuando al menos tres referencias apuntan a cables conocidos y sus tres geometrías pasan por las coordenadas del nodo.",
+      "Se decodifican las tablas de patas de ROOT.CDB (nombre y número, incluso número vacío) y se enlazan con slots DSN solo cuando el tamaño coincide y todos los punteros son direcciones WIRE válidas.",
+      "wireConnectedGroups añade a cada grupo geométrico las patas de componentes enlazadas por índice de CDB; todavía no incluye etiquetas ni terminales de alimentación/tierra.",
+      "Los cruces interiores sin vértice compartido no se fusionan; las etiquetas de red, terminales y pines todavía no se incorporan al agrupamiento.",
+      "Los marcadores WIRE que no cumplen la estructura tipada se conservan en unresolvedWireMarkerOffsets, en lugar de interpretarse por aproximación.",
+      "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
       "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
       "No se reconstruyen terminales, extremos de pines, cables ni nets eléctricos; no se puede afirmar que el circuito esté importado.",
-      "El subconjunto se contrastó con una única muestra Proteus 8.13 y requiere más proyectos de referencia antes de considerarse general.",
+      "El lector se contrastó con la muestra Proteus 8.13 del repositorio; los casos con instrumentos/objetos especiales requieren fixtures adicionales de la aplicación objetivo.",
     ],
   };
+}
+
+type ProteusCdbPinEntry = {
+  offset: number;
+  pins: ProteusComponentPinMetadata[];
+};
+
+function parseProteusCdbPinEntry(
+  buffer: Buffer,
+  reference: string,
+): ProteusCdbPinEntry | null | "ambiguous" {
+  const referenceBytes = Buffer.from(reference, "latin1");
+  if (referenceBytes.length === 0 || referenceBytes.length > 16) return null;
+  const tag = Buffer.concat([Buffer.from([referenceBytes.length]), referenceBytes]);
+  const entries: ProteusCdbPinEntry[] = [];
+
+  for (const tagOffset of findAllBufferOccurrences(buffer, tag)) {
+    const entryOffset = tagOffset - 16;
+    const countOffset = tagOffset + tag.length;
+    if (entryOffset < 0x20 || countOffset + 4 > buffer.length) continue;
+
+    const pinCount = buffer.readUInt32LE(countOffset);
+    if (pinCount < 1 || pinCount > 256) continue;
+
+    let cursor = countOffset + 4;
+    const pins: ProteusComponentPinMetadata[] = [];
+    let valid = true;
+    for (let index = 0; index < pinCount; index += 1) {
+      if (cursor >= buffer.length) {
+        valid = false;
+        break;
+      }
+      const nameLength = buffer[cursor];
+      cursor += 1;
+      if (nameLength === 0 || nameLength > 128 || cursor + nameLength + 1 > buffer.length) {
+        valid = false;
+        break;
+      }
+      const nameBytes = buffer.subarray(cursor, cursor + nameLength);
+      cursor += nameLength;
+      if ([...nameBytes].some((byte) => byte < 0x20 || byte > 0x7e)) {
+        valid = false;
+        break;
+      }
+
+      const numberLength = buffer[cursor];
+      cursor += 1;
+      if (numberLength > 128 || cursor + numberLength > buffer.length) {
+        valid = false;
+        break;
+      }
+      const numberBytes = buffer.subarray(cursor, cursor + numberLength);
+      cursor += numberLength;
+      if ([...numberBytes].some((byte) => byte < 0x20 || byte > 0x7e)) {
+        valid = false;
+        break;
+      }
+
+      pins.push({
+        name: nameBytes.toString("latin1"),
+        number: numberBytes.toString("latin1"),
+      });
+    }
+    // The observed 8.13 CDB pin entry is followed by a 12-byte record trailer.
+    if (!valid || cursor + 12 > buffer.length) continue;
+    if (new Set(pins.map((pin) => pin.name)).size !== pins.length) continue;
+    entries.push({ offset: entryOffset, pins });
+  }
+
+  if (entries.length === 0) return null;
+  const signatures = new Set(entries.map((entry) =>
+    JSON.stringify(entry.pins),
+  ));
+  if (signatures.size > 1) return "ambiguous";
+  return entries[0];
 }
 
 function parseProteusCdbComponentMetadata(buffer: Buffer): ProteusComponentMetadata[] {
@@ -531,7 +1088,21 @@ function parseProteusCdbComponentMetadata(buffer: Buffer): ProteusComponentMetad
       throw new Error(`ROOT.CDB contiene más de un registro de metadatos para ${reference}; no se puede resolver con seguridad.`);
     }
     seenReferences.add(reference);
-    components.push({ reference, value, device, package: packageName, properties });
+    const pinEntry = parseProteusCdbPinEntry(buffer, reference);
+    components.push({
+      reference,
+      value,
+      device,
+      package: packageName,
+      properties,
+      pinEntryOffset: pinEntry && pinEntry !== "ambiguous" ? pinEntry.offset : null,
+      pinEntryStatus: pinEntry === "ambiguous"
+        ? "ambiguous"
+        : pinEntry
+          ? "decoded"
+          : "unavailable",
+      pins: pinEntry && pinEntry !== "ambiguous" ? pinEntry.pins : [],
+    });
   }
 
   return components.sort((left, right) => left.reference.localeCompare(right.reference));
@@ -569,13 +1140,19 @@ function inspectNewWaveDocument(
     recognized: true,
     byteLength: buffer.length,
     signature: "Dsg\\0",
+    formatIdentification: {
+      family: "New Wave Dsg",
+      selectedBy: "file-extension",
+      confidence: "shared-family-signature-plus-extension",
+      applicationSpecificSignatureVerified: false,
+    },
     textMarkers: getAsciiMarkers(buffer),
     textMarkerOffsets: getAsciiMarkerOffsets(buffer),
     status: "recognized-binary-not-yet-decoded",
     componentDataDecoded: false,
     limitations: [
-      "La firma identifica un documento binario de la familia New Wave, pero no demuestra que se hayan decodificado sus componentes.",
-      "Livewire y PCB Wizard comparten la firma inicial; la extensión y el contexto del proyecto se usan para distinguirlos.",
+      "La firma identifica la familia binaria New Wave, pero no demuestra que se hayan decodificado sus componentes.",
+      "La clasificación específica Livewire/PCB Wizard se basa en la extensión: ambas muestras comparten Dsg\\0 y el inspector no ha verificado una firma exclusiva de cada aplicación.",
       "Todavía no se interpretan instancias, pines, propiedades, nets, footprints ni pistas de cobre.",
       "No se genera ni modifica un archivo nativo de estos formatos en esta etapa.",
     ],
@@ -662,4 +1239,16 @@ export function inspectNativeEdaProject(
   if (extension === "pdsprj") return inspectProteusDocument(buffer);
 
   throw new Error("Formato no admitido. Se esperan archivos .lvw, .pcb o .pdsprj.");
+}
+
+
+/**
+ * Public read-only entry point for inspecting ROOT.DSN bytes independently of the
+ * .pdsprj ZIP wrapper. Useful for focused parser regression tests and diagnostics.
+ */
+export function inspectProteusSchematicBytes(
+  input: Uint8Array,
+  libraryComponents: ProteusComponentMetadata[] = [],
+): ProteusSchematicInspection {
+  return parseProteusDsnComponentInstances(Buffer.from(input), libraryComponents);
 }
