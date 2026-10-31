@@ -1264,3 +1264,12 @@ Se decodificó la tabla de patas de ROOT.CDB y se enlazó con las ranuras de pun
 Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El lector solo declara `matched-by-cdb-order` cuando se cumple esa triple condición. Los grupos geométricos ahora también muestran sus nodos T y patas conectadas.
 
 Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.
+
+
+## Proteus 8.13 — colocación, $PIN y terminales POWER/GROUND (31 de octubre de 2026)
+
+Se ha pasado del reconocimiento de componentes a la lectura estructural de sus registros: bloques de etiquetas, dispositivo, origen real, orientación/espejo y tabla exacta de punteros a WIRE. Se leen definiciones $PIN, se ordenan las patas CDB por nombre/número y se transforman sus coordenadas base al marco físico de cada instancia. Cada punto de conexión se comprueba contra el segmento del cable al que apunta.
+
+Se añadió además el formato de terminales $TERPOWER y $TERGROUND, incluidos origen, anclaje, punto de conexión y puntero WIRE. El test actual es sintético porque el proyecto real de referencia no tiene terminales colocados.
+
+**Pendiente:** comprobar estos parsers con proyectos guardados con rotaciones/espejos variados y varios dispositivos, validar terminales con un fixture real de Proteus 8.13, decodificar etiquetas de red e instrumentos virtuales, completar cuerpo gráfico de símbolos, y generar/escribir un proyecto nuevo que se pueda abrir y simular en Proteus.
