@@ -109,7 +109,6 @@ export type ProteusSchematicComponentInstance = {
   reference: string;
   recordStartOffset: number;
   sourceOffset: number;
-  rawPlacementWords: [string, string] | null;
   placement: ProteusSchematicComponentPlacement | null;
   value: string | null;
   libraryName: string | null;
@@ -846,21 +845,6 @@ function parseProteusDsnComponentInstances(
       }
     }
 
-    // The first label block stores the COMPONENT ID text anchor, not the
-    // physical symbol origin. Keep the original raw words for diagnostics.
-    const designatorAnchor = parsedRecord?.placement.labelBlocks[0]?.rawAnchor;
-    const rawPlacementWords: [string, string] | null = designatorAnchor
-      ? [
-          (designatorAnchor.x >>> 0).toString(16).padStart(8, "0"),
-          (designatorAnchor.y >>> 0).toString(16).padStart(8, "0"),
-        ]
-      : referenceTokenEnd !== null && referenceTokenEnd + 8 <= markerOffset
-        ? [
-            buffer.readUInt32LE(referenceTokenEnd).toString(16).padStart(8, "0"),
-            buffer.readUInt32LE(referenceTokenEnd + 4).toString(16).padStart(8, "0"),
-          ]
-        : null;
-
     const valueStart = markerOffset + marker.length;
     const valueLimit = Math.min(recordEnd, valueStart + 12);
     let value: string | null = parsedRecord?.value ?? null;
@@ -936,7 +920,6 @@ function parseProteusDsnComponentInstances(
       recordStartOffset: parsedRecord?.recordStartOffset ??
         (referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length)),
       sourceOffset: markerOffset,
-      rawPlacementWords,
       placement: parsedRecord?.placement ?? null,
       value,
       libraryName,
