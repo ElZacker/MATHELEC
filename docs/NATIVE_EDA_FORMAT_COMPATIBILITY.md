@@ -155,9 +155,9 @@ A binary WIRE decoder is now implemented and regression-tested against the repos
 
 The decoded object offsets, lengths and vertices are asserted exactly in CI. A geometric pass then groups wires only when a vertex of one lies on a segment of another, using integer raw coordinates to avoid floating-point drift. Zero-length two-point wires are retained and can participate in a shared-point contact. An interior crossing without a vertex is not enough to merge two wire groups.
 
-The reader also finds 32-bit references to those validated WIRE object addresses in the trailing byte windows of the B1, D1 and R1 component records. The repository fixture reports two references per component, with their exact source byte offsets preserved. These are wire-address references from the component record tail; the reader does not assign them to numbered/named physical pins or infer the total number of pin slots.
+The reader now decodes the 8.13 CDB pin-entry table (one-byte-length pin name and number fields) and the matching u32 pin-slot pointer array at the end of each placed DSN component record. It links a slot to a CDB pin in table order only if the slot count exactly matches the pin-table count and every nonzero pointer resolves to an already validated WIRE object. For the repository fixture, all three two-pin components meet that criterion.
 
-The implementation does **not** yet decode the complete set of component pin slots, correlate slot indices with symbol `$PIN` definitions, or include placed power/ground terminals and net labels. Therefore, `wireTouchGroups` is a wire-only geometric diagnostic, not a complete netlist or a simulation-ready imported circuit.
+The geometric groups now expose their junction-node offsets and the component pins that attach to their wires. These are **wire-connected groups**, not yet full schematic nets: power/ground terminals, net labels, symbol pin geometry/orientation and virtual instrument terminals remain to be decoded. Therefore, `wireTouchGroups` is a wire-only geometric diagnostic, not a complete netlist or a simulation-ready imported circuit.
 
 
 ### Component-record wire address references
@@ -169,3 +169,26 @@ The 8.13 fixture contains these pointer-sized values in the tails of the three p
 - R1: byte offsets 72773 and 72777 reference WIRE objects 72856 and 72989.
 
 The parser reports these as `wireAddressReferences` only when a 32-bit value exactly matches an already validated WIRE object address. It deliberately does not expose a pin index or pin name: the complete table boundary, zero-valued unconnected slots and library `$PIN` mapping remain unresolved.
+
+
+### Proteus 8.13 — CDB pin table and DSN pin-slot mapping
+
+The actual `ROOT.CDB` fixture includes the following pin-entry tables:
+
+| Component | CDB pin-entry byte offset | Pin slots in CDB order |
+|---|---:|---|
+| B1 | 96 | `+`, `-` |
+| D1 | 137 | `A`, `K` |
+| R1 | 178 | `1`, `2` |
+
+In this 8.13 sample, pin names and pin numbers use one-byte length prefixes (the number field may be empty). The reader does not assume the two-byte string lengths used by the later Proteus 9 reference parser.
+
+The corresponding DSN pin-slot arrays are:
+
+- B1: byte offset 71975 → `+` → WIRE object 73089; byte offset 71979 → `-` → WIRE object 72906.
+- D1: byte offset 72391 → `A` → WIRE object 73039; byte offset 72395 → `K` → WIRE object 72806.
+- R1: byte offset 72773 → pin `1` → WIRE object 72856; byte offset 72777 → pin `2` → WIRE object 72989.
+
+All three CDB pin tables contain two entries, all three DSN pin-slot arrays contain two WIRE pointers, and every pointer resolves to a validated WIRE object. The code therefore emits `pinSlotMappingStatus = "matched-by-cdb-order"` and includes these pins in `wireConnectedGroups`. If the count or pointers do not match, the mapping stays unresolved; the code does not assign pins by guesswork.
+
+These checks establish the CDB-name-to-DSN-slot association for this fixture, but not physical pin coordinates, symbol rotation, net labels or power-rail terminals. They also do not replace opening and checking the design in Proteus 8.13.
