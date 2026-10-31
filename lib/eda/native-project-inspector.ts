@@ -89,6 +89,9 @@ function parseZipDirectory(buffer: Buffer): ProteusZipEntry[] {
   const centralDirectorySize = buffer.readUInt32LE(eocdOffset + 12);
   const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
 
+  if (entryCount > MAX_ZIP_ENTRIES) {
+    throw new Error(`El proyecto Proteus contiene demasiadas entradas ZIP (máximo ${MAX_ZIP_ENTRIES}).`);
+  }
   if (diskNumber !== 0 || centralDirectoryDisk !== 0 || entriesOnDisk !== entryCount) {
     throw new Error("No se admiten proyectos Proteus ZIP divididos en varios volúmenes.");
   }
@@ -107,6 +110,7 @@ function parseZipDirectory(buffer: Buffer): ProteusZipEntry[] {
   const entries: ProteusZipEntry[] = [];
   const seenNames = new Set<string>();
   let offset = centralDirectoryOffset;
+  let totalUncompressedSize = 0;
 
   for (let index = 0; index < entryCount; index += 1) {
     requireRange(buffer, offset, 46, "cabecera del directorio central");
