@@ -60,6 +60,7 @@ export type ProteusComponentMetadataInspection = {
 export type ProteusSchematicComponentInstance = {
   reference: string;
   sourceOffset: number;
+  rawPlacementWords: [string, string] | null;
   value: string | null;
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
@@ -405,15 +406,28 @@ function parseProteusDsnComponentInstances(
     const recordEnd = Math.min(nextComponentMarker, nextObjectDataMarker ?? buffer.length);
     const searchStart = Math.max(objectDataOffset + objectDataMarker.length, markerOffset - 80);
     let reference: string | null = null;
+    let referenceTokenEnd: number | null = null;
 
     for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
       if (buffer[candidate] !== 0xff) continue;
       const field = readProteusLengthPrefixedAscii(buffer, candidate, 16);
       if (field && isProteusDesignator(field.value)) {
         reference = field.value.trim();
+        referenceTokenEnd = field.next;
         break;
       }
     }
+
+    // Preserve two observed 32-bit words after the designator. Their semantics
+    // and units are unknown, so they are not exposed as X/Y coordinates.
+    const rawPlacementWords: [string, string] | null =
+      referenceTokenEnd !== null && referenceTokenEnd + 8 <= markerOffset
+        ? [
+            buffer.readUInt32LE(referenceTokenEnd).toString(16).padStart(8, "0"),
+            buffer.readUInt32LE(referenceTokenEnd + 4).toString(16).padStart(8, "0"),
+          ]
+        : null;
+
     const valueStart = markerOffset + marker.length;
     const valueLimit = Math.min(recordEnd, valueStart + 12);
     let value: string | null = null;
@@ -485,6 +499,7 @@ function parseProteusDsnComponentInstances(
     componentInstances.push({
       reference,
       sourceOffset: markerOffset,
+      rawPlacementWords,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
@@ -523,6 +538,7 @@ function parseProteusDsnComponentInstances(
     limitations: [
       "Se reconocen registros COMPONENT ID dentro de secciones OBJECT DATA para evitar confundir definiciones de biblioteca con instancias colocadas.",
       "Se recuperan referencias y valores en formato FF + longitud + texto, junto con el offset del registro dentro de ROOT.DSN.",
+      "Se conservan dos palabras binarias de 32 bits posteriores al designador como datos de colocación opacos; su significado y escala no están confirmados y no se etiquetan como coordenadas.",
       "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
       "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
