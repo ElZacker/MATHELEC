@@ -441,7 +441,7 @@ function parseProteusDsnComponentInstances(
       // The marker is followed by reserved/binary bytes before the FF-length token.
       // Search only a small bounded window, just as for COMPONENT ID's visible value.
       const libraryValueStart = componentValueMarkerOffset + componentValueMarker.length;
-      const libraryValueLimit = Math.min(recordEnd, libraryValueStart + 16);
+      const libraryValueLimit = Math.min(recordEnd, libraryValueStart + 32);
       for (let candidate = libraryValueStart; candidate < libraryValueLimit; candidate += 1) {
         if (buffer[candidate] !== 0xff) continue;
         const libraryField = readProteusLengthPrefixedAscii(buffer, candidate, 128);
