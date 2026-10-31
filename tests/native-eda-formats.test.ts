@@ -84,6 +84,34 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   );
   assert.equal(result.componentMetadata.components.find((component) => component.reference === "D1")?.properties.VF, "2.2V");
   assert.equal(result.componentMetadata.components.find((component) => component.reference === "R1")?.properties.PRIMTYPE, "RESISTOR");
+  assert.deepEqual(
+    result.componentMetadata.components.map(({ reference, pinEntryOffset, pinEntryStatus, pins }) => ({
+      reference,
+      pinEntryOffset,
+      pinEntryStatus,
+      pins,
+    })),
+    [
+      {
+        reference: "B1",
+        pinEntryOffset: 96,
+        pinEntryStatus: "decoded",
+        pins: [{ name: "+", number: "" }, { name: "-", number: "" }],
+      },
+      {
+        reference: "D1",
+        pinEntryOffset: 137,
+        pinEntryStatus: "decoded",
+        pins: [{ name: "A", number: "" }, { name: "K", number: "" }],
+      },
+      {
+        reference: "R1",
+        pinEntryOffset: 178,
+        pinEntryStatus: "decoded",
+        pins: [{ name: "1", number: "1" }, { name: "2", number: "2" }],
+      },
+    ],
+  );
   const batteryProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "B1")?.properties;
   const ledProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "D1")?.properties;
   const resistorProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "R1")?.properties;
@@ -250,6 +278,66 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         wireAddressReferences: [
           { byteOffset: 72773, wireObjectOffset: 72856 },
           { byteOffset: 72777, wireObjectOffset: 72989 },
+        ],
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map(({ reference, pinSlotTableOffset, pinSlotMappingStatus, pinConnections }) => ({
+      reference,
+      pinSlotTableOffset,
+      pinSlotMappingStatus,
+      pinConnections,
+    })),
+    [
+      {
+        reference: "B1",
+        pinSlotTableOffset: 71975,
+        pinSlotMappingStatus: "matched-by-cdb-order",
+        pinConnections: [
+          { slotIndex: 0, pinName: "+", pinNumber: "", wireObjectOffset: 73089 },
+          { slotIndex: 1, pinName: "-", pinNumber: "", wireObjectOffset: 72906 },
+        ],
+      },
+      {
+        reference: "D1",
+        pinSlotTableOffset: 72391,
+        pinSlotMappingStatus: "matched-by-cdb-order",
+        pinConnections: [
+          { slotIndex: 0, pinName: "A", pinNumber: "", wireObjectOffset: 73039 },
+          { slotIndex: 1, pinName: "K", pinNumber: "", wireObjectOffset: 72806 },
+        ],
+      },
+      {
+        reference: "R1",
+        pinSlotTableOffset: 72773,
+        pinSlotMappingStatus: "matched-by-cdb-order",
+        pinConnections: [
+          { slotIndex: 0, pinName: "1", pinNumber: "1", wireObjectOffset: 72856 },
+          { slotIndex: 1, pinName: "2", pinNumber: "2", wireObjectOffset: 72989 },
+        ],
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.schematicComponents.wireConnectedGroups,
+    [
+      {
+        wireObjectOffsets: [72806, 72856, 72906],
+        junctionNodeOffsets: [72781],
+        componentPins: [
+          { reference: "B1", slotIndex: 1, pinName: "-", pinNumber: "" },
+          { reference: "D1", slotIndex: 1, pinName: "K", pinNumber: "" },
+          { reference: "R1", slotIndex: 0, pinName: "1", pinNumber: "1" },
+        ],
+      },
+      {
+        wireObjectOffsets: [72989, 73039, 73089],
+        junctionNodeOffsets: [72964],
+        componentPins: [
+          { reference: "B1", slotIndex: 0, pinName: "+", pinNumber: "" },
+          { reference: "D1", slotIndex: 0, pinName: "A", pinNumber: "" },
+          { reference: "R1", slotIndex: 1, pinName: "2", pinNumber: "2" },
         ],
       },
     ],
