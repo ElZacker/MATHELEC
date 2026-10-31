@@ -155,4 +155,17 @@ A binary WIRE decoder is now implemented and regression-tested against the repos
 
 The decoded object offsets, lengths and vertices are asserted exactly in CI. A geometric pass then groups wires only when a vertex of one lies on a segment of another, using integer raw coordinates to avoid floating-point drift. Zero-length two-point wires are retained and can participate in a shared-point contact. An interior crossing without a vertex is not enough to merge two wire groups.
 
-The implementation does **not** yet decode Proteus T-junction address records or correlate the wire groups with component pin slots, symbol definitions or placed power/ground terminals. Therefore, `wireTouchGroups` is a wire-only geometric diagnostic, not a complete netlist or a simulation-ready imported circuit.
+The reader also finds 32-bit references to those validated WIRE object addresses in the trailing byte windows of the B1, D1 and R1 component records. The repository fixture reports two references per component, with their exact source byte offsets preserved. These are wire-address references from the component record tail; the reader does not assign them to numbered/named physical pins or infer the total number of pin slots.
+
+The implementation does **not** yet decode the complete set of component pin slots, correlate slot indices with symbol `$PIN` definitions, or include placed power/ground terminals and net labels. Therefore, `wireTouchGroups` is a wire-only geometric diagnostic, not a complete netlist or a simulation-ready imported circuit.
+
+
+### Component-record wire address references
+
+The 8.13 fixture contains these pointer-sized values in the tails of the three placed component records:
+
+- B1: byte offsets 71975 and 71979 reference WIRE objects 73089 and 72906.
+- D1: byte offsets 72391 and 72395 reference WIRE objects 73039 and 72806.
+- R1: byte offsets 72773 and 72777 reference WIRE objects 72856 and 72989.
+
+The parser reports these as `wireAddressReferences` only when a 32-bit value exactly matches an already validated WIRE object address. It deliberately does not expose a pin index or pin name: the complete table boundary, zero-valued unconnected slots and library `$PIN` mapping remain unresolved.
