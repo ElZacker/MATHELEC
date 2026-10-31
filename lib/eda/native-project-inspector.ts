@@ -520,11 +520,8 @@ function parseProteusComponentRecordAt(
   const componentIdBlock = labelBlocks[0];
   if (!componentIdBlock || componentIdBlock.attribute !== "COMPONENT ID") return null;
   if (recordStartOffset < 0 || recordStartOffset > expectedComponentIdMarkerOffset) return null;
-  const componentIdMarkerOffset = buffer.indexOf(
-    Buffer.from("COMPONENT ID\0", "ascii"),
-    recordStartOffset,
-    cursor,
-  );
+  const componentIdMarkerOffset = recordStartOffset +
+    5 + componentIdBlock.text.length + 8 + 26 + 13;
   if (componentIdMarkerOffset !== expectedComponentIdMarkerOffset) return null;
   if (!isProteusDesignator(componentIdBlock.text)) return null;
 
