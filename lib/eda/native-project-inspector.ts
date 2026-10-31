@@ -942,7 +942,7 @@ function parseProteusDsnComponentInstances(
       libraryName,
       libraryNameMatchesDeviceMetadata,
       wireAddressReferences: [],
-      pinSlotTableOffset: null,
+      pinSlotTableOffset: parsedRecord?.placement.pinSlotTableOffset ?? null,
       pinSlotMappingStatus: metadata?.pinEntryStatus === "ambiguous"
         ? "ambiguous"
         : metadata?.pins.length
@@ -1015,35 +1015,59 @@ function parseProteusDsnComponentInstances(
       ? Math.min(...boundaryCandidates)
       : buffer.length;
     const slotCount = metadata.pins.length;
-    const candidateStarts: Array<{ offset: number; slots: number[] }> = [];
+    let slotTable: { offset: number; slots: number[] } | null = null;
 
-    // The 8.13 sample places the u32 pin-slot array immediately before the
-    // next component/object, sometimes with one byte of record padding.
-    const minimumStart = Math.max(instance.recordStartOffset, recordBoundary - slotCount * 4 - 16);
-    const maximumStart = recordBoundary - slotCount * 4;
-    for (let candidate = minimumStart; candidate <= maximumStart; candidate += 1) {
-      const slots = Array.from({ length: slotCount }, (_, slot) =>
-        buffer.readUInt32LE(candidate + slot * 4),
-      );
-      if (slots.every((value) => value === 0 || knownWireOffsets.has(value))) {
-        const nonZero = slots.filter((value) => value !== 0);
-        if (
-          nonZero.length === instance.wireAddressReferences.length &&
-          nonZero.every((value) => instance.wireAddressReferences.some(
-            (reference) => reference.wireObjectOffset === value,
-          ))
-        ) {
-          candidateStarts.push({ offset: candidate, slots });
+    if (instance.placement) {
+      const slots = instance.placement.pinSlotAddresses;
+      const nonZero = slots.filter((value) => value !== 0);
+      const referencesMatch =
+        nonZero.length === instance.wireAddressReferences.length &&
+        nonZero.every((value) => instance.wireAddressReferences.some(
+          (reference) => reference.wireObjectOffset === value,
+        ));
+      if (slots.length === slotCount && referencesMatch &&
+          slots.every((value) => value === 0 || knownWireOffsets.has(value))) {
+        slotTable = {
+          offset: instance.placement.pinSlotTableOffset,
+          slots,
+        };
+      } else {
+        instance.pinSlotMappingStatus = "count-mismatch";
+        continue;
+      }
+    } else {
+      const candidateStarts: Array<{ offset: number; slots: number[] }> = [];
+      // Conservative fallback for records where the four-block structure was
+      // not decoded; real placed records should use their exact parsed offset.
+      const minimumStart = Math.max(instance.recordStartOffset, recordBoundary - slotCount * 4 - 16);
+      const maximumStart = recordBoundary - slotCount * 4;
+      for (let candidate = minimumStart; candidate <= maximumStart; candidate += 1) {
+        const slots = Array.from({ length: slotCount }, (_, slot) =>
+          buffer.readUInt32LE(candidate + slot * 4),
+        );
+        if (slots.every((value) => value === 0 || knownWireOffsets.has(value))) {
+          const nonZero = slots.filter((value) => value !== 0);
+          if (
+            nonZero.length === instance.wireAddressReferences.length &&
+            nonZero.every((value) => instance.wireAddressReferences.some(
+              (reference) => reference.wireObjectOffset === value,
+            ))
+          ) {
+            candidateStarts.push({ offset: candidate, slots });
+          }
         }
       }
+      if (candidateStarts.length !== 1) {
+        instance.pinSlotMappingStatus = candidateStarts.length > 1 ? "ambiguous" : "count-mismatch";
+        continue;
+      }
+      slotTable = candidateStarts[0];
     }
 
-    if (candidateStarts.length !== 1) {
-      instance.pinSlotMappingStatus = candidateStarts.length > 1 ? "ambiguous" : "count-mismatch";
+    if (!slotTable) {
+      instance.pinSlotMappingStatus = "count-mismatch";
       continue;
     }
-
-    const slotTable = candidateStarts[0];
     instance.pinSlotTableOffset = slotTable.offset;
     instance.pinSlotMappingStatus = "matched-by-cdb-order";
     instance.pinConnections = metadata.pins.map((pin, slotIndex) => ({
