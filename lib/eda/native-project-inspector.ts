@@ -1,9 +1,28 @@
 import { inflateRawSync } from "node:zlib";
+import { getNativeEdaCompatibilityProfile } from "./compatibility-matrix";
+import type { NativeEdaFormat } from "./compatibility-matrix";
+export type { NativeEdaFormat } from "./compatibility-matrix";
 
-export type NativeEdaFormat = "livewire" | "pcb-wizard" | "proteus";
+export type TargetApplicationContext = {
+  application: string;
+  installedVersion: string;
+  versionSource: "user-confirmed";
+  fileVersionDetected: false;
+};
+
+function getTargetApplicationContext(format: NativeEdaFormat): TargetApplicationContext {
+  const profile = getNativeEdaCompatibilityProfile(format);
+  return {
+    application: profile.application,
+    installedVersion: profile.installedVersion,
+    versionSource: profile.versionSource,
+    fileVersionDetected: false,
+  };
+}
 
 export type NewWaveInspection = {
   format: "livewire" | "pcb-wizard";
+  targetApplication: TargetApplicationContext;
   recognized: true;
   byteLength: number;
   signature: "Dsg\\0";
@@ -23,6 +42,7 @@ export type ProteusZipEntry = {
 
 export type ProteusInspection = {
   format: "proteus";
+  targetApplication: TargetApplicationContext;
   recognized: true;
   byteLength: number;
   container: "zip";
@@ -244,6 +264,7 @@ function inspectNewWaveDocument(
 
   return {
     format,
+    targetApplication: getTargetApplicationContext(format),
     recognized: true,
     byteLength: buffer.length,
     signature: "Dsg\\0",
@@ -283,6 +304,7 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
   // El contenido ROOT.DSN se mantiene opaco hasta contar con un decodificador verificado.
   return {
     format: "proteus",
+    targetApplication: getTargetApplicationContext("proteus"),
     recognized: true,
     byteLength: buffer.length,
     container: "zip",
