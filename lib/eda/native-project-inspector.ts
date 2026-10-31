@@ -82,6 +82,12 @@ export type ProteusSchematicUnresolvedObject = {
   reason: "missing-reference-designator" | "duplicate-reference";
 };
 
+export type ProteusSchematicMarkerSpan = {
+  offset: number;
+  byteWindowLength: number;
+  nextBoundary: "wire-marker" | "object-data-marker" | "end-of-file";
+};
+
 export type ProteusSchematicInspection = {
   status: "partial" | "unavailable";
   source: "ROOT.DSN";
@@ -89,6 +95,7 @@ export type ProteusSchematicInspection = {
   objectDataSectionCount: number;
   componentIdMarkersOutsideObjectData: number;
   wireMarkerOffsets: number[];
+  wireMarkerSpans: ProteusSchematicMarkerSpan[];
   terminalMarkerOffsets: number[];
   terminalLabelMarkerOffsets: number[];
   propertiesMarkerOffsets: number[];
@@ -412,6 +419,17 @@ function parseProteusDsnComponentInstances(
     buffer,
     Buffer.concat([Buffer.from("PROPERTIES", "ascii"), Buffer.from([0])]),
   );
+  const wireMarkerSpans = wireMarkerOffsets.map((offset): ProteusSchematicMarkerSpan => {
+    const nextWire = wireMarkerOffsets.find((candidate) => candidate > offset);
+    const nextObjectData = objectDataOffsets.find((candidate) => candidate > offset);
+    if (nextWire !== undefined && (nextObjectData === undefined || nextWire < nextObjectData)) {
+      return { offset, byteWindowLength: nextWire - offset, nextBoundary: "wire-marker" };
+    }
+    if (nextObjectData !== undefined) {
+      return { offset, byteWindowLength: nextObjectData - offset, nextBoundary: "object-data-marker" };
+    }
+    return { offset, byteWindowLength: buffer.length - offset, nextBoundary: "end-of-file" };
+  });
   const markersOutsideObjectData = offsets.filter((markerOffset) =>
     !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
   ).length;
@@ -557,6 +575,7 @@ function parseProteusDsnComponentInstances(
     objectDataSectionCount: objectDataOffsets.length,
     componentIdMarkersOutsideObjectData: markersOutsideObjectData,
     wireMarkerOffsets,
+    wireMarkerSpans,
     terminalMarkerOffsets,
     terminalLabelMarkerOffsets,
     propertiesMarkerOffsets,
@@ -573,7 +592,8 @@ function parseProteusDsnComponentInstances(
       "Se conservan dos palabras binarias de 32 bits posteriores al designador como datos de colocación opacos; su significado y escala no están confirmados y no se etiquetan como coordenadas.",
       "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
       "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
-      "Se registran los offsets de WIRE, TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a cables, pines o nets reconstruidos.",
+      "Se registran los offsets y ventanas hasta el siguiente marcador WIRE o límite OBJECT DATA; no se interpretan todavía como segmentos, extremos, pines o nets reconstruidos.",
+      "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
       "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
       "No se reconstruyen terminales, extremos de pines, cables ni nets eléctricos; no se puede afirmar que el circuito esté importado.",
