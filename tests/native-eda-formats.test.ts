@@ -172,6 +172,24 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
       { wireObjectOffsets: [72989, 73039, 73089] },
     ],
   );
+  assert.deepEqual(result.schematicComponents.junctionNodes, [
+    {
+      objectOffset: 72781,
+      x: -3200,
+      y: 100,
+      rawX: -8128000,
+      rawY: 254000,
+      wireObjectOffsets: [72806, 72856, 72906],
+    },
+    {
+      objectOffset: 72964,
+      x: -3200,
+      y: 600,
+      rawX: -8128000,
+      rawY: 1524000,
+      wireObjectOffsets: [72989, 73039, 73089],
+    },
+  ]);
   assert.deepEqual(result.schematicComponents.wireSegments[0].rawPoints, [
     { x: -8128000, y: 508000 },
     { x: -8128000, y: 254000 },
