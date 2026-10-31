@@ -192,3 +192,14 @@ The corresponding DSN pin-slot arrays are:
 All three CDB pin tables contain two entries, all three DSN pin-slot arrays contain two WIRE pointers, and every pointer resolves to a validated WIRE object. The code therefore emits `pinSlotMappingStatus = "matched-by-cdb-order"` and includes these pins in `wireConnectedGroups`. If the count or pointers do not match, the mapping stays unresolved; the code does not assign pins by guesswork.
 
 These checks establish the CDB-name-to-DSN-slot association for this fixture, but not physical pin coordinates, symbol rotation, net labels or power-rail terminals. They also do not replace opening and checking the design in Proteus 8.13.
+
+
+## Proteus 8.13 — registros de componente, geometría de patas y terminales
+
+El lector ahora consume el registro de componente como una estructura completa: cuatro bloques de etiqueta (texto, atributo y anclaje), tipo de dispositivo, cantidad de slots, origen físico, código de orientación y tabla exacta de punteros a WIRE. Los dos valores binarios previamente conservados como “palabras opacas” ya no se utilizan como proxy del origen físico.
+
+Para cada tipo de dispositivo se busca la definición de símbolo embebida en la zona de biblioteca de ROOT.DSN. Las entradas $PIN aportan nombre, número, flags de visibilidad y posición base. El orden de patas de ROOT.CDB se contrasta por nombre/número con esa definición. Se aplica el espejo, rotación y longitud de pin (100 mil para símbolos de hasta 20 pines, 200 mil para símbolos mayores, regla observada en la referencia de formato). El inspector calcula raíz y punto de conexión de cada pata y comprueba si el punto cae sobre el cable WIRE referenciado. El estado matched-by-symbol-geometry queda reservado a los casos que pasan la correspondencia de nombres y la validación geométrica; en otro caso conserva un estado no confirmado o de discrepancia.
+
+También se añadió un lector de terminales $TERPOWER y $TERGROUND. Recupera su cabecera, origen, anclaje de etiqueta, punto de conexión y dirección del cable. Un terminal se añade a un grupo solo cuando su puntero coincide con un WIRE identificado; la coincidencia geométrica del punto se informa aparte.
+
+**Límite de cobertura:** la muestra real mathelecprueba.pdsprj no contiene terminales POWER/GROUND colocados, así que el lector de terminales está cubierto por una fixture sintética, no por una comparación de terminales reales guardados desde Proteus 8.13. Tampoco se ha decodificado aún la geometría del cuerpo completo de los símbolos, las etiquetas/nombres de red, ni los instrumentos virtuales. Por lo tanto, los grupos conectados son una reconstrucción parcial y no equivalen aún a una netlist totalmente verificada, una importación editable o una simulación aprobada en Proteus.
