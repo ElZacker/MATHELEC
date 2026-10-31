@@ -50,3 +50,23 @@ test("resuelve perfiles por extensión sin confundir las versiones instaladas co
   assert.equal(getNativeEdaCompatibilityProfileForFile("proyecto.pdsprj")?.installedVersion, "8.13");
   assert.equal(getNativeEdaCompatibilityProfileForFile("notas.txt"), null);
 });
+
+
+test("documenta el puente oficial Livewire a PCB Wizard sin declarar importación nativa de Mathelect", () => {
+  const livewire = getNativeEdaCompatibilityProfile("livewire");
+  const pcbWizard = getNativeEdaCompatibilityProfile("pcb-wizard");
+  const proteus = getNativeEdaCompatibilityProfile("proteus");
+
+  for (const path of [...livewire.documentedInteroperability, ...pcbWizard.documentedInteroperability]) {
+    assert.equal(path.sourceFormat, "livewire");
+    assert.equal(path.targetFormat, "pcb-wizard");
+    assert.equal(path.vendorDocumented, true);
+    assert.equal(path.applicationSmokeTested, false);
+    assert.match(path.evidenceUrl, /^https:\/\//);
+  }
+  assert.deepEqual(proteus.documentedInteroperability, []);
+  assert.equal(livewire.capabilities.circuitImport, "not-implemented");
+  assert.equal(livewire.capabilities.nativeExport, "not-implemented");
+  assert.equal(pcbWizard.capabilities.circuitImport, "not-implemented");
+  assert.equal(pcbWizard.capabilities.nativeExport, "not-implemented");
+});
