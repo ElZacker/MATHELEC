@@ -80,6 +80,7 @@ export type ProteusSchematicPinConnection = {
   slotIndex: number;
   pinName: string;
   pinNumber: string;
+  mappingBasis: "symbol-pin-name" | "cdb-order-unverified";
   wireObjectOffset: number | null;
   symbolRoot: { x: number; y: number } | null;
   connectionPoint: { x: number; y: number } | null;
@@ -135,6 +136,7 @@ export type ProteusSchematicComponentInstance = {
   pinSlotMappingStatus:
     | "matched-by-symbol-geometry"
     | "slot-table-valid-symbol-order-unverified"
+    | "symbol-geometry-mismatch"
     | "count-mismatch"
     | "unavailable"
     | "ambiguous";
@@ -188,6 +190,8 @@ export type ProteusSchematicWireConnectedGroup = {
     slotIndex: number;
     pinName: string;
     pinNumber: string;
+    mappingBasis: "symbol-pin-name" | "cdb-order-unverified";
+    connectionPointMatchesWire: boolean | null;
   }>;
 };
 
