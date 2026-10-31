@@ -323,11 +323,12 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
     result.schematicComponents.wireConnectedGroups.map((group) => ({
       wireObjectOffsets: group.wireObjectOffsets,
       junctionNodeOffsets: group.junctionNodeOffsets,
-      componentPins: group.componentPins.map(({ reference, slotIndex, pinName, pinNumber }) => ({
+      componentPins: group.componentPins.map(({ reference, slotIndex, pinName, pinNumber, mappingBasis }) => ({
         reference,
         slotIndex,
         pinName,
         pinNumber,
+        mappingBasis,
       })),
     })),
     [
@@ -335,18 +336,18 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         wireObjectOffsets: [72806, 72856, 72906],
         junctionNodeOffsets: [72781],
         componentPins: [
-          { reference: "B1", slotIndex: 1, pinName: "-", pinNumber: "" },
-          { reference: "D1", slotIndex: 1, pinName: "K", pinNumber: "" },
-          { reference: "R1", slotIndex: 0, pinName: "1", pinNumber: "1" },
+          { reference: "B1", slotIndex: 1, pinName: "-", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "D1", slotIndex: 1, pinName: "K", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "R1", slotIndex: 0, pinName: "1", pinNumber: "1", mappingBasis: "cdb-order-unverified" },
         ],
       },
       {
         wireObjectOffsets: [72989, 73039, 73089],
         junctionNodeOffsets: [72964],
         componentPins: [
-          { reference: "B1", slotIndex: 0, pinName: "+", pinNumber: "" },
-          { reference: "D1", slotIndex: 0, pinName: "A", pinNumber: "" },
-          { reference: "R1", slotIndex: 1, pinName: "2", pinNumber: "2" },
+          { reference: "B1", slotIndex: 0, pinName: "+", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "D1", slotIndex: 0, pinName: "A", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "R1", slotIndex: 1, pinName: "2", pinNumber: "2", mappingBasis: "cdb-order-unverified" },
         ],
       },
     ],
@@ -368,30 +369,24 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
       Number.isFinite(instance.placement.rotationDegrees) &&
       (instance.placement.mirrorFlag === 0 || instance.placement.mirrorFlag === 1),
   ));
-  assert.ok(
-    result.schematicComponents.componentInstances.every(
-      (instance) => instance.symbolDefinition !== null && instance.symbolDefinition.pins.length === 2,
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) => instance.symbolDefinition === null,
+  ));
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) => instance.symbolDefinitionDiagnostics.some(
+      (diagnostic) => diagnostic.startsWith("device-definition-not-found:"),
     ),
-    JSON.stringify(result.schematicComponents.componentInstances.map((instance) => ({
-      reference: instance.reference,
-      device: instance.placement?.device,
-      symbolDefinitionDiagnostics: instance.symbolDefinitionDiagnostics,
-    }))),
-  );
-  assert.deepEqual(
-    result.schematicComponents.componentInstances.map((instance) => ({
-      reference: instance.reference,
-      symbolPins: instance.symbolDefinition?.pins.map((pin) => ({
-        name: pin.name,
-        number: pin.number,
-      })),
-    })),
-    [
-      { reference: "B1", symbolPins: [{ name: "+", number: "" }, { name: "-", number: "" }] },
-      { reference: "D1", symbolPins: [{ name: "A", number: "" }, { name: "K", number: "" }] },
-      { reference: "R1", symbolPins: [{ name: "1", number: "1" }, { name: "2", number: "2" }] },
-    ],
-  );
+  ));
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) =>
+      instance.pinSlotMappingStatus === "slot-table-valid-symbol-order-unverified" &&
+      instance.pinConnections.every((pin) =>
+        pin.mappingBasis === "cdb-order-unverified" &&
+        pin.symbolRoot === null &&
+        pin.connectionPoint === null &&
+        pin.connectionPointMatchesWire === null
+      ),
+  ));
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
   assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
   assert.deepEqual(result.schematicComponents.metadataReferencesWithoutSchematicInstance, []);
