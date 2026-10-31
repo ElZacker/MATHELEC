@@ -580,6 +580,29 @@ La investigación inicial encontró que Livewire guarda documentos de circuito e
 
 **Bloqueo técnico que debe resolverse antes de habilitar los exportadores:** se necesitan archivos de referencia reales, creados y guardados por cada aplicación y versión objetivo. Se usarán para identificar estructura, metadatos, bibliotecas y reglas de serialización. No se incorporarán proyectos ajenos con bibliotecas o modelos propietarios al repositorio.
 
+### Estado de compatibilidad comprobado (31 de octubre de 2026)
+
+Versiones de las instalaciones objetivo confirmadas por el usuario:
+
+| Programa | Versión objetivo |
+| --- | ---: |
+| Livewire | **1.11** |
+| PCB Wizard | **3.50** |
+| Proteus | **8.13** |
+
+Estas versiones describen las aplicaciones instaladas; no se han detectado ni demostrado como versiones de creación incrustadas en cada archivo de muestra.
+
+Se agregó una matriz de capacidades versionada en `lib/eda/compatibility-matrix.ts`, disponible mediante `GET /api/eda/capabilities`. Los informes de inspección incorporan el programa y versión objetivo sin afirmar que el archivo contenga esa versión.
+
+**Avance real sobre las muestras del repositorio:**
+- Livewire 1.11 (`.lvw`) y PCB Wizard 3.50 (`.pcb`): se reconoce la firma binaria inicial `Dsg\\0`. Las dos muestras comparten esa firma, por lo que todavía no se decodifican objetos, pines, conexiones, huellas ni pistas.
+- Proteus 8.13 (`.pdsprj`): se valida el contenedor ZIP y `PROJECT.XML`. El lector ahora recupera parcialmente de `ROOT.CDB` los metadatos de tres registros de la muestra: B1 (9V / BATTERY), D1 (LED-RED) y R1 (1k / 10WATT1K / RES180), incluidas sus propiedades de texto.
+- `ROOT.DSN` todavía no está decodificado. No se recuperan ubicaciones en la hoja, geometría de símbolos, patillajes, cables ni nets. La extracción de `ROOT.CDB` se ha contrastado con una sola muestra: no se declara todavía como parser general de Proteus 8.13.
+
+Los cambios están en la rama `compatibility/versioned-target-baseline` y en el PR borrador [#39](https://github.com/ElZacker/MATHELEC/pull/39). No deben considerarse incorporados a `main` hasta que se revisen y se integren.
+
+**Siguiente subetapa:** decodificar `ROOT.DSN` y correlacionar sus objetos con B1, D1 y R1 de `ROOT.CDB`. Después se debe validar la posición, los pines y cada conexión contra lo que muestra Proteus 8.13. Los exportadores siguen bloqueados hasta que los archivos generados abran y superen las comprobaciones en sus aplicaciones objetivo.
+
 Orden de implementación:
 1. Definir fixtures propios y reproducibles de Livewire, Proteus y PCB Wizard, con un circuito sencillo y completamente cableado.
 2. Analizar cada archivo, documentar su estructura y determinar qué campos pueden generarse sin depender de bibliotecas privadas.
