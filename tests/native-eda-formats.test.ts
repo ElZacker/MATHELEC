@@ -102,6 +102,14 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.equal(result.schematicComponents.status, "partial");
   assert.equal(result.schematicComponents.objectDataSectionCount, 2);
   assert.equal(result.schematicComponents.componentIdMarkersOutsideObjectData, 0);
+  assert.deepEqual(result.schematicComponents.wireMarkerOffsets, [72831, 72881, 72931, 73014, 73064, 73114]);
+  assert.deepEqual(result.schematicComponents.terminalMarkerOffsets, [
+    10494, 10599, 10658, 10885, 11162, 11221, 11424, 11483, 11542,
+    11601, 11688, 11743, 11974, 12177, 12240, 12299, 12385, 12444,
+    12503, 12562, 12791, 12896, 13455, 13560, 13789, 13894,
+  ]);
+  assert.deepEqual(result.schematicComponents.terminalLabelMarkerOffsets, []);
+  assert.deepEqual(result.schematicComponents.propertiesMarkerOffsets, [71921, 72249, 72661]);
   assert.equal(result.schematicComponents.componentInstanceCount, 3);
   assert.deepEqual(
     result.schematicComponents.componentInstances.map((instance) => instance.reference),
