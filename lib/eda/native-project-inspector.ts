@@ -647,13 +647,15 @@ function parseProteusComponentRecordAt(
 
   const componentHeaderOffset = cursor + 4 +
     (propertiesPayloadEmbeddedInLabel ? 0 : propertiesPayloadLength);
-  if (componentHeaderOffset + 4 > buffer.length) return fail("missing-component-device-header");
+  if (componentHeaderOffset + 3 > buffer.length) return fail("missing-component-device-header");
   const pinCount = buffer.readUInt16LE(componentHeaderOffset);
-  const deviceNameLength = buffer.readUInt16LE(componentHeaderOffset + 2);
+  // In the supplied Proteus 8.13 placed-component record, the device-name
+  // length is a single byte following the u16 pin count.
+  const deviceNameLength = buffer[componentHeaderOffset + 2];
   if (pinCount < 1 || pinCount > 300 || deviceNameLength < 1 || deviceNameLength > 60) {
     return fail(`invalid-pin-count-or-device-length:${pinCount}:${deviceNameLength}`);
   }
-  const deviceStart = componentHeaderOffset + 4;
+  const deviceStart = componentHeaderOffset + 3;
   const originOffset = deviceStart + deviceNameLength;
   const tailStart = originOffset + 8;
   const pinSlotTableOffset = tailStart + 17;
