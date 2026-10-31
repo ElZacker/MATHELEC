@@ -1232,3 +1232,6 @@ Los objetos que no tienen un designador habitual (por ejemplo, instrumentos virt
 ### Matriz de compatibilidad — precisión del reconocimiento New Wave
 
 Livewire 1.11 y PCB Wizard 3.50 continúan compartiendo la firma de familia `Dsg\\0`. El inspector ahora expone que la selección entre ambos se hace por extensión y que no se ha verificado una firma exclusiva de aplicación. Esto no aumenta por sí solo la decodificación de circuitos, pero evita presentar una clasificación contextual como si fuera una identificación binaria concluyente.
+
+
+El inventario binario de `ROOT.DSN` ya conserva offsets exactos para marcadores `WIRE`, `TERMINAL`, `TERMINAL LABEL` y `PROPERTIES`. En la muestra de Mathelect se verifican seis marcadores WIRE, 26 TERMINAL y tres PROPERTIES. Todavía no se interpretan como segmentos, pines conectados o nets: la próxima etapa debe identificar la estructura de sus payloads y correlacionar terminales con instancias/footprints.
