@@ -1216,3 +1216,14 @@ Se continúa en paralelo con los tres formatos, conservando un indicador indepen
 - **Proteus 8.13:** el lector amplía ROOT.DSN para recuperar, cuando existe el marcador, el identificador de biblioteca que sigue a `COMPONENT VALUE`; lo compara de forma diagnóstica con el campo `device` de ROOT.CDB. No reconstruye todavía geometría, pines ni conectividad.
 
 Los nuevos resultados deben superar pruebas de regresión, TypeScript, ESLint y compilación de producción antes de actualizar los indicadores de avance. No se cambia la matriz de capacidades para declarar importación o exportación hasta validar archivos en las aplicaciones de destino.
+
+
+---
+
+## Compatibilidad EDA — siguiente avance de Proteus (31 de octubre de 2026)
+
+El lector de Proteus ya diferencia definiciones de biblioteca de instancias colocadas usando el contexto `OBJECT DATA`. En las instancias recupera designador, valor visible, identificador de biblioteca, propiedades de texto y dos palabras binarias de colocación conservadas como hexadecimal sin atribuirles todavía unidades o significado de coordenadas.
+
+Los objetos que no tienen un designador habitual (por ejemplo, instrumentos virtuales) y las referencias duplicadas se conservan como objetos no resueltos para que una futura importación no los pierda sin aviso. El mapeo de los tres componentes B1, D1 y R1 de la muestra Mathelect se contrasta con ROOT.CDB; también se agregaron pruebas sintéticas para varias secciones OBJECT DATA y objetos especiales.
+
+**Siguiente criterio de aceptación:** verificar el significado de las palabras de colocación con proyectos de Proteus 8.13 guardados antes/después de mover un componente, resolver símbolos y pines, y decodificar cables/nets. Livewire 1.11 y PCB Wizard 3.50 continúan siendo trabajos independientes: la firma Dsg compartida no autoriza reutilizar un parser sin evidencia.
