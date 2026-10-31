@@ -331,9 +331,13 @@ function isProteusDesignator(value: string): boolean {
 }
 
 function extractProteusProperty(text: string, key: string): string | null {
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\function parseProteusCdbComponentMetadata(buffer: Buffer): ProteusComponentMetadata[] {");
-  const match = text.match(new RegExp("\\{" + escapedKey + "=([^{}\\r\\n]*)\\}", "i"));
-  return match?.[1]?.trim() ?? null;
+  const marker = `{${key}=`;
+  const start = text.indexOf(marker);
+  if (start < 0) return null;
+  const valueStart = start + marker.length;
+  const valueEnd = text.indexOf("}", valueStart);
+  if (valueEnd < 0) return null;
+  return text.slice(valueStart, valueEnd).trim();
 }
 
 /**
