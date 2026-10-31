@@ -16,6 +16,40 @@ The Livewire and PCB Wizard samples share the first four signature bytes, but th
 
 The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `ROOT.DSN` and `ROOT.CDB` are binary. A valid ZIP wrapper is not sufficient to create a valid Proteus schematic: the DSN design content still needs a verified decoder/writer.
 
+## Installed application versions confirmed for the current target
+
+The user confirmed these installed application versions on 31 October 2026:
+
+| Format | Target application | Installed version | Is this version read from the file? |
+|---|---|---:|---|
+| `.lvw` | Livewire | **1.11** | No; user-confirmed installation context |
+| `.pcb` | PCB Wizard | **3.50** | No; user-confirmed installation context |
+| `.pdsprj` | Proteus | **8.13** | No; user-confirmed installation context |
+
+This distinction is deliberate: the three reference files are not proven to have been saved by these exact installed versions. Mathelect must not silently treat an installed application version as a version stamp embedded in a project.
+
+The version-aware registry lives in `lib/eda/compatibility-matrix.ts`. Every inspection report now returns a `targetApplication` object naming the installed target and stating that the file version was not detected. The read-only endpoint `GET /api/eda/capabilities` exposes the current capability matrix for the UI and future import/export adapters.
+
+### Current capability matrix
+
+| Format / version | Recognition | Container / metadata | Circuit import | Native export | Open / run in target app |
+|---|---|---|---|---|---|
+| Livewire 1.11 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
+| PCB Wizard 3.50 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
+| Proteus 8.13 | Project container recognized | ZIP structure partially validated; essential entries located | Not implemented | Not implemented | Not verified |
+
+The registry is a version-target baseline, not a claim of native import/export compatibility. The tests enforce that distinction so a future change cannot accidentally advertise a decoder or writer before one exists.
+
+## Next compatibility stage: controlled structural decoding
+
+The next implementation milestone is not a native writer yet. It is to establish verified object-level decoding for the formats, in this order:
+
+1. **Proteus 8.13:** decode `ROOT.DSN` object records and their references to `ROOT.CDB`; recover component references, pin identifiers and wire/net topology. Keep the ZIP reader separate from the schematic decoder.
+2. **Livewire 1.11:** identify record boundaries and the serialized component / terminal / wire fields in the New Wave binary stream. A successful signature check is not enough.
+3. **PCB Wizard 3.50:** investigate its board-specific records independently, including board outline, footprints, numbered pads, nets and tracks. Do not reuse a Livewire decoder merely because both samples begin with `Dsg\\0`.
+
+A decoder is accepted only when it reproduces the known reference circuit's component count, values, positions, pins and connectivity. Then the reconstructed Mathelect circuit must be compared with what the corresponding desktop application displays. Export remains blocked until the same subset can be written and reopened in the target application.
+
 ## Implemented in Mathelect
 
 - `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
