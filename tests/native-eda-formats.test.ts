@@ -343,14 +343,72 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
     ],
   );
   assert.deepEqual(
-    result.schematicComponents.componentInstances.map(({ reference, rawPlacementWords }) => ({
+    result.schematicComponents.componentInstances.map(({ reference, recordStartOffset, placement }) => ({
       reference,
-      rawPlacementWords,
+      recordStartOffset,
+      device: placement?.device,
+      pinCount: placement?.pinCount,
+      pinSlotTableOffset: placement?.pinSlotTableOffset,
+      pinSlotAddresses: placement?.pinSlotAddresses,
+      labelAttributes: placement?.labelBlocks.map((block) => block.attribute),
+      labelTexts: placement?.labelBlocks.map((block) => block.text),
     })),
     [
-      { reference: "B1", rawPlacementWords: ["ff6d0840", "00179080"] },
-      { reference: "D1", rawPlacementWords: ["ff8ae018", "001476c0"] },
-      { reference: "R1", rawPlacementWords: ["ffa2e7a8", "0013b050"] },
+      {
+        reference: "B1",
+        recordStartOffset: 71629,
+        device: "BATTERY",
+        pinCount: 2,
+        pinSlotTableOffset: 71975,
+        pinSlotAddresses: [73089, 72906],
+        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE", "COMPONENT TYPE", "COMPONENT MODEL"],
+        labelTexts: ["B1", "9V", "BATTERY", "BATTERY"],
+      },
+      {
+        reference: "D1",
+        recordStartOffset: 71984,
+        device: "LED-RED",
+        pinCount: 2,
+        pinSlotTableOffset: 72391,
+        pinSlotAddresses: [73039, 72806],
+        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE", "COMPONENT TYPE", "COMPONENT MODEL"],
+        labelTexts: ["D1", "LED-RED", "LED", "LED-RED"],
+      },
+      {
+        reference: "R1",
+        recordStartOffset: 72400,
+        device: "10WATT1K",
+        pinCount: 2,
+        pinSlotTableOffset: 72773,
+        pinSlotAddresses: [72856, 72989],
+        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE", "COMPONENT TYPE", "COMPONENT MODEL"],
+        labelTexts: ["R1", "1k", "RESISTOR", "10WATT1K"],
+      },
+    ],
+  );
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) =>
+      instance.placement !== null &&
+      Number.isFinite(instance.placement.origin.x) &&
+      Number.isFinite(instance.placement.origin.y) &&
+      Number.isFinite(instance.placement.rotationDegrees) &&
+      (instance.placement.mirrorFlag === 0 || instance.placement.mirrorFlag === 1),
+  ));
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) => instance.symbolDefinition !== null && instance.symbolDefinition.pins.length === 2,
+  ));
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map((instance) => ({
+      reference: instance.reference,
+      symbolPins: instance.symbolDefinition?.pins.map((pin) => ({
+        name: pin.name,
+        number: pin.number,
+      })),
+    })),
+    [
+      { reference: "B1", symbolPins: [{ name: "+", number: "" }, { name: "-", number: "" }] },
+      { reference: "D1", symbolPins: [{ name: "A", number: "" }, { name: "K", number: "" }] },
+      { reference: "R1", symbolPins: [{ name: "1", number: "1" }, { name: "2", number: "2" }] },
     ],
   );
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
