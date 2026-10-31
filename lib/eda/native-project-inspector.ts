@@ -828,24 +828,33 @@ function parseProteusDsnComponentInstances(
     const nextComponentMarker = offsets[index + 1] ?? buffer.length;
     const nextObjectDataMarker = objectDataOffsets.find((objectOffset) => objectOffset > markerOffset);
     const recordEnd = Math.min(nextComponentMarker, nextObjectDataMarker ?? buffer.length);
-    const searchStart = Math.max(objectDataOffset + objectDataMarker.length, markerOffset - 80);
-    let reference: string | null = null;
+    const objectDataStart = objectDataOffset + objectDataMarker.length;
+    const parsedRecord = findProteusComponentRecord(buffer, markerOffset, objectDataStart);
+    const searchStart = Math.max(objectDataStart, markerOffset - 80);
+    let reference: string | null = parsedRecord?.reference ?? null;
     let referenceTokenEnd: number | null = null;
 
-    for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
-      if (buffer[candidate] !== 0xff) continue;
-      const field = readProteusLengthPrefixedAscii(buffer, candidate, 16);
-      if (field && isProteusDesignator(field.value)) {
-        reference = field.value.trim();
-        referenceTokenEnd = field.next;
-        break;
+    if (!reference) {
+      for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
+        if (buffer[candidate] !== 0xff) continue;
+        const field = readProteusLengthPrefixedAscii(buffer, candidate, 16);
+        if (field && isProteusDesignator(field.value)) {
+          reference = field.value.trim();
+          referenceTokenEnd = field.next;
+          break;
+        }
       }
     }
 
-    // Preserve two observed 32-bit words after the designator. Their semantics
-    // and units are unknown, so they are not exposed as X/Y coordinates.
-    const rawPlacementWords: [string, string] | null =
-      referenceTokenEnd !== null && referenceTokenEnd + 8 <= markerOffset
+    // The first label block stores the COMPONENT ID text anchor, not the
+    // physical symbol origin. Keep the original raw words for diagnostics.
+    const designatorAnchor = parsedRecord?.placement.labelBlocks[0]?.rawAnchor;
+    const rawPlacementWords: [string, string] | null = designatorAnchor
+      ? [
+          (designatorAnchor.x >>> 0).toString(16).padStart(8, "0"),
+          (designatorAnchor.y >>> 0).toString(16).padStart(8, "0"),
+        ]
+      : referenceTokenEnd !== null && referenceTokenEnd + 8 <= markerOffset
         ? [
             buffer.readUInt32LE(referenceTokenEnd).toString(16).padStart(8, "0"),
             buffer.readUInt32LE(referenceTokenEnd + 4).toString(16).padStart(8, "0"),
@@ -854,13 +863,15 @@ function parseProteusDsnComponentInstances(
 
     const valueStart = markerOffset + marker.length;
     const valueLimit = Math.min(recordEnd, valueStart + 12);
-    let value: string | null = null;
-    for (let candidate = valueStart; candidate < valueLimit; candidate += 1) {
-      if (buffer[candidate] !== 0xff) continue;
-      const field = readProteusLengthPrefixedAscii(buffer, candidate, 128);
-      if (field) {
-        value = field.value;
-        break;
+    let value: string | null = parsedRecord?.value ?? null;
+    if (!value) {
+      for (let candidate = valueStart; candidate < valueLimit; candidate += 1) {
+        if (buffer[candidate] !== 0xff) continue;
+        const field = readProteusLengthPrefixedAscii(buffer, candidate, 128);
+        if (field) {
+          value = field.value;
+          break;
+        }
       }
     }
 
@@ -922,9 +933,11 @@ function parseProteusDsnComponentInstances(
     seenReferences.add(reference);
     componentInstances.push({
       reference,
-      recordStartOffset: referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length),
+      recordStartOffset: parsedRecord?.recordStartOffset ??
+        (referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length)),
       sourceOffset: markerOffset,
       rawPlacementWords,
+      placement: parsedRecord?.placement ?? null,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
@@ -941,16 +954,27 @@ function parseProteusDsnComponentInstances(
     });
   }
 
-  // The tail of each observed placed-component record contains 32-bit references
-  // to WIRE object addresses. Preserve the raw byte offsets without assuming a
-  // physical pin number/name; that mapping still needs the library pin table.
+  // The structural parser provides the exact pin-slot table offset. The
+  // bounded tail scan remains only as a fallback for synthetic/legacy records.
   const knownWireOffsets = new Set(wireSegments.map((segment) => segment.objectOffset));
   const orderedInstances = [...componentInstances].sort(
     (left, right) => left.recordStartOffset - right.recordStartOffset,
   );
-  for (let index = 0; index < orderedInstances.length; index += 1) {
-    const instance = orderedInstances[index];
-    const nextComponentStart = orderedInstances[index + 1]?.recordStartOffset;
+  for (const instance of orderedInstances) {
+    if (instance.placement) {
+      instance.placement.pinSlotAddresses.forEach((wireObjectOffset, slotIndex) => {
+        if (!knownWireOffsets.has(wireObjectOffset)) return;
+        instance.wireAddressReferences.push({
+          byteOffset: instance.placement!.pinSlotTableOffset + slotIndex * 4,
+          wireObjectOffset,
+        });
+      });
+      continue;
+    }
+
+    const nextComponentStart = orderedInstances.find(
+      (candidate) => candidate.recordStartOffset > instance.recordStartOffset,
+    )?.recordStartOffset;
     const nextObjectStart = [
       ...junctionNodes.map((node) => node.objectOffset),
       ...unresolvedObjects.map((object) => object.sourceOffset),
