@@ -1223,13 +1223,95 @@ function parseProteusDsnComponentInstances(
       continue;
     }
     instance.pinSlotTableOffset = slotTable.offset;
-    instance.pinSlotMappingStatus = "matched-by-cdb-order";
-    instance.pinConnections = metadata.pins.map((pin, slotIndex) => ({
-      slotIndex,
-      pinName: pin.name,
-      pinNumber: pin.number,
-      wireObjectOffset: slotTable.slots[slotIndex] || null,
-    }));
+
+    const symbolDefinition = instance.symbolDefinition;
+    let orderedPins = metadata.pins;
+    let symbolOrderVerified = false;
+    if (symbolDefinition) {
+      const order = orderProteusCdbPinsBySymbolDefinition(metadata.pins, symbolDefinition.pins);
+      orderedPins = order.pins;
+      symbolOrderVerified =
+        order.matchedCount === metadata.pins.length &&
+        symbolDefinition.pins.length === metadata.pins.length;
+    }
+
+    const placement = instance.placement;
+    const canTransformSymbolPins = Boolean(
+      symbolDefinition &&
+      placement &&
+      (placement.mirrorFlag === 0 || placement.mirrorFlag === 1),
+    );
+    const pinLength = placement && placement.pinCount > 20 ? 200 : 100;
+    let everyConnectedPinMatches = true;
+    let hasConnectedPin = false;
+
+    instance.pinConnections = orderedPins.map((pin, slotIndex) => {
+      const wireObjectOffset = slotTable.slots[slotIndex] || null;
+      const symbolPin = symbolDefinition?.pins[slotIndex] ?? null;
+      let symbolRoot: { x: number; y: number } | null = null;
+      let connectionPoint: { x: number; y: number } | null = null;
+      let connectionPointMatchesWire: boolean | null = null;
+
+      if (symbolPin && placement && canTransformSymbolPins) {
+        const mirror = placement.mirrorFlag === 1;
+        const base = {
+          x: mirror ? -symbolPin.base.x : symbolPin.base.x,
+          y: symbolPin.base.y,
+        };
+        const direction = {
+          x: mirror ? -symbolPin.direction.x : symbolPin.direction.x,
+          y: symbolPin.direction.y,
+        };
+        const rootRelative = rotateProteusPoint(base, placement.rotationDegrees);
+        const tipRelative = rotateProteusPoint({
+          x: base.x + direction.x * pinLength,
+          y: base.y + direction.y * pinLength,
+        }, placement.rotationDegrees);
+        symbolRoot = {
+          x: placement.origin.x + rootRelative.x,
+          y: placement.origin.y + rootRelative.y,
+        };
+        connectionPoint = {
+          x: placement.origin.x + tipRelative.x,
+          y: placement.origin.y + tipRelative.y,
+        };
+
+        if (wireObjectOffset !== null) {
+          const wire = wireSegments.find((segment) => segment.objectOffset === wireObjectOffset);
+          const rawPoint = {
+            x: Math.round(connectionPoint.x * 2540),
+            y: Math.round(connectionPoint.y * 2540),
+          };
+          connectionPointMatchesWire = wire
+            ? wire.rawPoints.some((vertex, pointIndex) =>
+                pointIndex < wire.rawPoints.length - 1 &&
+                pointOnWireSegment(rawPoint, vertex, wire.rawPoints[pointIndex + 1]),
+              )
+            : false;
+          hasConnectedPin = true;
+          if (!connectionPointMatchesWire) everyConnectedPinMatches = false;
+        }
+      }
+
+      return {
+        slotIndex,
+        pinName: pin.name,
+        pinNumber: pin.number,
+        mappingBasis: symbolOrderVerified ? "symbol-pin-name" as const : "cdb-order-unverified" as const,
+        wireObjectOffset,
+        symbolRoot,
+        connectionPoint,
+        connectionPointMatchesWire,
+      };
+    });
+
+    if (!symbolOrderVerified || !canTransformSymbolPins) {
+      instance.pinSlotMappingStatus = "slot-table-valid-symbol-order-unverified";
+    } else if (hasConnectedPin && everyConnectedPinMatches) {
+      instance.pinSlotMappingStatus = "matched-by-symbol-geometry";
+    } else {
+      instance.pinSlotMappingStatus = "symbol-geometry-mismatch";
+    }
   }
 
   componentInstances.sort((left, right) => left.reference.localeCompare(right.reference));
