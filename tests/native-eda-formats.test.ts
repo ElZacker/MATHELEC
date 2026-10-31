@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { inspectNativeEdaProject } from "../lib/eda/native-project-inspector";
+import {
+  inspectNativeEdaProject,
+  inspectProteusSchematicBytes,
+} from "../lib/eda/native-project-inspector";
 
 const fixture = (name: string) =>
   readFileSync(resolve(process.cwd(), "archivosdeprueba", "compatibilidad", name));
@@ -69,15 +72,54 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   );
   assert.equal(result.componentMetadata.components.find((component) => component.reference === "D1")?.properties.VF, "2.2V");
   assert.equal(result.componentMetadata.components.find((component) => component.reference === "R1")?.properties.PRIMTYPE, "RESISTOR");
+  const batteryProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "B1")?.properties;
+  const ledProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "D1")?.properties;
+  const resistorProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "R1")?.properties;
+  assert.equal(batteryProperties?.PRIMITIVE, "ANALOGUE");
+  assert.equal(batteryProperties?.RINT, "0.1");
+  assert.equal(ledProperties?.MODFILE, "LEDA");
+  assert.equal(ledProperties?.VF, "2.2V");
+  assert.equal(ledProperties?.IMAX, "10mA");
+  assert.equal(ledProperties?.ROFF, "100k");
+  assert.equal(resistorProperties?.PRIMTYPE, "RESISTOR");
+  assert.equal(resistorProperties?.PACKAGE, "RES180");
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "PROJECT.XML"));
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "ROOT.DSN"));
   assert.equal(result.schematicComponents.source, "ROOT.DSN");
   assert.equal(result.schematicComponents.header, "ISIS SCHEMATIC FILE");
   assert.equal(result.schematicComponents.status, "partial");
+  assert.equal(result.schematicComponents.objectDataSectionCount, 1);
+  assert.equal(result.schematicComponents.componentIdMarkersOutsideObjectData, 1);
   assert.equal(result.schematicComponents.componentInstanceCount, 3);
   assert.deepEqual(
     result.schematicComponents.componentInstances.map((instance) => instance.reference),
     ["B1", "D1", "R1"],
+  );
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map(({ reference, libraryName, libraryNameMatchesDeviceMetadata }) => ({
+      reference,
+      libraryName,
+      libraryNameMatchesDeviceMetadata,
+    })),
+    [
+      { reference: "B1", libraryName: "BATTERY", libraryNameMatchesDeviceMetadata: true },
+      { reference: "D1", libraryName: "LED-RED", libraryNameMatchesDeviceMetadata: true },
+      { reference: "R1", libraryName: "10WATT1K", libraryNameMatchesDeviceMetadata: true },
+    ],
+  );
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) => instance.sourceOffset > 0,
+  ));
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map(({ reference, rawPlacementWords }) => ({
+      reference,
+      rawPlacementWords,
+    })),
+    [
+      { reference: "B1", rawPlacementWords: ["ff6d0840", "00179080"] },
+      { reference: "D1", rawPlacementWords: ["ff8ae018", "001476c0"] },
+      { reference: "R1", rawPlacementWords: ["ffa2e7a8", "0013b050"] },
+    ],
   );
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
   assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
@@ -119,4 +161,73 @@ test("rechaza un proyecto Proteus que no sea ZIP", () => {
     () => inspectNativeEdaProject("archivo.pdsprj", Buffer.from("not a Proteus project")),
     /ZIP válido|demasiado pequeño/,
   );
+});
+
+
+test("Proteus DSN: conserva objetos especiales sin designador y no confunde plantillas con instancias", () => {
+  const token = (value: string) => {
+    const bytes = Buffer.from(value, "ascii");
+    return Buffer.concat([Buffer.from([0xff, bytes.length]), bytes]);
+  };
+  const marker = (value: string) => Buffer.concat([
+    Buffer.from(value, "ascii"),
+    Buffer.from([0]),
+  ]);
+
+  const dsn = Buffer.concat([
+    Buffer.from("ISIS SCHEMATIC FILE", "ascii"),
+    Buffer.alloc(8),
+    marker("COMPONENT ID"), // Definición/template: no está dentro de OBJECT DATA.
+    Buffer.alloc(100),
+    marker("OBJECT DATA"),
+    token("R1"),
+    Buffer.from([0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00]),
+    marker("COMPONENT ID"),
+    Buffer.alloc(5),
+    token("15k"),
+    Buffer.alloc(5),
+    marker("COMPONENT VALUE"),
+    Buffer.alloc(5),
+    token("RESISTOR"),
+    Buffer.alloc(4),
+    marker("PROPERTIES"),
+    Buffer.alloc(5),
+    Buffer.from("{PRIMTYPE=RESISTOR}\\n{PACKAGE=RES180}\\0", "ascii"),
+    Buffer.alloc(100),
+    marker("OBJECT DATA"),
+    Buffer.alloc(5), // El siguiente objeto es un instrumento virtual, no un componente etiquetado.
+    marker("COMPONENT ID"),
+    Buffer.alloc(5),
+    token("$IOSCOPE"),
+    Buffer.alloc(5),
+    marker("COMPONENT VALUE"),
+    Buffer.alloc(5),
+    token("$IOSCOPE"),
+  ]);
+
+  const result = inspectProteusSchematicBytes(dsn, [{
+    reference: "R1",
+    value: "15k",
+    device: "RESISTOR",
+    package: "RES180",
+    properties: {},
+  }]);
+
+  assert.equal(result.objectDataSectionCount, 2);
+  assert.equal(result.componentIdMarkersOutsideObjectData, 1);
+  assert.equal(result.componentInstanceCount, 1);
+  assert.equal(result.componentInstances[0].reference, "R1");
+  assert.equal(result.componentInstances[0].libraryName, "RESISTOR");
+  assert.equal(result.componentInstances[0].libraryNameMatchesDeviceMetadata, true);
+  assert.deepEqual(result.componentInstances[0].rawPlacementWords, ["00000001", "00000002"]);
+  assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
+  assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
+  assert.equal(result.unresolvedObjectCount, 1);
+  assert.deepEqual(result.unresolvedObjects, [{
+    sourceOffset: result.unresolvedObjects[0].sourceOffset,
+    reference: null,
+    value: "$IOSCOPE",
+    libraryName: "$IOSCOPE",
+    reason: "missing-reference-designator",
+  }]);
 });
