@@ -801,6 +801,7 @@ function parseProteusDsnComponentInstances(
     const nextComponentStart = orderedInstances[index + 1]?.recordStartOffset;
     const nextObjectStart = [
       ...junctionNodes.map((node) => node.objectOffset),
+      ...unresolvedObjects.map((object) => object.sourceOffset),
       ...wireSegments.map((wire) => wire.objectOffset),
     ]
       .filter((offset) => offset > instance.recordStartOffset)
@@ -827,6 +828,7 @@ function parseProteusDsnComponentInstances(
     const nextComponentStart = orderedInstances[index + 1]?.recordStartOffset;
     const nextObjectStart = [
       ...junctionNodes.map((node) => node.objectOffset),
+      ...unresolvedObjects.map((object) => object.sourceOffset),
       ...wireSegments.map((wire) => wire.objectOffset),
     ]
       .filter((offset) => offset > instance.recordStartOffset)
