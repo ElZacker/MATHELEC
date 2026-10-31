@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { inspectNativeEdaProject } from "../lib/eda/native-project-inspector";
+import {
+  inspectNativeEdaProject,
+  inspectProteusSchematicBytes,
+} from "../lib/eda/native-project-inspector";
 
 const fixture = (name: string) =>
   readFileSync(resolve(process.cwd(), "archivosdeprueba", "compatibilidad", name));
@@ -147,4 +150,70 @@ test("rechaza un proyecto Proteus que no sea ZIP", () => {
     () => inspectNativeEdaProject("archivo.pdsprj", Buffer.from("not a Proteus project")),
     /ZIP válido|demasiado pequeño/,
   );
+});
+
+
+test("Proteus DSN: conserva objetos especiales sin designador y no confunde plantillas con instancias", () => {
+  const token = (value: string) => {
+    const bytes = Buffer.from(value, "ascii");
+    return Buffer.concat([Buffer.from([0xff, bytes.length]), bytes]);
+  };
+  const marker = (value: string) => Buffer.concat([
+    Buffer.from(value, "ascii"),
+    Buffer.from([0]),
+  ]);
+
+  const dsn = Buffer.concat([
+    Buffer.from("ISIS SCHEMATIC FILE", "ascii"),
+    Buffer.alloc(8),
+    marker("COMPONENT ID"), // Definición/template: no está dentro de OBJECT DATA.
+    Buffer.alloc(100),
+    marker("OBJECT DATA"),
+    token("R1"),
+    Buffer.alloc(8),
+    marker("COMPONENT ID"),
+    Buffer.alloc(5),
+    token("15k"),
+    Buffer.alloc(5),
+    marker("COMPONENT VALUE"),
+    Buffer.alloc(5),
+    token("RESISTOR"),
+    Buffer.alloc(4),
+    marker("PROPERTIES"),
+    Buffer.alloc(5),
+    Buffer.from("{PRIMTYPE=RESISTOR}\\n{PACKAGE=RES180}\\0", "ascii"),
+    Buffer.alloc(100), // Evita que el siguiente marcador herede el designador R1.
+    marker("COMPONENT ID"),
+    Buffer.alloc(5),
+    token("$IOSCOPE"),
+    Buffer.alloc(5),
+    marker("COMPONENT VALUE"),
+    Buffer.alloc(5),
+    token("$IOSCOPE"),
+  ]);
+
+  const result = inspectProteusSchematicBytes(dsn, [{
+    reference: "R1",
+    value: "15k",
+    device: "RESISTOR",
+    package: "RES180",
+    properties: {},
+  }]);
+
+  assert.equal(result.objectDataSectionCount, 1);
+  assert.equal(result.componentIdMarkersOutsideObjectData, 1);
+  assert.equal(result.componentInstanceCount, 1);
+  assert.equal(result.componentInstances[0].reference, "R1");
+  assert.equal(result.componentInstances[0].libraryName, "RESISTOR");
+  assert.equal(result.componentInstances[0].libraryNameMatchesDeviceMetadata, true);
+  assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
+  assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
+  assert.equal(result.unresolvedObjectCount, 1);
+  assert.deepEqual(result.unresolvedObjects, [{
+    sourceOffset: result.unresolvedObjects[0].sourceOffset,
+    reference: null,
+    value: "$IOSCOPE",
+    libraryName: "$IOSCOPE",
+    reason: "missing-reference-designator",
+  }]);
 });
