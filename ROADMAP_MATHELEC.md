@@ -1235,3 +1235,6 @@ Livewire 1.11 y PCB Wizard 3.50 continúan compartiendo la firma de familia `Dsg
 
 
 El inventario binario de `ROOT.DSN` ya conserva offsets exactos para marcadores `WIRE`, `TERMINAL`, `TERMINAL LABEL` y `PROPERTIES`. En la muestra de Mathelect se verifican seis marcadores WIRE, 26 TERMINAL y tres PROPERTIES. Todavía no se interpretan como segmentos, pines conectados o nets: la próxima etapa debe identificar la estructura de sus payloads y correlacionar terminales con instancias/footprints.
+
+
+Además del inventario de offsets, el lector guarda para cada marcador WIRE la ventana de bytes hasta el siguiente WIRE o el siguiente límite OBJECT DATA. En la muestra actual las ventanas miden 50, 50, 83, 50, 50 y 69 bytes. Se usan como evidencia estructural, no como longitudes de registro confirmadas ni como conexiones decodificadas.
