@@ -1089,6 +1089,9 @@ function parseProteusDsnComponentInstances(
         (referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length)),
       sourceOffset: markerOffset,
       placement: parsedRecord?.placement ?? null,
+      symbolDefinition: parsedRecord
+        ? parseProteusSymbolDefinition(buffer, parsedRecord.placement.device)
+        : null,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
