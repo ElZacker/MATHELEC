@@ -469,7 +469,7 @@ function parseProteusDsnComponentInstances(
       buffer[objectOffset] === 0x00 &&
       buffer.readUInt32LE(objectOffset + 1) === 0x1d &&
       buffer.subarray(objectOffset + 5, objectOffset + 10).equals(wirePrefix.subarray(5, 10)) &&
-      buffer.subarray(objectOffset + 13, objectOffset + 34).equals(wirePrefix.subarray(13, 34));
+      buffer.subarray(objectOffset + 13, objectOffset + 32).equals(wirePrefix.subarray(13, 32));
 
     if (!prefixMatches || buffer.toString("ascii", objectOffset + 25, objectOffset + 29) !== "WIRE") {
       unresolvedWireMarkerOffsets.push(markerOffset);
