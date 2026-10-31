@@ -129,7 +129,9 @@ These references establish the initial investigation only. They do not substitut
 - Regression coverage asserts the real fixture's B1/D1/R1 library mappings, per-instance properties and raw words, plus a synthetic case containing a library marker outside `OBJECT DATA`, a component, multiple object-data sections and an unlabelled virtual instrument.
 - A separate public Proteus project was inspected manually to compare the marker sequence and special instrument objects. It was not copied into the repository or treated as a passing CI fixture.
 
-The repository fixture's `ROOT.DSN` also contains NUL-terminated structural markers at stable byte offsets: six `WIRE` markers (72831, 72881, 72931, 73014, 73064, 73114), 26 `TERMINAL` markers, three `PROPERTIES` markers (71921, 72249, 72661), and no `TERMINAL LABEL` markers. The inspector exposes these exact offsets as a diagnostic inventory. For the six local `WIRE` markers it also exposes the byte-window length to the next `WIRE` marker or `OBJECT DATA` boundary (50, 50, 83, 50, 50 and 69 bytes). This is deliberately **not** reported as six decoded wires or 26 connected pins: the payload schemas and the distinction between library terminals and placed terminals remain to be decoded.
+The repository fixture's `ROOT.DSN` contains six placed `WIRE` objects. The inspector now validates their 34-byte object prefix, reads the little-endian vertex count, and decodes each following int32 X/Y pair using the empirically confirmed 2540-units-per-mil scale. The six wires have 2, 2, 3, 2, 2 and 3 vertices, with exact object offsets 72806, 72856, 72906, 72989, 73039 and 73089. It preserves the separate raw marker offsets (72831, 72881, 72931, 73014, 73064, 73114) and marker windows (50, 50, 83, 50, 50 and 69 bytes) as diagnostics.
+
+The inspector also groups wire objects when an actual vertex of one wire lies on a segment of another. On this fixture that gives two wire-only groups: `[72806, 72856, 72906]` and `[72989, 73039, 73089]`. A synthetic regression test confirms that an interior crossing without a shared vertex is not merged, while a T-contact at a wire vertex is. This is **not a complete electrical netlist**: component pins, placed terminals, net labels and T-junction node objects are not yet correlated with the groups. The 26 `TERMINAL` markers, three `PROPERTIES` markers (71921, 72249, 72661), and absence of `TERMINAL LABEL` markers remain a separate inventory; marker count is not treated as placed terminal count.
 
 The remaining Proteus schematic work is now specifically: identify the raw placement word semantics with controlled saves/moves; resolve symbol/part definitions to pin geometry; decode terminals, wires and net membership; then build a writer and test open + simulation in Proteus 8.13.
 
@@ -145,3 +147,12 @@ The current repository sample is covered by exact offset regression assertions f
 
 
 The WIRE window lengths are regression diagnostics bounded by the next visible marker/section boundary; they are not yet asserted to be canonical record lengths. Their variable size is a reason to retain raw offsets and defer endpoint decoding until the binary payload structure is established.
+
+
+## Proteus 8.13 WIRE geometry decode — 31 October 2026
+
+A binary WIRE decoder is now implemented and regression-tested against the repository's actual 8.13 `ROOT.DSN`. Each object is located 25 bytes before its `WIRE\\0` marker; the reader validates the fixed structural bytes while allowing the observed style/color bytes to vary, reads the vertex count from offset +32 and then reads int32 X/Y pairs from +34. Coordinates are converted to mils by dividing by 2540. The supported vertex count is bounded (2–256), and malformed markers are reported rather than treated as wires.
+
+The decoded object offsets, lengths and vertices are asserted exactly in CI. A geometric pass then groups wires only when a vertex of one lies on a segment of another, using integer raw coordinates to avoid floating-point drift. Zero-length two-point wires are retained and can participate in a shared-point contact. An interior crossing without a vertex is not enough to merge two wire groups.
+
+The implementation does **not** yet decode Proteus T-junction address records or correlate the wire groups with component pin slots, symbol definitions or placed power/ground terminals. Therefore, `wireTouchGroups` is a wire-only geometric diagnostic, not a complete netlist or a simulation-ready imported circuit.
