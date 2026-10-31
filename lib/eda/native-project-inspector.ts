@@ -1338,6 +1338,8 @@ function parseProteusDsnComponentInstances(
             slotIndex: pin.slotIndex,
             pinName: pin.pinName,
             pinNumber: pin.pinNumber,
+            mappingBasis: pin.mappingBasis,
+            connectionPointMatchesWire: pin.connectionPointMatchesWire,
           })),
       ),
     };
