@@ -824,8 +824,8 @@ function parseProteusTerminalPlacements(
 
       const tailOffset = objectOffset + 15 + nameBytes.length;
       const labelMarker = Buffer.from("TERMINAL LABEL\\0", "ascii");
-      const labelMarkerOffset = buffer.indexOf(labelMarker, tailOffset, objectOffset + byteLength);
-      if (labelMarkerOffset < tailOffset) continue;
+      const labelMarkerOffset = buffer.indexOf(labelMarker, tailOffset);
+      if (labelMarkerOffset < tailOffset || labelMarkerOffset >= objectOffset + byteLength) continue;
 
       const originRaw = {
         x: buffer.readInt32LE(objectOffset + 1),
