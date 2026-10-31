@@ -42,6 +42,25 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.equal(result.hasRootDsn, true);
   assert.equal(result.hasRootCdb, true);
   assert.equal(result.schematicDecoded, false);
+  assert.equal(result.status, "recognized-project-with-partial-component-metadata");
+  assert.equal(result.componentMetadata.status, "partial");
+  assert.equal(result.componentMetadata.source, "ROOT.CDB");
+  assert.equal(result.componentMetadata.count, 3);
+  assert.deepEqual(
+    result.componentMetadata.components.map(({ reference, value, device, package: packageName }) => ({
+      reference,
+      value,
+      device,
+      package: packageName,
+    })),
+    [
+      { reference: "B1", value: "9V", device: "BATTERY", package: "" },
+      { reference: "D1", value: "LED-RED", device: "LED-RED", package: "" },
+      { reference: "R1", value: "1k", device: "10WATT1K", package: "RES180" },
+    ],
+  );
+  assert.equal(result.componentMetadata.components.find((component) => component.reference === "D1")?.properties.VF, "2.2V");
+  assert.equal(result.componentMetadata.components.find((component) => component.reference === "R1")?.properties.PRIMTYPE, "RESISTOR");
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "PROJECT.XML"));
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "ROOT.DSN"));
 });
