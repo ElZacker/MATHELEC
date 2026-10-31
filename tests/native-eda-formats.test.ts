@@ -16,6 +16,10 @@ test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar com
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
   assert.equal(result.componentDataDecoded, false);
+  assert.deepEqual(result.textMarkerOffsets, [
+    { marker: "page &p of &n", offset: 90 },
+    { marker: "Arial", offset: 104 },
+  ]);
   assert.ok(result.byteLength > 32);
 });
 
@@ -28,6 +32,10 @@ test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión",
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
   assert.equal(result.componentDataDecoded, false);
+  assert.deepEqual(result.textMarkerOffsets, [
+    { marker: "page &p of &n", offset: 90 },
+    { marker: "Arial", offset: 104 },
+  ]);
   assert.ok(result.byteLength > 32);
 });
 
@@ -74,6 +82,22 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
   assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
   assert.deepEqual(result.schematicComponents.metadataReferencesWithoutSchematicInstance, []);
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) =>
+      instance.libraryName === null || typeof instance.libraryName === "string",
+  ));
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) =>
+      instance.libraryNameMatchesDeviceMetadata === null ||
+      typeof instance.libraryNameMatchesDeviceMetadata === "boolean",
+  ));
+  assert.deepEqual(
+    result.schematicComponents.componentLibraryNamesWithoutDeviceMetadataMatch,
+    result.schematicComponents.componentInstances
+      .filter((instance) => instance.libraryNameMatchesDeviceMetadata === false)
+      .map((instance) => instance.reference)
+      .sort((left, right) => left.localeCompare(right)),
+  );
 });
 
 test("rechaza extensiones no admitidas", () => {
