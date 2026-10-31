@@ -101,6 +101,15 @@ export type ProteusSchematicWireTouchGroup = {
   wireObjectOffsets: number[];
 };
 
+export type ProteusSchematicJunctionNode = {
+  objectOffset: number;
+  x: number;
+  y: number;
+  rawX: number;
+  rawY: number;
+  wireObjectOffsets: number[];
+};
+
 export type ProteusSchematicInspection = {
   status: "partial" | "unavailable";
   source: "ROOT.DSN";
@@ -112,6 +121,7 @@ export type ProteusSchematicInspection = {
   wireSegments: ProteusSchematicWireSegment[];
   unresolvedWireMarkerOffsets: number[];
   wireTouchGroups: ProteusSchematicWireTouchGroup[];
+  junctionNodes: ProteusSchematicJunctionNode[];
   terminalMarkerOffsets: number[];
   terminalLabelMarkerOffsets: number[];
   propertiesMarkerOffsets: number[];
@@ -567,6 +577,48 @@ function parseProteusDsnComponentInstances(
     .map((wireObjectOffsets) => ({ wireObjectOffsets }))
     .sort((left, right) => left.wireObjectOffsets[0] - right.wireObjectOffsets[0]);
 
+  const wireByObjectOffset = new Map(wireSegments.map((segment) => [segment.objectOffset, segment]));
+  const pointLiesOnWire = (
+    point: { x: number; y: number },
+    wire: ProteusSchematicWireSegment,
+  ): boolean => wire.rawPoints.some((vertex, index) =>
+    index < wire.rawPoints.length - 1 &&
+    pointOnWireSegment(point, vertex, wire.rawPoints[index + 1]),
+  );
+  const junctionNodes: ProteusSchematicJunctionNode[] = [];
+  for (const sectionStart of objectDataOffsets) {
+    const sectionEnd = objectDataOffsets.find((candidate) => candidate > sectionStart) ?? buffer.length;
+    for (let offset = sectionStart + objectDataMarker.length; offset + 25 <= sectionEnd; offset += 1) {
+      if (buffer[offset] !== 0x01) continue;
+      const refs = Array.from({ length: 4 }, (_, index) => buffer.readUInt32LE(offset + 9 + index * 4));
+      const nonZeroRefs = refs.filter((reference) => reference !== 0);
+      if (
+        nonZeroRefs.length < 3 ||
+        nonZeroRefs.length > 4 ||
+        refs.slice(0, nonZeroRefs.length).some((reference) => reference === 0) ||
+        refs.slice(nonZeroRefs.length).some((reference) => reference !== 0) ||
+        new Set(nonZeroRefs).size !== nonZeroRefs.length
+      ) {
+        continue;
+      }
+      const rawX = buffer.readInt32LE(offset + 1);
+      const rawY = buffer.readInt32LE(offset + 5);
+      const point = { x: rawX, y: rawY };
+      const referencedWires = nonZeroRefs.map((reference) => wireByObjectOffset.get(reference));
+      if (referencedWires.some((wire) => wire === undefined)) continue;
+      if (!referencedWires.every((wire) => pointLiesOnWire(point, wire!))) continue;
+      junctionNodes.push({
+        objectOffset: offset,
+        x: rawX / 2540,
+        y: rawY / 2540,
+        rawX,
+        rawY,
+        wireObjectOffsets: nonZeroRefs,
+      });
+      offset += 24;
+    }
+  }
+
   const markersOutsideObjectData = offsets.filter((markerOffset) =>
     !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
   ).length;
@@ -716,6 +768,7 @@ function parseProteusDsnComponentInstances(
     wireSegments,
     unresolvedWireMarkerOffsets,
     wireTouchGroups,
+    junctionNodes,
     terminalMarkerOffsets,
     terminalLabelMarkerOffsets,
     propertiesMarkerOffsets,
@@ -734,7 +787,8 @@ function parseProteusDsnComponentInstances(
       "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
       "Los bloques WIRE reconocidos se decodifican como cadenas de vértices int32 (mils = unidades / 2540); las ventanas de marcador permanecen como información diagnóstica aparte.",
       "Se agrupan los objetos WIRE que comparten vértices con segmentos ajenos; los grupos son geometría wire-only, no redes eléctricas completas ni asignaciones de pines.",
-      "Los cruces interiores sin vértice compartido no se fusionan; las etiquetas de red, terminales, pines y nodos T todavía no se incorporan al agrupamiento.",
+      "Se decodifican nodos de unión de 25 bytes solo cuando al menos tres referencias apuntan a cables conocidos y sus tres geometrías pasan por las coordenadas del nodo.",
+      "Los cruces interiores sin vértice compartido no se fusionan; las etiquetas de red, terminales y pines todavía no se incorporan al agrupamiento.",
       "Los marcadores WIRE que no cumplen la estructura tipada se conservan en unresolvedWireMarkerOffsets, en lugar de interpretarse por aproximación.",
       "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
