@@ -120,6 +120,9 @@ export type ProteusSchematicComponentPlacement = {
   orientationBytesHex: string;
   pinSlotTableOffset: number;
   pinSlotAddresses: number[];
+  propertiesPayloadLength: number;
+  propertiesPayloadOffset: number | null;
+  propertiesPayloadEmbeddedInLabel: boolean;
   labelBlocks: ProteusSchematicLabelBlock[];
 };
 
@@ -543,7 +546,10 @@ function parseProteusComponentRecordAt(
     // Placed-component label blocks in the supplied Proteus 8.13 fixture use
     // FF + one-byte text length (unlike some other ISIS data strings).
     const textLength = buffer[cursor + 1];
-    if (textLength < 1 || textLength > 128) {
+    if (
+      (textLength < 1 && blockIndex !== 3) ||
+      textLength > 128
+    ) {
       return fail(`label-${blockIndex}:invalid-u8-length-${textLength}`);
     }
     const textStart = cursor + 2;
@@ -611,13 +617,43 @@ function parseProteusComponentRecordAt(
     return fail(`invalid-component-designator:${componentIdBlock.text}`);
   }
 
-  if (cursor + 4 > buffer.length) return fail("missing-component-device-header");
-  const pinCount = buffer.readUInt16LE(cursor);
-  const deviceNameLength = buffer.readUInt16LE(cursor + 2);
+  if (cursor + 4 > buffer.length) return fail("missing-properties-payload-length");
+  const propertiesPayloadLength = buffer.readUInt32LE(cursor);
+  const propertiesLabel = labelBlocks[3];
+  const propertiesPayloadEmbeddedInLabel = propertiesPayloadLength === propertiesLabel.text.length;
+  const propertiesPayloadOffset = propertiesPayloadEmbeddedInLabel ? null : cursor + 4;
+  if (
+    propertiesPayloadLength > 8192 ||
+    (!propertiesPayloadEmbeddedInLabel &&
+      (propertiesPayloadOffset === null ||
+        propertiesPayloadOffset + propertiesPayloadLength > buffer.length))
+  ) {
+    return fail(`invalid-properties-payload-length:${propertiesPayloadLength}`);
+  }
+  if (!propertiesPayloadEmbeddedInLabel) {
+    const propertiesPayload = buffer.subarray(
+      propertiesPayloadOffset!,
+      propertiesPayloadOffset! + propertiesPayloadLength,
+    );
+    if (
+      !propertiesPayload.toString("latin1").startsWith("{") ||
+      [...propertiesPayload].some((byte) =>
+        (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) || byte > 0x7e
+      )
+    ) {
+      return fail("properties-payload-is-not-printable-brace-text");
+    }
+  }
+
+  const componentHeaderOffset = cursor + 4 +
+    (propertiesPayloadEmbeddedInLabel ? 0 : propertiesPayloadLength);
+  if (componentHeaderOffset + 4 > buffer.length) return fail("missing-component-device-header");
+  const pinCount = buffer.readUInt16LE(componentHeaderOffset);
+  const deviceNameLength = buffer.readUInt16LE(componentHeaderOffset + 2);
   if (pinCount < 1 || pinCount > 300 || deviceNameLength < 1 || deviceNameLength > 60) {
     return fail(`invalid-pin-count-or-device-length:${pinCount}:${deviceNameLength}`);
   }
-  const deviceStart = cursor + 4;
+  const deviceStart = componentHeaderOffset + 4;
   const originOffset = deviceStart + deviceNameLength;
   const tailStart = originOffset + 8;
   const pinSlotTableOffset = tailStart + 17;
@@ -654,6 +690,9 @@ function parseProteusComponentRecordAt(
       orientationBytesHex: buffer.subarray(tailStart, tailStart + 4).toString("hex"),
       pinSlotTableOffset,
       pinSlotAddresses,
+      propertiesPayloadLength,
+      propertiesPayloadOffset,
+      propertiesPayloadEmbeddedInLabel,
       labelBlocks,
     },
   };
