@@ -49,8 +49,8 @@ export type ProteusComponentMetadata = {
 };
 
 export type ProteusComponentMetadataInspection = {
-  status: "partial";
-  source: "ROOT.CDB";
+  status: "partial" | "unavailable";
+  source: "ROOT.CDB" | null;
   count: number;
   components: ProteusComponentMetadata[];
   limitations: string[];
@@ -408,8 +408,8 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
     hasRootCdb: Boolean(rootCdb),
     projectXmlBytes: projectXmlData.length,
     componentMetadata: {
-      status: "partial",
-      source: "ROOT.CDB",
+      status: cdbComponents.length > 0 ? "partial" : "unavailable",
+      source: rootCdb ? "ROOT.CDB" : null,
       count: cdbComponents.length,
       components: cdbComponents,
       limitations: [
