@@ -56,6 +56,24 @@ export type ProteusComponentMetadataInspection = {
   limitations: string[];
 };
 
+export type ProteusSchematicComponentInstance = {
+  reference: string;
+  value: string | null;
+  properties: Record<string, string>;
+  matchesComponentMetadata: boolean;
+};
+
+export type ProteusSchematicInspection = {
+  status: "partial" | "unavailable";
+  source: "ROOT.DSN";
+  header: "ISIS SCHEMATIC FILE";
+  componentInstanceCount: number;
+  componentInstances: ProteusSchematicComponentInstance[];
+  componentReferencesWithoutMetadata: string[];
+  metadataReferencesWithoutSchematicInstance: string[];
+  limitations: string[];
+};
+
 export type ProteusInspection = {
   format: "proteus";
   targetApplication: TargetApplicationContext;
@@ -68,7 +86,8 @@ export type ProteusInspection = {
   hasRootCdb: boolean;
   projectXmlBytes: number | null;
   componentMetadata: ProteusComponentMetadataInspection;
-  status: "recognized-project-with-partial-component-metadata";
+  schematicComponents: ProteusSchematicInspection;
+  status: "recognized-project-with-partial-schematic-data";
   schematicDecoded: false;
   limitations: string[];
 };
@@ -275,6 +294,149 @@ function extractZipEntry(buffer: Buffer, entry: ProteusZipEntry): Buffer {
  * table bytes after the printable property block. We therefore stop properties
  * at the first NUL and keep the remainder opaque.
  */
+/**
+ * Reads a Proteus/ISIS string encoded as FF + one-byte length + ASCII bytes.
+ * This helper intentionally rejects binary payloads instead of guessing a text value.
+ */
+function readProteusLengthPrefixedAscii(
+  buffer: Buffer,
+  offset: number,
+  maxLength = 128,
+): { value: string; next: number } | null {
+  if (offset < 0 || offset + 2 > buffer.length || buffer[offset] !== 0xff) return null;
+  const length = buffer[offset + 1];
+  const end = offset + 2 + length;
+  if (length === 0 || length > maxLength || end > buffer.length) return null;
+  const raw = buffer.subarray(offset + 2, end);
+  for (const byte of raw) {
+    if (byte < 0x20 || byte > 0x7e) return null;
+  }
+  return { value: raw.toString("latin1"), next: end };
+}
+
+function findAllBufferOccurrences(buffer: Buffer, marker: Buffer): number[] {
+  const offsets: number[] = [];
+  let cursor = 0;
+  while (cursor <= buffer.length - marker.length) {
+    const found = buffer.indexOf(marker, cursor);
+    if (found < 0) break;
+    offsets.push(found);
+    cursor = found + marker.length;
+  }
+  return offsets;
+}
+
+function isProteusDesignator(value: string): boolean {
+  return /^[A-Za-z]{1,5}[0-9]{1,5}$/.test(value.trim());
+}
+
+function extractProteusProperty(text: string, key: string): string | null {
+  const marker = `{${key}=`;
+  const start = text.indexOf(marker);
+  if (start < 0) return null;
+  const valueStart = start + marker.length;
+  const valueEnd = text.indexOf("}", valueStart);
+  if (valueEnd < 0) return null;
+  return text.slice(valueStart, valueEnd).trim();
+}
+
+/**
+ * Decodes the conservative component-instance subset of ROOT.DSN:
+ * - component records anchored by "COMPONENT ID\\0";
+ * - the nearest preceding FF-length-prefixed reference designator;
+ * - the first FF-length-prefixed value immediately after the marker;
+ * - printable PACKAGE / PRIMTYPE properties from the same record.
+ *
+ * This is not a full ISIS schematic decoder. In particular, it does not infer
+ * graphical coordinates, symbol geometry, pin endpoints, wires or electrical nets.
+ */
+function parseProteusDsnComponentInstances(
+  buffer: Buffer,
+  libraryComponents: ProteusComponentMetadata[],
+): ProteusSchematicInspection {
+  const signature = Buffer.from("ISIS SCHEMATIC FILE", "ascii");
+  if (buffer.length < signature.length || !buffer.subarray(0, signature.length).equals(signature)) {
+    throw new Error("ROOT.DSN no comienza con la cabecera ISIS SCHEMATIC FILE esperada.");
+  }
+
+  const marker = Buffer.concat([Buffer.from("COMPONENT ID", "ascii"), Buffer.from([0])]);
+  const offsets = findAllBufferOccurrences(buffer, marker);
+  const metadataReferences = new Set(libraryComponents.map((component) => component.reference));
+  const seenReferences = new Set<string>();
+  const componentInstances: ProteusSchematicComponentInstance[] = [];
+
+  for (let index = 0; index < offsets.length; index += 1) {
+    const markerOffset = offsets[index];
+    const recordEnd = offsets[index + 1] ?? buffer.length;
+    const searchStart = Math.max(0, markerOffset - 80);
+    let reference: string | null = null;
+
+    for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
+      if (buffer[candidate] !== 0xff) continue;
+      const field = readProteusLengthPrefixedAscii(buffer, candidate, 16);
+      if (field && isProteusDesignator(field.value)) {
+        reference = field.value.trim();
+        break;
+      }
+    }
+    if (!reference || seenReferences.has(reference)) continue;
+
+    const valueStart = markerOffset + marker.length;
+    const valueLimit = Math.min(recordEnd, valueStart + 12);
+    let value: string | null = null;
+    for (let candidate = valueStart; candidate < valueLimit; candidate += 1) {
+      if (buffer[candidate] !== 0xff) continue;
+      const field = readProteusLengthPrefixedAscii(buffer, candidate, 128);
+      if (field) {
+        value = field.value;
+        break;
+      }
+    }
+
+    const recordText = buffer.subarray(markerOffset, recordEnd).toString("latin1");
+    const properties: Record<string, string> = {};
+    for (const key of ["PACKAGE", "PRIMTYPE"]) {
+      const property = extractProteusProperty(recordText, key);
+      if (property !== null) properties[key] = property;
+    }
+
+    seenReferences.add(reference);
+    componentInstances.push({
+      reference,
+      value,
+      properties,
+      matchesComponentMetadata: metadataReferences.has(reference),
+    });
+  }
+
+  componentInstances.sort((left, right) => left.reference.localeCompare(right.reference));
+  const decodedReferences = new Set(componentInstances.map((instance) => instance.reference));
+  const componentReferencesWithoutMetadata = componentInstances
+    .filter((instance) => !instance.matchesComponentMetadata)
+    .map((instance) => instance.reference);
+  const metadataReferencesWithoutSchematicInstance = libraryComponents
+    .filter((component) => !decodedReferences.has(component.reference))
+    .map((component) => component.reference)
+    .sort((left, right) => left.localeCompare(right));
+
+  return {
+    status: componentInstances.length > 0 ? "partial" : "unavailable",
+    source: "ROOT.DSN",
+    header: "ISIS SCHEMATIC FILE",
+    componentInstanceCount: componentInstances.length,
+    componentInstances,
+    componentReferencesWithoutMetadata,
+    metadataReferencesWithoutSchematicInstance,
+    limitations: [
+      "Se reconocen registros COMPONENT ID y se recuperan referencias/valores en formato FF + longitud + texto.",
+      "Las propiedades PACKAGE y PRIMTYPE solo se conservan cuando aparecen como texto dentro del mismo registro.",
+      "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
+      "No se reconstruyen terminales, extremos de pines, cables ni nets eléctricos; no se puede afirmar que el circuito esté importado.",
+      "El subconjunto se contrastó con una única muestra Proteus 8.13 y requiere más proyectos de referencia antes de considerarse general.",
+    ],
+  };
+}
+
 function parseProteusCdbComponentMetadata(buffer: Buffer): ProteusComponentMetadata[] {
   const components: ProteusComponentMetadata[] = [];
   const seenReferences = new Set<string>();
@@ -395,6 +557,8 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
   const cdbComponents = rootCdb
     ? parseProteusCdbComponentMetadata(extractZipEntry(buffer, rootCdb))
     : [];
+  const dsnBytes = extractZipEntry(buffer, rootDsn);
+  const schematicComponents = parseProteusDsnComponentInstances(dsnBytes, cdbComponents);
 
   return {
     format: "proteus",
@@ -419,7 +583,8 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
         "El lector se ha contrastado con la muestra de referencia del repositorio; necesita más fixtures reales de Proteus 8.13 antes de declararse general.",
       ],
     },
-    status: "recognized-project-with-partial-component-metadata",
+    schematicComponents,
+    status: "recognized-project-with-partial-schematic-data",
     schematicDecoded: false,
     limitations: [
       "Se valida la estructura ZIP y PROJECT.XML; ROOT.DSN y ROOT.CDB se inspeccionan solo parcialmente.",
