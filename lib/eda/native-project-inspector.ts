@@ -47,12 +47,20 @@ export type ProteusZipEntry = {
   crc32: string;
 };
 
+export type ProteusComponentPinMetadata = {
+  name: string;
+  number: string;
+};
+
 export type ProteusComponentMetadata = {
   reference: string;
   value: string;
   device: string;
   package: string;
   properties: Record<string, string>;
+  pinEntryOffset: number | null;
+  pinEntryStatus: "decoded" | "unavailable" | "ambiguous";
+  pins: ProteusComponentPinMetadata[];
 };
 
 export type ProteusComponentMetadataInspection = {
@@ -68,6 +76,13 @@ export type ProteusSchematicWireAddressReference = {
   wireObjectOffset: number;
 };
 
+export type ProteusSchematicPinConnection = {
+  slotIndex: number;
+  pinName: string;
+  pinNumber: string;
+  wireObjectOffset: number | null;
+};
+
 export type ProteusSchematicComponentInstance = {
   reference: string;
   recordStartOffset: number;
@@ -77,6 +92,9 @@ export type ProteusSchematicComponentInstance = {
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
   wireAddressReferences: ProteusSchematicWireAddressReference[];
+  pinSlotTableOffset: number | null;
+  pinSlotMappingStatus: "matched-by-cdb-order" | "count-mismatch" | "unavailable" | "ambiguous";
+  pinConnections: ProteusSchematicPinConnection[];
   properties: Record<string, string>;
   matchesComponentMetadata: boolean;
 };
@@ -117,6 +135,17 @@ export type ProteusSchematicJunctionNode = {
   wireObjectOffsets: number[];
 };
 
+export type ProteusSchematicWireConnectedGroup = {
+  wireObjectOffsets: number[];
+  junctionNodeOffsets: number[];
+  componentPins: Array<{
+    reference: string;
+    slotIndex: number;
+    pinName: string;
+    pinNumber: string;
+  }>;
+};
+
 export type ProteusSchematicInspection = {
   status: "partial" | "unavailable";
   source: "ROOT.DSN";
@@ -129,6 +158,7 @@ export type ProteusSchematicInspection = {
   unresolvedWireMarkerOffsets: number[];
   wireTouchGroups: ProteusSchematicWireTouchGroup[];
   junctionNodes: ProteusSchematicJunctionNode[];
+  wireConnectedGroups: ProteusSchematicWireConnectedGroup[];
   terminalMarkerOffsets: number[];
   terminalLabelMarkerOffsets: number[];
   propertiesMarkerOffsets: number[];
@@ -747,6 +777,13 @@ function parseProteusDsnComponentInstances(
       libraryName,
       libraryNameMatchesDeviceMetadata,
       wireAddressReferences: [],
+      pinSlotTableOffset: null,
+      pinSlotMappingStatus: metadata?.pinEntryStatus === "ambiguous"
+        ? "ambiguous"
+        : metadata?.pins.length
+          ? "count-mismatch"
+          : "unavailable",
+      pinConnections: [],
       properties,
       matchesComponentMetadata: metadataReferences.has(reference),
     });
@@ -781,6 +818,64 @@ function parseProteusDsnComponentInstances(
     }
   }
 
+  const metadataByReference = new Map(libraryComponents.map((component) => [component.reference, component]));
+  for (let index = 0; index < orderedInstances.length; index += 1) {
+    const instance = orderedInstances[index];
+    const metadata = metadataByReference.get(instance.reference);
+    if (!metadata || metadata.pinEntryStatus === "ambiguous" || metadata.pins.length === 0) continue;
+
+    const nextComponentStart = orderedInstances[index + 1]?.recordStartOffset;
+    const nextObjectStart = [
+      ...junctionNodes.map((node) => node.objectOffset),
+      ...wireSegments.map((wire) => wire.objectOffset),
+    ]
+      .filter((offset) => offset > instance.recordStartOffset)
+      .sort((left, right) => left - right)[0];
+    const boundaryCandidates = [nextComponentStart, nextObjectStart]
+      .filter((value): value is number => value !== undefined);
+    const recordBoundary = boundaryCandidates.length > 0
+      ? Math.min(...boundaryCandidates)
+      : buffer.length;
+    const slotCount = metadata.pins.length;
+    const candidateStarts: Array<{ offset: number; slots: number[] }> = [];
+
+    // The 8.13 sample places the u32 pin-slot array immediately before the
+    // next component/object, sometimes with one byte of record padding.
+    const minimumStart = Math.max(instance.recordStartOffset, recordBoundary - slotCount * 4 - 16);
+    const maximumStart = recordBoundary - slotCount * 4;
+    for (let candidate = minimumStart; candidate <= maximumStart; candidate += 1) {
+      const slots = Array.from({ length: slotCount }, (_, slot) =>
+        buffer.readUInt32LE(candidate + slot * 4),
+      );
+      if (slots.every((value) => value === 0 || knownWireOffsets.has(value))) {
+        const nonZero = slots.filter((value) => value !== 0);
+        if (
+          nonZero.length === instance.wireAddressReferences.length &&
+          nonZero.every((value) => instance.wireAddressReferences.some(
+            (reference) => reference.wireObjectOffset === value,
+          ))
+        ) {
+          candidateStarts.push({ offset: candidate, slots });
+        }
+      }
+    }
+
+    if (candidateStarts.length !== 1) {
+      instance.pinSlotMappingStatus = candidateStarts.length > 1 ? "ambiguous" : "count-mismatch";
+      continue;
+    }
+
+    const slotTable = candidateStarts[0];
+    instance.pinSlotTableOffset = slotTable.offset;
+    instance.pinSlotMappingStatus = "matched-by-cdb-order";
+    instance.pinConnections = metadata.pins.map((pin, slotIndex) => ({
+      slotIndex,
+      pinName: pin.name,
+      pinNumber: pin.number,
+      wireObjectOffset: slotTable.slots[slotIndex] || null,
+    }));
+  }
+
   componentInstances.sort((left, right) => left.reference.localeCompare(right.reference));
   const decodedReferences = new Set(componentInstances.map((instance) => instance.reference));
   const componentReferencesWithoutMetadata = componentInstances
@@ -790,6 +885,25 @@ function parseProteusDsnComponentInstances(
     .filter((component) => !decodedReferences.has(component.reference))
     .map((component) => component.reference)
     .sort((left, right) => left.localeCompare(right));
+  const wireConnectedGroups = wireTouchGroups.map((group): ProteusSchematicWireConnectedGroup => {
+    const wireOffsets = new Set(group.wireObjectOffsets);
+    return {
+      wireObjectOffsets: group.wireObjectOffsets,
+      junctionNodeOffsets: junctionNodes
+        .filter((node) => node.wireObjectOffsets.some((offset) => wireOffsets.has(offset)))
+        .map((node) => node.objectOffset),
+      componentPins: componentInstances.flatMap((instance) =>
+        instance.pinConnections
+          .filter((pin) => pin.wireObjectOffset !== null && wireOffsets.has(pin.wireObjectOffset))
+          .map((pin) => ({
+            reference: instance.reference,
+            slotIndex: pin.slotIndex,
+            pinName: pin.pinName,
+            pinNumber: pin.pinNumber,
+          })),
+      ),
+    };
+  });
   const componentLibraryNamesWithoutDeviceMetadataMatch = componentInstances
     .filter((instance) => instance.libraryNameMatchesDeviceMetadata === false)
     .map((instance) => instance.reference)
@@ -807,6 +921,7 @@ function parseProteusDsnComponentInstances(
     unresolvedWireMarkerOffsets,
     wireTouchGroups,
     junctionNodes,
+    wireConnectedGroups,
     terminalMarkerOffsets,
     terminalLabelMarkerOffsets,
     propertiesMarkerOffsets,
@@ -826,7 +941,8 @@ function parseProteusDsnComponentInstances(
       "Los bloques WIRE reconocidos se decodifican como cadenas de vértices int32 (mils = unidades / 2540); las ventanas de marcador permanecen como información diagnóstica aparte.",
       "Se agrupan los objetos WIRE que comparten vértices con segmentos ajenos; los grupos son geometría wire-only, no redes eléctricas completas ni asignaciones de pines.",
       "Se decodifican nodos de unión de 25 bytes solo cuando al menos tres referencias apuntan a cables conocidos y sus tres geometrías pasan por las coordenadas del nodo.",
-      "Se conservan punteros de 32 bits hallados en la cola binaria de cada registro de componente cuando coinciden exactamente con direcciones WIRE conocidas; todavía no se asignan a nombres o números de pines.",
+      "Se decodifican las tablas de patas de ROOT.CDB (nombre y número, incluso número vacío) y se enlazan con slots DSN solo cuando el tamaño coincide y todos los punteros son direcciones WIRE válidas.",
+      "wireConnectedGroups añade a cada grupo geométrico las patas de componentes enlazadas por índice de CDB; todavía no incluye etiquetas ni terminales de alimentación/tierra.",
       "Los cruces interiores sin vértice compartido no se fusionan; las etiquetas de red, terminales y pines todavía no se incorporan al agrupamiento.",
       "Los marcadores WIRE que no cumplen la estructura tipada se conservan en unresolvedWireMarkerOffsets, en lugar de interpretarse por aproximación.",
       "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
@@ -836,6 +952,81 @@ function parseProteusDsnComponentInstances(
       "El lector se contrastó con la muestra Proteus 8.13 del repositorio; los casos con instrumentos/objetos especiales requieren fixtures adicionales de la aplicación objetivo.",
     ],
   };
+}
+
+type ProteusCdbPinEntry = {
+  offset: number;
+  pins: ProteusComponentPinMetadata[];
+};
+
+function parseProteusCdbPinEntry(
+  buffer: Buffer,
+  reference: string,
+): ProteusCdbPinEntry | null | "ambiguous" {
+  const referenceBytes = Buffer.from(reference, "latin1");
+  if (referenceBytes.length === 0 || referenceBytes.length > 16) return null;
+  const tag = Buffer.concat([Buffer.from([referenceBytes.length]), referenceBytes]);
+  const entries: ProteusCdbPinEntry[] = [];
+
+  for (const tagOffset of findAllBufferOccurrences(buffer, tag)) {
+    const entryOffset = tagOffset - 16;
+    const countOffset = tagOffset + tag.length;
+    if (entryOffset < 0x20 || countOffset + 4 > buffer.length) continue;
+
+    const pinCount = buffer.readUInt32LE(countOffset);
+    if (pinCount < 1 || pinCount > 256) continue;
+
+    let cursor = countOffset + 4;
+    const pins: ProteusComponentPinMetadata[] = [];
+    let valid = true;
+    for (let index = 0; index < pinCount; index += 1) {
+      if (cursor >= buffer.length) {
+        valid = false;
+        break;
+      }
+      const nameLength = buffer[cursor];
+      cursor += 1;
+      if (nameLength === 0 || nameLength > 128 || cursor + nameLength + 1 > buffer.length) {
+        valid = false;
+        break;
+      }
+      const nameBytes = buffer.subarray(cursor, cursor + nameLength);
+      cursor += nameLength;
+      if ([...nameBytes].some((byte) => byte < 0x20 || byte > 0x7e)) {
+        valid = false;
+        break;
+      }
+
+      const numberLength = buffer[cursor];
+      cursor += 1;
+      if (numberLength > 128 || cursor + numberLength > buffer.length) {
+        valid = false;
+        break;
+      }
+      const numberBytes = buffer.subarray(cursor, cursor + numberLength);
+      cursor += numberLength;
+      if ([...numberBytes].some((byte) => byte < 0x20 || byte > 0x7e)) {
+        valid = false;
+        break;
+      }
+
+      pins.push({
+        name: nameBytes.toString("latin1"),
+        number: numberBytes.toString("latin1"),
+      });
+    }
+    // The observed 8.13 CDB pin entry is followed by a 12-byte record trailer.
+    if (!valid || cursor + 12 > buffer.length) continue;
+    if (new Set(pins.map((pin) => pin.name)).size !== pins.length) continue;
+    entries.push({ offset: entryOffset, pins });
+  }
+
+  if (entries.length === 0) return null;
+  const signatures = new Set(entries.map((entry) =>
+    JSON.stringify(entry.pins),
+  ));
+  if (signatures.size > 1) return "ambiguous";
+  return entries[0];
 }
 
 function parseProteusCdbComponentMetadata(buffer: Buffer): ProteusComponentMetadata[] {
@@ -895,7 +1086,21 @@ function parseProteusCdbComponentMetadata(buffer: Buffer): ProteusComponentMetad
       throw new Error(`ROOT.CDB contiene más de un registro de metadatos para ${reference}; no se puede resolver con seguridad.`);
     }
     seenReferences.add(reference);
-    components.push({ reference, value, device, package: packageName, properties });
+    const pinEntry = parseProteusCdbPinEntry(buffer, reference);
+    components.push({
+      reference,
+      value,
+      device,
+      package: packageName,
+      properties,
+      pinEntryOffset: pinEntry && pinEntry !== "ambiguous" ? pinEntry.offset : null,
+      pinEntryStatus: pinEntry === "ambiguous"
+        ? "ambiguous"
+        : pinEntry
+          ? "decoded"
+          : "unavailable",
+      pins: pinEntry && pinEntry !== "ambiguous" ? pinEntry.pins : [],
+    });
   }
 
   return components.sort((left, right) => left.reference.localeCompare(right.reference));
