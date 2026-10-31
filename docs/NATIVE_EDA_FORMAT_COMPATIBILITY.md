@@ -21,7 +21,8 @@ The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `R
 - `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
 - The New Wave inspector checks the `Dsg\\0` signature and returns only metadata that can be established safely. It deliberately reports that component data is not decoded.
 - The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies the extracted XML entry's size and CRC32. It reports whether `ROOT.DSN` and `ROOT.CDB` are present without claiming to interpret their contents.
-- `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report.
+- `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report. The preview panel exposes this through **Inspeccionar archivo nativo**; it does not replace the current Mathelect circuit or claim to import it.
+- Proteus ZIP inspection is bounded: at most 256 entries, 16 MB per uncompressed entry, 32 MB total declared uncompressed data and 2 MB for `PROJECT.XML`. Local and central headers are cross-checked, unsafe entry paths are rejected, and extracted XML is size/CRC checked.
 - `tests/native-eda-formats.test.ts` uses the three repository samples as regression fixtures. These tests check file recognition and container integrity, not that the projects open in the desktop applications.
 
 This is the first real compatibility layer, but it is **inspection only**. The current code does not reconstruct the sample circuits, map component library identifiers, or write native projects.
