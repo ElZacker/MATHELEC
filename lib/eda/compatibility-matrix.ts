@@ -97,7 +97,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     capabilities: {
       fileRecognition: "verified",
       containerIntegrity: "partial",
-      projectMetadata: "presence-only",
+      projectMetadata: "partial",
       circuitImport: "not-implemented",
       nativeExport: "not-implemented",
       applicationOpenTest: "not-verified",
@@ -107,7 +107,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     knownFacts: [
       "La muestra mathelecprueba.pdsprj mide 12.281 bytes y es un contenedor ZIP.",
       "El contenedor incluye PROJECT.XML, ROOT.DSN y ROOT.CDB.",
-      "Mathelect comprueba la estructura ZIP y valida tamaño y CRC32 de PROJECT.XML, pero mantiene opacos ROOT.DSN y ROOT.CDB.",
+      "Mathelect valida el contenedor ZIP y PROJECT.XML, y recupera parcialmente referencia, valor, dispositivo, paquete y propiedades de componentes desde ROOT.CDB; ROOT.DSN sigue sin decodificarse.",
     ],
     nextEvidenceRequired: [
       "Decodificación contrastada de objetos, componentes, pines, cables y redes de ROOT.DSN.",
