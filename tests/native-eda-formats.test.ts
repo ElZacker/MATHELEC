@@ -165,6 +165,17 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
     ],
   );
   assert.deepEqual(result.schematicComponents.unresolvedWireMarkerOffsets, []);
+  assert.deepEqual(
+    result.schematicComponents.wireTouchGroups,
+    [
+      { wireObjectOffsets: [72806, 72856, 72906] },
+      { wireObjectOffsets: [72989, 73039, 73089] },
+    ],
+  );
+  assert.deepEqual(result.schematicComponents.wireSegments[0].rawPoints, [
+    { x: -8128000, y: 508000 },
+    { x: -8128000, y: 254000 },
+  ]);
   assert.deepEqual(result.schematicComponents.terminalMarkerOffsets, [
     10494, 10599, 10658, 10885, 11162, 11221, 11424, 11483, 11542,
     11601, 11688, 11743, 11974, 12177, 12240, 12299, 12385, 12444,
@@ -312,4 +323,41 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
     libraryName: "$IOSCOPE",
     reason: "missing-reference-designator",
   }]);
+});
+
+
+test("Proteus DSN: agrupa contactos geométricos pero no cruces interiores sin vértice", () => {
+  const marker = Buffer.concat([Buffer.from("OBJECT DATA", "ascii"), Buffer.from([0])]);
+  const wire = (points: Array<[number, number]>) => {
+    const bytes = Buffer.from([
+      0x00, 0x1d, 0x00, 0x00, 0x00,
+      0x00, 0xc0, 0x9e, 0x00, 0x00,
+      0x00, 0x40, 0x00,
+      0x00, 0x01, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00,
+      0x02, 0x7f, 0x57, 0x49, 0x52, 0x45, 0x00, 0x00, 0x00,
+    ]);
+    bytes.writeUInt16LE(points.length, 32);
+    const vertices = Buffer.alloc(points.length * 8);
+    points.forEach(([x, y], index) => {
+      vertices.writeInt32LE(x * 2540, index * 8);
+      vertices.writeInt32LE(y * 2540, index * 8 + 4);
+    });
+    return Buffer.concat([bytes, vertices]);
+  };
+
+  const dsn = Buffer.concat([
+    Buffer.from("ISIS SCHEMATIC FILE", "ascii"),
+    Buffer.alloc(8),
+    marker,
+    wire([[-100, 0], [100, 0]]),
+    wire([[0, -100], [0, 100]]), // Cruza la horizontal sin tocar ninguno de sus vértices.
+    wire([[0, 0], [0, 50]]), // Su primer vértice cae sobre la horizontal.
+  ]);
+  const result = inspectProteusSchematicBytes(dsn);
+
+  assert.equal(result.wireSegments.length, 3);
+  assert.deepEqual(result.wireTouchGroups, [
+    { wireObjectOffsets: [dsn.indexOf(Buffer.from([0x00, 0x1d, 0x00, 0x00, 0x00]))] },
+  ]);
+  assert.deepEqual(result.wireTouchGroups.map((group) => group.wireObjectOffsets.length), [2, 1]);
 });
