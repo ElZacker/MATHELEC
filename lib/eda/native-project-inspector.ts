@@ -147,6 +147,7 @@ export type ProteusSchematicComponentInstance = {
     | "unavailable"
     | "ambiguous";
   symbolDefinition: ProteusSchematicSymbolDefinition | null;
+  symbolDefinitionDiagnostics: string[];
   pinConnections: ProteusSchematicPinConnection[];
   properties: Record<string, string>;
   matchesComponentMetadata: boolean;
@@ -763,92 +764,99 @@ function findProteusComponentRecord(
 function parseProteusSymbolDefinition(
   buffer: Buffer,
   device: string,
+  diagnostics: string[] = [],
 ): ProteusSchematicSymbolDefinition | null {
   const circuitMarker = Buffer.concat([
     Buffer.from([0xff]),
     Buffer.from("ISIS CIRCUIT FILE", "ascii"),
   ]);
   const libraryEnd = buffer.indexOf(circuitMarker);
-  if (libraryEnd < 0) return null;
-
+  if (libraryEnd < 0) {
+    diagnostics.push("library-section-marker-not-found");
+    return null;
+  }
   const deviceBytes = Buffer.from(device, "latin1");
-  if (deviceBytes.length < 1 || deviceBytes.length > 60) return null;
+  if (deviceBytes.length < 1 || deviceBytes.length > 60) {
+    diagnostics.push(`invalid-device-name-length:${deviceBytes.length}`);
+    return null;
+  }
   const deviceTag = Buffer.alloc(2 + deviceBytes.length);
   deviceTag.writeUInt16LE(deviceBytes.length, 0);
   deviceBytes.copy(deviceTag, 2);
 
-  const entries: Array<{ offset: number; byteLength: number }> = [];
   const tagOffsets = findAllBufferOccurrences(buffer.subarray(0, libraryEnd), deviceTag);
+  const entries: Array<{ offset: number; byteLength: number }> = [];
   for (const offset of tagOffsets) {
     const timestampOffset = offset + deviceTag.length;
     if (timestampOffset + 4 > libraryEnd) continue;
     const timestamp = buffer.readUInt32LE(timestampOffset);
     if (timestamp <= 0x40000000 || timestamp >= 0x80000000) continue;
-
     const headerLength = 2 + deviceBytes.length + 4 + 9;
     const bodyLengthOffset = offset + headerLength;
     if (bodyLengthOffset + 4 > libraryEnd) continue;
     const bodyLength = buffer.readUInt32LE(bodyLengthOffset);
     const totalLength = headerLength + bodyLength;
-    if (bodyLength < 20 || totalLength > libraryEnd - offset) continue;
-    entries.push({ offset, byteLength: totalLength });
+    if (bodyLength > 20 && totalLength <= libraryEnd - offset) {
+      entries.push({ offset, byteLength: totalLength });
+    }
   }
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    diagnostics.push(`device-definition-not-found:${device}:tag-offsets=${tagOffsets.length}`);
+    return null;
+  }
   entries.sort((left, right) => left.offset - right.offset);
-  const entry = entries[0];
-  const blockEnd = entry.offset + entry.byteLength;
-  const block = buffer.subarray(entry.offset, blockEnd);
-  const blockText = block.toString("latin1");
-  const markerPattern = /\$PIN[A-Z]+\0/g;
-  const pins: ProteusSchematicSymbolPin[] = [];
+  diagnostics.push(`device-definition-candidates:${entries.map((entry) => `${entry.offset}/${entry.byteLength}`).join(",")}`);
 
-  for (const match of blockText.matchAll(markerPattern)) {
-    const markerOffset = entry.offset + (match.index ?? 0);
-    if (markerOffset < entry.offset + 16 || markerOffset >= blockEnd) continue;
-    const nameStart = markerOffset + match[0].length;
-    const nameEnd = buffer.indexOf(0, nameStart);
-    if (nameEnd < nameStart || nameEnd >= blockEnd) continue;
-    const numberStart = nameEnd + 1;
-    const numberEnd = buffer.indexOf(0, numberStart);
-    if (numberEnd < numberStart || numberEnd >= blockEnd) continue;
-
-    const name = buffer.subarray(nameStart, nameEnd).toString("latin1");
-    const number = buffer.subarray(numberStart, numberEnd).toString("latin1");
-    if (!name || [...name, ...number].some((character) => {
-      const code = character.charCodeAt(0);
-      return code < 0x20 || code > 0x7e;
-    })) continue;
-
-    const flags = buffer.readUInt32LE(markerOffset - 16);
-    const rawX = buffer.readInt32LE(markerOffset - 12);
-    const rawY = buffer.readInt32LE(markerOffset - 8);
-    pins.push({
-      name,
-      number,
-      hidden: (flags & 0xff) === 0x07,
-      base: { x: rawX / 2540, y: rawY / 2540 },
-      direction: { x: 0, y: 0 },
-    });
+  for (const entry of entries) {
+    const blockEnd = entry.offset + entry.byteLength;
+    const blockText = buffer.subarray(entry.offset, blockEnd).toString("latin1");
+    const markerPattern = /\$PIN[A-Z]+\0/g;
+    const pins: ProteusSchematicSymbolPin[] = [];
+    for (const match of blockText.matchAll(markerPattern)) {
+      const markerOffset = entry.offset + (match.index ?? 0);
+      if (markerOffset < entry.offset + 16 || markerOffset >= blockEnd) continue;
+      const nameStart = markerOffset + match[0].length;
+      const nameEnd = buffer.indexOf(0, nameStart);
+      if (nameEnd < nameStart || nameEnd >= blockEnd) continue;
+      const numberStart = nameEnd + 1;
+      const numberEnd = buffer.indexOf(0, numberStart);
+      if (numberEnd < numberStart || numberEnd >= blockEnd) continue;
+      const name = buffer.subarray(nameStart, nameEnd).toString("latin1");
+      const number = buffer.subarray(numberStart, numberEnd).toString("latin1");
+      if (!name || [...name, ...number].some((character) => {
+        const code = character.charCodeAt(0);
+        return code < 0x20 || code > 0x7e;
+      })) continue;
+      const flags = buffer.readUInt32LE(markerOffset - 16);
+      const rawX = buffer.readInt32LE(markerOffset - 12);
+      const rawY = buffer.readInt32LE(markerOffset - 8);
+      pins.push({
+        name,
+        number,
+        hidden: (flags & 0xff) === 0x07,
+        base: { x: rawX / 2540, y: rawY / 2540 },
+        direction: { x: 0, y: 0 },
+      });
+    }
+    if (pins.length === 0) {
+      diagnostics.push(`definition-${entry.offset}:no-valid-pin-markers`);
+      continue;
+    }
+    const minX = Math.min(...pins.map((pin) => pin.base.x));
+    const maxX = Math.max(...pins.map((pin) => pin.base.x));
+    const minY = Math.min(...pins.map((pin) => pin.base.y));
+    const maxY = Math.max(...pins.map((pin) => pin.base.y));
+    for (const pin of pins) {
+      const { x, y } = pin.base;
+      if (minX !== maxX && x === minX) pin.direction = { x: -1, y: 0 };
+      else if (minX !== maxX && x === maxX) pin.direction = { x: 1, y: 0 };
+      else if (y === minY) pin.direction = { x: 0, y: -1 };
+      else if (y === maxY) pin.direction = { x: 0, y: 1 };
+    }
+    diagnostics.push(`definition-${entry.offset}:decoded-pins=${pins.length}`);
+    return { offset: entry.offset, byteLength: entry.byteLength, pins };
   }
-
-  if (pins.length === 0) return null;
-  const minX = Math.min(...pins.map((pin) => pin.base.x));
-  const maxX = Math.max(...pins.map((pin) => pin.base.x));
-  const minY = Math.min(...pins.map((pin) => pin.base.y));
-  const maxY = Math.max(...pins.map((pin) => pin.base.y));
-  for (const pin of pins) {
-    const { x, y } = pin.base;
-    if (minX !== maxX && x === minX) pin.direction = { x: -1, y: 0 };
-    else if (minX !== maxX && x === maxX) pin.direction = { x: 1, y: 0 };
-    else if (y === minY) pin.direction = { x: 0, y: -1 };
-    else if (y === maxY) pin.direction = { x: 0, y: 1 };
-  }
-
-  return {
-    offset: entry.offset,
-    byteLength: entry.byteLength,
-    pins,
-  };
+  return null;
 }
 
 function orderProteusCdbPinsBySymbolDefinition(
@@ -1335,6 +1343,14 @@ function parseProteusDsnComponentInstances(
       : null;
 
     seenReferences.add(reference);
+    const symbolDefinitionDiagnostics: string[] = [];
+    const symbolDefinition = parsedRecord
+      ? parseProteusSymbolDefinition(
+          buffer,
+          parsedRecord.placement.device,
+          symbolDefinitionDiagnostics,
+        )
+      : null;
     componentInstances.push({
       reference,
       componentRecordParseStatus: parsedRecord
@@ -1348,9 +1364,8 @@ function parseProteusDsnComponentInstances(
         (referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length)),
       sourceOffset: markerOffset,
       placement: parsedRecord?.placement ?? null,
-      symbolDefinition: parsedRecord
-        ? parseProteusSymbolDefinition(buffer, parsedRecord.placement.device)
-        : null,
+      symbolDefinition,
+      symbolDefinitionDiagnostics,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
