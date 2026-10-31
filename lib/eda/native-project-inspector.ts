@@ -537,14 +537,16 @@ function parseProteusComponentRecordAt(
   const labelBlocks: ProteusSchematicLabelBlock[] = [];
 
   for (let blockIndex = 0; blockIndex < 4; blockIndex += 1) {
-    if (cursor + 5 > buffer.length || buffer[cursor] !== 0xff) {
+    if (cursor + 2 > buffer.length || buffer[cursor] !== 0xff) {
       return fail(`label-${blockIndex}:missing-ff-header`);
     }
-    const textLength = buffer.readUInt32LE(cursor + 1);
-    if (textLength < 1 || textLength > 4096) {
-      return fail(`label-${blockIndex}:invalid-u32-length-${textLength}`);
+    // Placed-component label blocks in the supplied Proteus 8.13 fixture use
+    // FF + one-byte text length (unlike some other ISIS data strings).
+    const textLength = buffer[cursor + 1];
+    if (textLength < 1 || textLength > 128) {
+      return fail(`label-${blockIndex}:invalid-u8-length-${textLength}`);
     }
-    const textStart = cursor + 5;
+    const textStart = cursor + 2;
     const textEnd = textStart + textLength;
     const anchorOffset = textEnd;
     const styleOffset = anchorOffset + 8;
@@ -595,7 +597,7 @@ function parseProteusComponentRecordAt(
     return fail("component-id-marker-before-record-start");
   }
   const componentIdMarkerOffset = recordStartOffset +
-    5 + componentIdBlock.text.length + 8 + 26 + 13;
+    2 + componentIdBlock.text.length + 8 + 26 + 13;
   if (componentIdMarkerOffset !== expectedComponentIdMarkerOffset) {
     return fail(
       `component-id-marker-offset-mismatch:expected-${expectedComponentIdMarkerOffset}:got-${componentIdMarkerOffset}`,
@@ -667,8 +669,8 @@ function findProteusComponentRecord(
   const diagnostics: string[] = [];
 
   for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
-    if (buffer[candidate] !== 0xff || candidate + 5 > buffer.length) continue;
-    const textLength = buffer.readUInt32LE(candidate + 1);
+    if (buffer[candidate] !== 0xff || candidate + 2 > buffer.length) continue;
+    const textLength = buffer[candidate + 1];
     if (textLength < 1 || textLength > 6) continue;
     candidateOffsets.push(candidate);
     const attemptDiagnostics: string[] = [];
