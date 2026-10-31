@@ -111,6 +111,60 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
     { offset: 73064, byteWindowLength: 50, nextBoundary: "wire-marker" },
     { offset: 73114, byteWindowLength: 69, nextBoundary: "object-data-marker" },
   ]);
+  assert.deepEqual(
+    result.schematicComponents.wireSegments.map(({ objectOffset, markerOffset, byteLength, vertexCount, points }) => ({
+      objectOffset,
+      markerOffset,
+      byteLength,
+      vertexCount,
+      points,
+    })),
+    [
+      {
+        objectOffset: 72806,
+        markerOffset: 72831,
+        byteLength: 50,
+        vertexCount: 2,
+        points: [{ x: -3200, y: 200 }, { x: -3200, y: 100 }],
+      },
+      {
+        objectOffset: 72856,
+        markerOffset: 72881,
+        byteLength: 50,
+        vertexCount: 2,
+        points: [{ x: -2500, y: 100 }, { x: -3200, y: 100 }],
+      },
+      {
+        objectOffset: 72906,
+        markerOffset: 72931,
+        byteLength: 58,
+        vertexCount: 3,
+        points: [{ x: -4000, y: 0 }, { x: -3200, y: 0 }, { x: -3200, y: 100 }],
+      },
+      {
+        objectOffset: 72989,
+        markerOffset: 73014,
+        byteLength: 50,
+        vertexCount: 2,
+        points: [{ x: -2500, y: 600 }, { x: -3200, y: 600 }],
+      },
+      {
+        objectOffset: 73039,
+        markerOffset: 73064,
+        byteLength: 50,
+        vertexCount: 2,
+        points: [{ x: -3200, y: 600 }, { x: -3200, y: 600 }],
+      },
+      {
+        objectOffset: 73089,
+        markerOffset: 73114,
+        byteLength: 58,
+        vertexCount: 3,
+        points: [{ x: -4000, y: 700 }, { x: -3200, y: 700 }, { x: -3200, y: 600 }],
+      },
+    ],
+  );
+  assert.deepEqual(result.schematicComponents.unresolvedWireMarkerOffsets, []);
   assert.deepEqual(result.schematicComponents.terminalMarkerOffsets, [
     10494, 10599, 10658, 10885, 11162, 11221, 11424, 11483, 11542,
     11601, 11688, 11743, 11974, 12177, 12240, 12299, 12385, 12444,
