@@ -83,11 +83,34 @@ export type ProteusSchematicPinConnection = {
   wireObjectOffset: number | null;
 };
 
+export type ProteusSchematicLabelBlock = {
+  text: string;
+  attribute: string;
+  anchor: { x: number; y: number };
+  rawAnchor: { x: number; y: number };
+  styleBytesHex: string;
+  tailBytesHex: string;
+};
+
+export type ProteusSchematicComponentPlacement = {
+  device: string;
+  pinCount: number;
+  origin: { x: number; y: number };
+  rawOrigin: { x: number; y: number };
+  rotationDegrees: number;
+  mirrorFlag: number;
+  orientationBytesHex: string;
+  pinSlotTableOffset: number;
+  pinSlotAddresses: number[];
+  labelBlocks: ProteusSchematicLabelBlock[];
+};
+
 export type ProteusSchematicComponentInstance = {
   reference: string;
   recordStartOffset: number;
   sourceOffset: number;
   rawPlacementWords: [string, string] | null;
+  placement: ProteusSchematicComponentPlacement | null;
   value: string | null;
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
@@ -438,15 +461,147 @@ function extractProteusProperties(text: string): Record<string, string> {
   return properties;
 }
 
+type ParsedProteusComponentRecord = {
+  recordStartOffset: number;
+  componentIdMarkerOffset: number;
+  reference: string;
+  value: string | null;
+  placement: ProteusSchematicComponentPlacement;
+};
+
+function parseProteusComponentRecordAt(
+  buffer: Buffer,
+  recordStartOffset: number,
+  expectedComponentIdMarkerOffset: number,
+): ParsedProteusComponentRecord | null {
+  let cursor = recordStartOffset;
+  const labelBlocks: ProteusSchematicLabelBlock[] = [];
+
+  for (let blockIndex = 0; blockIndex < 4; blockIndex += 1) {
+    if (cursor + 5 > buffer.length || buffer[cursor] !== 0xff) return null;
+    const textLength = buffer.readUInt32LE(cursor + 1);
+    if (textLength < 1 || textLength > 4096) return null;
+    const textStart = cursor + 5;
+    const textEnd = textStart + textLength;
+    const anchorOffset = textEnd;
+    const styleOffset = anchorOffset + 8;
+    const fontOffset = styleOffset + 26;
+    const attributeOffset = fontOffset + 13;
+    if (attributeOffset >= buffer.length || !buffer.subarray(fontOffset, attributeOffset).equals(Buffer.from("Default Font\0", "ascii"))) {
+      return null;
+    }
+    const attributeEnd = buffer.indexOf(0, attributeOffset);
+    if (attributeEnd < 0 || attributeEnd > attributeOffset + 40 || attributeEnd + 5 > buffer.length) {
+      return null;
+    }
+
+    const textBytes = buffer.subarray(textStart, textEnd);
+    const attributeBytes = buffer.subarray(attributeOffset, attributeEnd);
+    if (
+      [...textBytes].some((byte) => byte < 0x20 || byte > 0x7e) ||
+      [...attributeBytes].some((byte) => byte < 0x20 || byte > 0x7e)
+    ) {
+      return null;
+    }
+
+    const rawX = buffer.readInt32LE(anchorOffset);
+    const rawY = buffer.readInt32LE(anchorOffset + 4);
+    labelBlocks.push({
+      text: textBytes.toString("latin1"),
+      attribute: attributeBytes.toString("latin1"),
+      anchor: { x: rawX / 2540, y: rawY / 2540 },
+      rawAnchor: { x: rawX, y: rawY },
+      styleBytesHex: buffer.subarray(styleOffset, fontOffset).toString("hex"),
+      tailBytesHex: buffer.subarray(attributeEnd + 1, attributeEnd + 5).toString("hex"),
+    });
+    cursor = attributeEnd + 5;
+  }
+
+  const componentIdBlock = labelBlocks[0];
+  if (!componentIdBlock || componentIdBlock.attribute !== "COMPONENT ID") return null;
+  if (recordStartOffset < 0 || recordStartOffset > expectedComponentIdMarkerOffset) return null;
+  const componentIdMarkerOffset = buffer.indexOf(
+    Buffer.from("COMPONENT ID\0", "ascii"),
+    recordStartOffset,
+    cursor,
+  );
+  if (componentIdMarkerOffset !== expectedComponentIdMarkerOffset) return null;
+  if (!isProteusDesignator(componentIdBlock.text)) return null;
+
+  if (cursor + 4 > buffer.length) return null;
+  const pinCount = buffer.readUInt16LE(cursor);
+  const deviceNameLength = buffer.readUInt16LE(cursor + 2);
+  if (pinCount < 1 || pinCount > 300 || deviceNameLength < 1 || deviceNameLength > 60) return null;
+  const deviceStart = cursor + 4;
+  const originOffset = deviceStart + deviceNameLength;
+  const tailStart = originOffset + 8;
+  const pinSlotTableOffset = tailStart + 17;
+  const pinSlotArrayEnd = pinSlotTableOffset + pinCount * 4;
+  if (pinSlotArrayEnd > buffer.length) return null;
+  const deviceBytes = buffer.subarray(deviceStart, originOffset);
+  if ([...deviceBytes].some((byte) => byte < 0x20 || byte > 0x7e)) return null;
+
+  const rawOrigin = {
+    x: buffer.readInt32LE(originOffset),
+    y: buffer.readInt32LE(originOffset + 4),
+  };
+  const rotationRaw = buffer.readInt16LE(tailStart);
+  const mirrorFlag = buffer.readUInt16LE(tailStart + 2);
+  const pinSlotAddresses = Array.from({ length: pinCount }, (_, index) =>
+    buffer.readUInt32LE(pinSlotTableOffset + index * 4),
+  );
+  const labelValue = labelBlocks.find((block) => block.attribute === "COMPONENT VALUE")?.text ?? null;
+
+  return {
+    recordStartOffset,
+    componentIdMarkerOffset,
+    reference: componentIdBlock.text,
+    value: labelValue,
+    placement: {
+      device: deviceBytes.toString("latin1"),
+      pinCount,
+      origin: { x: rawOrigin.x / 2540, y: rawOrigin.y / 2540 },
+      rawOrigin,
+      rotationDegrees: rotationRaw / 10,
+      mirrorFlag,
+      orientationBytesHex: buffer.subarray(tailStart, tailStart + 4).toString("hex"),
+      pinSlotTableOffset,
+      pinSlotAddresses,
+      labelBlocks,
+    },
+  };
+}
+
+function findProteusComponentRecord(
+  buffer: Buffer,
+  markerOffset: number,
+  objectDataStart: number,
+): ParsedProteusComponentRecord | null {
+  const searchStart = Math.max(objectDataStart, markerOffset - 512);
+  const candidates: ParsedProteusComponentRecord[] = [];
+  for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
+    if (buffer[candidate] !== 0xff || candidate + 5 > buffer.length) continue;
+    const textLength = buffer.readUInt32LE(candidate + 1);
+    if (textLength < 1 || textLength > 6) continue;
+    const parsed = parseProteusComponentRecordAt(buffer, candidate, markerOffset);
+    if (parsed) candidates.push(parsed);
+  }
+  if (candidates.length === 0) return null;
+  if (candidates.length > 1) {
+    const starts = new Set(candidates.map((candidate) => candidate.recordStartOffset));
+    if (starts.size > 1) return null;
+  }
+  return candidates.sort((left, right) => left.recordStartOffset - right.recordStartOffset)[0];
+}
+
 /**
  * Decodes the conservative component-instance subset of ROOT.DSN:
- * - component records anchored by "COMPONENT ID\\0";
- * - the nearest preceding FF-length-prefixed reference designator;
- * - the first FF-length-prefixed value immediately after the marker;
- * - printable brace-delimited properties from the same instance record.
+ * - the four text blocks and attribute anchors in a placed component record;
+ * - component device, physical origin, angle/mirror flag and pin-slot array;
+ * - visible value and printable brace-delimited instance properties.
  *
- * This is not a full ISIS schematic decoder. In particular, it does not infer
- * graphical coordinates, symbol geometry, pin endpoints, wires or electrical nets.
+ * It still needs symbol-definition geometry and application-level validation
+ * before physical pin endpoints or a fully simulated netlist can be claimed.
  */
 function parseProteusDsnComponentInstances(
   buffer: Buffer,
