@@ -88,6 +88,14 @@ export type ProteusSchematicMarkerSpan = {
   nextBoundary: "wire-marker" | "object-data-marker" | "end-of-file";
 };
 
+export type ProteusSchematicWireSegment = {
+  objectOffset: number;
+  markerOffset: number;
+  byteLength: number;
+  vertexCount: number;
+  points: Array<{ x: number; y: number }>;
+};
+
 export type ProteusSchematicInspection = {
   status: "partial" | "unavailable";
   source: "ROOT.DSN";
@@ -96,6 +104,8 @@ export type ProteusSchematicInspection = {
   componentIdMarkersOutsideObjectData: number;
   wireMarkerOffsets: number[];
   wireMarkerSpans: ProteusSchematicMarkerSpan[];
+  wireSegments: ProteusSchematicWireSegment[];
+  unresolvedWireMarkerOffsets: number[];
   terminalMarkerOffsets: number[];
   terminalLabelMarkerOffsets: number[];
   propertiesMarkerOffsets: number[];
@@ -430,6 +440,66 @@ function parseProteusDsnComponentInstances(
     }
     return { offset, byteWindowLength: buffer.length - offset, nextBoundary: "end-of-file" };
   });
+  const wireSegments: ProteusSchematicWireSegment[] = [];
+  const unresolvedWireMarkerOffsets: number[] = [];
+  const wirePrefix = Buffer.from([
+    0x00, 0x1d, 0x00, 0x00, 0x00,
+    0x00, 0xc0, 0x9e, 0x00, 0x00,
+    // Bytes +10..+12 are style/color and intentionally remain variable.
+    0x00, 0x00, 0x00,
+    0x00, 0x01, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00,
+    0x02, 0x7f,
+    0x57, 0x49, 0x52, 0x45,
+    0x00, 0x00, 0x00,
+  ]);
+  for (const markerOffset of wireMarkerOffsets) {
+    const objectOffset = markerOffset - 25;
+    const objectDataStart = objectDataOffsets
+      .filter((candidate) => candidate < markerOffset)
+      .pop();
+    const objectDataEnd = objectDataOffsets.find((candidate) => candidate > markerOffset) ?? buffer.length;
+    if (objectDataStart === undefined || objectOffset < objectDataStart + objectDataMarker.length) {
+      unresolvedWireMarkerOffsets.push(markerOffset);
+      continue;
+    }
+
+    const prefixMatches =
+      objectOffset >= 0 &&
+      objectOffset + 34 <= objectDataEnd &&
+      buffer[objectOffset] === 0x00 &&
+      buffer.readUInt32LE(objectOffset + 1) === 0x1d &&
+      buffer.subarray(objectOffset + 5, objectOffset + 10).equals(wirePrefix.subarray(5, 10)) &&
+      buffer.subarray(objectOffset + 13, objectOffset + 34).equals(wirePrefix.subarray(13, 34));
+
+    if (!prefixMatches || buffer.toString("ascii", objectOffset + 25, objectOffset + 29) !== "WIRE") {
+      unresolvedWireMarkerOffsets.push(markerOffset);
+      continue;
+    }
+
+    const vertexCount = buffer.readUInt16LE(objectOffset + 32);
+    const byteLength = 34 + 8 * vertexCount;
+    if (
+      vertexCount < 2 ||
+      vertexCount > 256 ||
+      objectOffset + byteLength > objectDataEnd
+    ) {
+      unresolvedWireMarkerOffsets.push(markerOffset);
+      continue;
+    }
+
+    const points = Array.from({ length: vertexCount }, (_, index) => ({
+      x: buffer.readInt32LE(objectOffset + 34 + index * 8) / 2540,
+      y: buffer.readInt32LE(objectOffset + 38 + index * 8) / 2540,
+    }));
+    wireSegments.push({
+      objectOffset,
+      markerOffset,
+      byteLength,
+      vertexCount,
+      points,
+    });
+  }
+
   const markersOutsideObjectData = offsets.filter((markerOffset) =>
     !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
   ).length;
@@ -576,6 +646,8 @@ function parseProteusDsnComponentInstances(
     componentIdMarkersOutsideObjectData: markersOutsideObjectData,
     wireMarkerOffsets,
     wireMarkerSpans,
+    wireSegments,
+    unresolvedWireMarkerOffsets,
     terminalMarkerOffsets,
     terminalLabelMarkerOffsets,
     propertiesMarkerOffsets,
@@ -592,7 +664,9 @@ function parseProteusDsnComponentInstances(
       "Se conservan dos palabras binarias de 32 bits posteriores al designador como datos de colocación opacos; su significado y escala no están confirmados y no se etiquetan como coordenadas.",
       "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
       "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
-      "Se registran los offsets y ventanas hasta el siguiente marcador WIRE o límite OBJECT DATA; no se interpretan todavía como segmentos, extremos, pines o nets reconstruidos.",
+      "Los bloques WIRE reconocidos se decodifican como cadenas de vértices int32 (mils = unidades / 2540); las ventanas de marcador permanecen como información diagnóstica aparte.",
+      "La geometría de los cables se recupera, pero todavía no se reconstruyen redes eléctricas ni se correlacionan sus extremos con pines/terminales.",
+      "Los marcadores WIRE que no cumplen la estructura tipada se conservan en unresolvedWireMarkerOffsets, en lugar de interpretarse por aproximación.",
       "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
       "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
