@@ -295,8 +295,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         pinSlotTableOffset: 71975,
         pinSlotMappingStatus: "slot-table-valid-symbol-order-unverified",
         pinConnections: [
-          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "+", pinNumber: "", wireObjectOffset: 73089 },
-          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "-", pinNumber: "", wireObjectOffset: 72906 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "+", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 73089 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "-", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72906 },
         ],
       },
       {
@@ -304,8 +304,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         pinSlotTableOffset: 72391,
         pinSlotMappingStatus: "slot-table-valid-symbol-order-unverified",
         pinConnections: [
-          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "A", pinNumber: "", wireObjectOffset: 73039 },
-          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "K", pinNumber: "", wireObjectOffset: 72806 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "A", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 73039 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "K", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72806 },
         ],
       },
       {
@@ -313,8 +313,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         pinSlotTableOffset: 72773,
         pinSlotMappingStatus: "slot-table-valid-symbol-order-unverified",
         pinConnections: [
-          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "1", pinNumber: "1", wireObjectOffset: 72856 },
-          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "2", pinNumber: "2", wireObjectOffset: 72989 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "1", pinNumber: "1", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72856 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "2", pinNumber: "2", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72989 },
         ],
       },
     ],
