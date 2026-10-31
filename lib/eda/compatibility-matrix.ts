@@ -9,8 +9,27 @@ export type CompatibilityLevel =
   | "not-implemented"
   | "not-verified";
 
+export type NativeEdaInteroperabilityPath = {
+  sourceFormat: NativeEdaFormat;
+  targetFormat: NativeEdaFormat;
+  method: "open-livewire-file-and-convert-in-target";
+  evidenceUrl: string;
+  vendorDocumented: true;
+  applicationSmokeTested: false;
+};
+
+const LIVEWIRE_TO_PCB_WIZARD_PATH: NativeEdaInteroperabilityPath = {
+  sourceFormat: "livewire",
+  targetFormat: "pcb-wizard",
+  method: "open-livewire-file-and-convert-in-target",
+  evidenceUrl: "https://www.new-wave-concepts.com/ed/pw_faq.html",
+  vendorDocumented: true,
+  applicationSmokeTested: false,
+};
+
 export type NativeEdaCompatibilityProfile = {
   format: NativeEdaFormat;
+  documentedInteroperability: NativeEdaInteroperabilityPath[];
   application: string;
   installedVersion: string;
   versionSource: "user-confirmed";
@@ -33,6 +52,7 @@ export type NativeEdaCompatibilityProfile = {
 const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
   {
     format: "livewire",
+    documentedInteroperability: [LIVEWIRE_TO_PCB_WIZARD_PATH],
     application: "Livewire",
     installedVersion: "1.11",
     versionSource: "user-confirmed",
@@ -61,6 +81,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
   },
   {
     format: "pcb-wizard",
+    documentedInteroperability: [LIVEWIRE_TO_PCB_WIZARD_PATH],
     application: "PCB Wizard",
     installedVersion: "3.50",
     versionSource: "user-confirmed",
@@ -89,6 +110,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
   },
   {
     format: "proteus",
+    documentedInteroperability: [],
     application: "Proteus",
     installedVersion: "8.13",
     versionSource: "user-confirmed",
@@ -121,6 +143,7 @@ export function getNativeEdaCompatibilityMatrix(): NativeEdaCompatibilityProfile
   return PROFILES.map((profile) => ({
     ...profile,
     capabilities: { ...profile.capabilities },
+    documentedInteroperability: profile.documentedInteroperability.map((path) => ({ ...path })),
     knownFacts: [...profile.knownFacts],
     nextEvidenceRequired: [...profile.nextEvidenceRequired],
   }));
@@ -134,6 +157,7 @@ export function getNativeEdaCompatibilityProfile(
   return {
     ...profile,
     capabilities: { ...profile.capabilities },
+    documentedInteroperability: profile.documentedInteroperability.map((path) => ({ ...path })),
     knownFacts: [...profile.knownFacts],
     nextEvidenceRequired: [...profile.nextEvidenceRequired],
   };

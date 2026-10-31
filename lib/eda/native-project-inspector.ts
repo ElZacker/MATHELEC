@@ -27,6 +27,7 @@ export type NewWaveInspection = {
   byteLength: number;
   signature: "Dsg\\0";
   textMarkers: string[];
+  textMarkerOffsets: Array<{ marker: string; offset: number }>;
   status: "recognized-binary-not-yet-decoded";
   componentDataDecoded: false;
   limitations: string[];
@@ -59,6 +60,8 @@ export type ProteusComponentMetadataInspection = {
 export type ProteusSchematicComponentInstance = {
   reference: string;
   value: string | null;
+  libraryName: string | null;
+  libraryNameMatchesDeviceMetadata: boolean | null;
   properties: Record<string, string>;
   matchesComponentMetadata: boolean;
 };
@@ -71,6 +74,7 @@ export type ProteusSchematicInspection = {
   componentInstances: ProteusSchematicComponentInstance[];
   componentReferencesWithoutMetadata: string[];
   metadataReferencesWithoutSchematicInstance: string[];
+  componentLibraryNamesWithoutDeviceMetadataMatch: string[];
   limitations: string[];
 };
 
@@ -393,6 +397,26 @@ function parseProteusDsnComponentInstances(
       }
     }
 
+    // COMPONENT VALUE is a distinct ISIS marker: its following FF-length token
+    // identifies the library definition/part, not the visible component value.
+    const componentValueMarker = Buffer.concat([
+      Buffer.from("COMPONENT VALUE", "ascii"),
+      Buffer.from([0]),
+    ]);
+    const componentValueMarkerOffset = buffer.indexOf(componentValueMarker, valueStart);
+    let libraryName: string | null = null;
+    if (
+      componentValueMarkerOffset >= valueStart &&
+      componentValueMarkerOffset + componentValueMarker.length <= recordEnd
+    ) {
+      const libraryField = readProteusLengthPrefixedAscii(
+        buffer,
+        componentValueMarkerOffset + componentValueMarker.length,
+        128,
+      );
+      if (libraryField && libraryField.next <= recordEnd) libraryName = libraryField.value;
+    }
+
     const recordText = buffer.subarray(markerOffset, recordEnd).toString("latin1");
     const properties: Record<string, string> = {};
     for (const key of ["PACKAGE", "PRIMTYPE"]) {
@@ -400,10 +424,17 @@ function parseProteusDsnComponentInstances(
       if (property !== null) properties[key] = property;
     }
 
+    const metadata = libraryComponents.find((component) => component.reference === reference);
+    const libraryNameMatchesDeviceMetadata = libraryName !== null && metadata
+      ? libraryName.trim().toUpperCase() === metadata.device.trim().toUpperCase()
+      : null;
+
     seenReferences.add(reference);
     componentInstances.push({
       reference,
       value,
+      libraryName,
+      libraryNameMatchesDeviceMetadata,
       properties,
       matchesComponentMetadata: metadataReferences.has(reference),
     });
@@ -418,6 +449,10 @@ function parseProteusDsnComponentInstances(
     .filter((component) => !decodedReferences.has(component.reference))
     .map((component) => component.reference)
     .sort((left, right) => left.localeCompare(right));
+  const componentLibraryNamesWithoutDeviceMetadataMatch = componentInstances
+    .filter((instance) => instance.libraryNameMatchesDeviceMetadata === false)
+    .map((instance) => instance.reference)
+    .sort((left, right) => left.localeCompare(right));
 
   return {
     status: componentInstances.length > 0 ? "partial" : "unavailable",
@@ -427,9 +462,11 @@ function parseProteusDsnComponentInstances(
     componentInstances,
     componentReferencesWithoutMetadata,
     metadataReferencesWithoutSchematicInstance,
+    componentLibraryNamesWithoutDeviceMetadataMatch,
     limitations: [
       "Se reconocen registros COMPONENT ID y se recuperan referencias/valores en formato FF + longitud + texto.",
       "Las propiedades PACKAGE y PRIMTYPE solo se conservan cuando aparecen como texto dentro del mismo registro.",
+      "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
       "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
       "No se reconstruyen terminales, extremos de pines, cables ni nets eléctricos; no se puede afirmar que el circuito esté importado.",
       "El subconjunto se contrastó con una única muestra Proteus 8.13 y requiere más proyectos de referencia antes de considerarse general.",
@@ -506,6 +543,18 @@ function getAsciiMarkers(buffer: Buffer): string[] {
   return knownMarkers.filter((marker) => text.includes(marker));
 }
 
+function getAsciiMarkerOffsets(
+  buffer: Buffer,
+): Array<{ marker: string; offset: number }> {
+  const knownMarkers = ["page &p of &n", "Arial"];
+  return knownMarkers
+    .flatMap((marker) =>
+      findAllBufferOccurrences(buffer, Buffer.from(marker, "ascii"))
+        .map((offset) => ({ marker, offset })),
+    )
+    .sort((left, right) => left.offset - right.offset);
+}
+
 function inspectNewWaveDocument(
   format: "livewire" | "pcb-wizard",
   buffer: Buffer,
@@ -521,6 +570,7 @@ function inspectNewWaveDocument(
     byteLength: buffer.length,
     signature: "Dsg\\0",
     textMarkers: getAsciiMarkers(buffer),
+    textMarkerOffsets: getAsciiMarkerOffsets(buffer),
     status: "recognized-binary-not-yet-decoded",
     componentDataDecoded: false,
     limitations: [
