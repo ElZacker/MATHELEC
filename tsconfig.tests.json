@@ -22,6 +22,8 @@
     "tests/known-circuit-templates.test.ts",
     "lib/circuits/known-circuit-templates.ts",
     "lib/circuits/components.ts",
-    "lib/circuits/transient-simulation.ts"
+    "lib/circuits/transient-simulation.ts",
+    "tests/native-eda-formats.test.ts",
+    "lib/eda/native-project-inspector.ts"
   ]
 }
