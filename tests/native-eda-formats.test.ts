@@ -18,6 +18,12 @@ test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar com
   assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
+  assert.deepEqual(result.formatIdentification, {
+    family: "New Wave Dsg",
+    selectedBy: "file-extension",
+    confidence: "shared-family-signature-plus-extension",
+    applicationSpecificSignatureVerified: false,
+  });
   assert.equal(result.componentDataDecoded, false);
   assert.deepEqual(result.textMarkerOffsets, [
     { marker: "page &p of &n", offset: 90 },
@@ -34,6 +40,12 @@ test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión",
   assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
+  assert.deepEqual(result.formatIdentification, {
+    family: "New Wave Dsg",
+    selectedBy: "file-extension",
+    confidence: "shared-family-signature-plus-extension",
+    applicationSpecificSignatureVerified: false,
+  });
   assert.equal(result.componentDataDecoded, false);
   assert.deepEqual(result.textMarkerOffsets, [
     { marker: "page &p of &n", offset: 90 },
