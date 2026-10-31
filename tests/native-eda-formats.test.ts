@@ -74,11 +74,28 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.equal(result.schematicComponents.source, "ROOT.DSN");
   assert.equal(result.schematicComponents.header, "ISIS SCHEMATIC FILE");
   assert.equal(result.schematicComponents.status, "partial");
+  assert.equal(result.schematicComponents.objectDataSectionCount, 1);
+  assert.equal(result.schematicComponents.componentIdMarkersOutsideObjectData, 1);
   assert.equal(result.schematicComponents.componentInstanceCount, 3);
   assert.deepEqual(
     result.schematicComponents.componentInstances.map((instance) => instance.reference),
     ["B1", "D1", "R1"],
   );
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map(({ reference, libraryName, libraryNameMatchesDeviceMetadata }) => ({
+      reference,
+      libraryName,
+      libraryNameMatchesDeviceMetadata,
+    })),
+    [
+      { reference: "B1", libraryName: "BATTERY", libraryNameMatchesDeviceMetadata: true },
+      { reference: "D1", libraryName: "LED-RED", libraryNameMatchesDeviceMetadata: true },
+      { reference: "R1", libraryName: "10WATT1K", libraryNameMatchesDeviceMetadata: true },
+    ],
+  );
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) => instance.sourceOffset > 0,
+  ));
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
   assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
   assert.deepEqual(result.schematicComponents.metadataReferencesWithoutSchematicInstance, []);
