@@ -59,6 +59,7 @@ export type ProteusComponentMetadataInspection = {
 
 export type ProteusSchematicComponentInstance = {
   reference: string;
+  sourceOffset: number;
   value: string | null;
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
@@ -70,6 +71,8 @@ export type ProteusSchematicInspection = {
   status: "partial" | "unavailable";
   source: "ROOT.DSN";
   header: "ISIS SCHEMATIC FILE";
+  objectDataSectionCount: number;
+  componentIdMarkersOutsideObjectData: number;
   componentInstanceCount: number;
   componentInstances: ProteusSchematicComponentInstance[];
   componentReferencesWithoutMetadata: string[];
@@ -365,14 +368,31 @@ function parseProteusDsnComponentInstances(
 
   const marker = Buffer.concat([Buffer.from("COMPONENT ID", "ascii"), Buffer.from([0])]);
   const offsets = findAllBufferOccurrences(buffer, marker);
+  const objectDataMarker = Buffer.concat([
+    Buffer.from("OBJECT DATA", "ascii"),
+    Buffer.from([0]),
+  ]);
+  const objectDataOffsets = findAllBufferOccurrences(buffer, objectDataMarker);
+  const markersOutsideObjectData = offsets.filter((markerOffset) =>
+    !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
+  ).length;
   const metadataReferences = new Set(libraryComponents.map((component) => component.reference));
   const seenReferences = new Set<string>();
   const componentInstances: ProteusSchematicComponentInstance[] = [];
 
   for (let index = 0; index < offsets.length; index += 1) {
     const markerOffset = offsets[index];
-    const recordEnd = offsets[index + 1] ?? buffer.length;
-    const searchStart = Math.max(0, markerOffset - 80);
+    const objectDataOffset = objectDataOffsets
+      .filter((objectOffset) => objectOffset < markerOffset)
+      .at(-1);
+    // Library/template definitions also contain COMPONENT ID markers. Only records
+    // nested after OBJECT DATA are placed schematic instances.
+    if (objectDataOffset === undefined) continue;
+
+    const nextComponentMarker = offsets[index + 1] ?? buffer.length;
+    const nextObjectDataMarker = objectDataOffsets.find((objectOffset) => objectOffset > markerOffset);
+    const recordEnd = Math.min(nextComponentMarker, nextObjectDataMarker ?? buffer.length);
+    const searchStart = Math.max(objectDataOffset + objectDataMarker.length, markerOffset - 80);
     let reference: string | null = null;
 
     for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
@@ -432,6 +452,7 @@ function parseProteusDsnComponentInstances(
     seenReferences.add(reference);
     componentInstances.push({
       reference,
+      sourceOffset: markerOffset,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
@@ -458,13 +479,16 @@ function parseProteusDsnComponentInstances(
     status: componentInstances.length > 0 ? "partial" : "unavailable",
     source: "ROOT.DSN",
     header: "ISIS SCHEMATIC FILE",
+    objectDataSectionCount: objectDataOffsets.length,
+    componentIdMarkersOutsideObjectData: markersOutsideObjectData,
     componentInstanceCount: componentInstances.length,
     componentInstances,
     componentReferencesWithoutMetadata,
     metadataReferencesWithoutSchematicInstance,
     componentLibraryNamesWithoutDeviceMetadataMatch,
     limitations: [
-      "Se reconocen registros COMPONENT ID y se recuperan referencias/valores en formato FF + longitud + texto.",
+      "Se reconocen registros COMPONENT ID dentro de secciones OBJECT DATA para evitar confundir definiciones de biblioteca con instancias colocadas.",
+      "Se recuperan referencias y valores en formato FF + longitud + texto, junto con el offset del registro dentro de ROOT.DSN.",
       "Las propiedades PACKAGE y PRIMTYPE solo se conservan cuando aparecen como texto dentro del mismo registro.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
       "Las posiciones gráficas, los símbolos, la geometría y la orientación todavía no están decodificados.",
