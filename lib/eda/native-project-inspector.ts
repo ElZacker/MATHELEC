@@ -658,7 +658,10 @@ function findProteusComponentRecord(
   markerOffset: number,
   objectDataStart: number,
 ): ProteusComponentRecordSearchResult {
-  const searchStart = Math.max(objectDataStart, markerOffset - 512);
+  // The first label block can precede the OBJECT DATA marker that scopes the
+  // placed-instance COMPONENT ID. Anchor the record to the exact ID marker,
+  // but allow scanning back across the section boundary.
+  const searchStart = Math.max(0, markerOffset - 512);
   const candidates: ParsedProteusComponentRecord[] = [];
   const candidateOffsets: number[] = [];
   const diagnostics: string[] = [];
