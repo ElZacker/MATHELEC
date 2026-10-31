@@ -193,7 +193,9 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
     marker("PROPERTIES"),
     Buffer.alloc(5),
     Buffer.from("{PRIMTYPE=RESISTOR}\\n{PACKAGE=RES180}\\0", "ascii"),
-    Buffer.alloc(100), // Evita que el siguiente marcador herede el designador R1.
+    Buffer.alloc(100),
+    marker("OBJECT DATA"),
+    Buffer.alloc(5), // El siguiente objeto es un instrumento virtual, no un componente etiquetado.
     marker("COMPONENT ID"),
     Buffer.alloc(5),
     token("$IOSCOPE"),
@@ -211,7 +213,7 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
     properties: {},
   }]);
 
-  assert.equal(result.objectDataSectionCount, 1);
+  assert.equal(result.objectDataSectionCount, 2);
   assert.equal(result.componentIdMarkersOutsideObjectData, 1);
   assert.equal(result.componentInstanceCount, 1);
   assert.equal(result.componentInstances[0].reference, "R1");
