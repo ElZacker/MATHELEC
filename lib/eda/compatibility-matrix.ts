@@ -107,10 +107,10 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     knownFacts: [
       "La muestra mathelecprueba.pdsprj mide 12.281 bytes y es un contenedor ZIP.",
       "El contenedor incluye PROJECT.XML, ROOT.DSN y ROOT.CDB.",
-      "Mathelect valida el contenedor ZIP y PROJECT.XML, y recupera parcialmente referencia, valor, dispositivo, paquete y propiedades de componentes desde ROOT.CDB; ROOT.DSN sigue sin decodificarse.",
+      "Mathelect recupera metadatos de componentes desde ROOT.CDB y referencias/valores de los registros COMPONENT ID de ROOT.DSN; todavía no reconstruye coordenadas, símbolos, pines ni redes eléctricas.",
     ],
     nextEvidenceRequired: [
-      "Decodificación contrastada de objetos, componentes, pines, cables y redes de ROOT.DSN.",
+      "Decodificación contrastada de coordenadas, símbolos, pines, cables y redes eléctricas de ROOT.DSN.",
       "Mapeo verificable entre referencias de ROOT.DSN y registros de ROOT.CDB.",
       "Apertura y simulación del proyecto generado dentro de Proteus 8.13.",
     ],

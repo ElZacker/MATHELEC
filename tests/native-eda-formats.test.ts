@@ -42,7 +42,7 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.equal(result.hasRootDsn, true);
   assert.equal(result.hasRootCdb, true);
   assert.equal(result.schematicDecoded, false);
-  assert.equal(result.status, "recognized-project-with-partial-component-metadata");
+  assert.equal(result.status, "recognized-project-with-partial-schematic-data");
   assert.equal(result.componentMetadata.status, "partial");
   assert.equal(result.componentMetadata.source, "ROOT.CDB");
   assert.equal(result.componentMetadata.count, 3);
@@ -63,6 +63,17 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.equal(result.componentMetadata.components.find((component) => component.reference === "R1")?.properties.PRIMTYPE, "RESISTOR");
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "PROJECT.XML"));
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "ROOT.DSN"));
+  assert.equal(result.schematicComponents.source, "ROOT.DSN");
+  assert.equal(result.schematicComponents.header, "ISIS SCHEMATIC FILE");
+  assert.equal(result.schematicComponents.status, "partial");
+  assert.equal(result.schematicComponents.componentInstanceCount, 3);
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map((instance) => instance.reference),
+    ["B1", "D1", "R1"],
+  );
+  assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
+  assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
+  assert.deepEqual(result.schematicComponents.metadataReferencesWithoutSchematicInstance, []);
 });
 
 test("rechaza extensiones no admitidas", () => {

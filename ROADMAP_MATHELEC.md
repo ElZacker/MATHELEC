@@ -595,6 +595,12 @@ Estas versiones describen las aplicaciones instaladas; no se han detectado ni de
 Se agregó una matriz de capacidades versionada en `lib/eda/compatibility-matrix.ts`, disponible mediante `GET /api/eda/capabilities`. Los informes de inspección incorporan el programa y versión objetivo sin afirmar que el archivo contenga esa versión.
 
 **Avance real sobre las muestras del repositorio:**
+- Livewire 1.11 (`.lvw`) y PCB Wizard 3.50 (`.pcb`): se reconoce la firma binaria inicial `Dsg\\0`. Las dos muestras comparten esa firma; todavía no se decodifican objetos, pines, conexiones, huellas ni pistas.
+- Proteus 8.13 (`.pdsprj`): se valida el contenedor ZIP y `PROJECT.XML`. Desde `ROOT.CDB` se extraen parcialmente los metadatos de B1, D1 y R1.
+- **Nuevo paso sobre `ROOT.DSN`:** se reconoce la cabecera `ISIS SCHEMATIC FILE`; se recorren los registros anclados en `COMPONENT ID` y se recuperan referencias/valores mediante cadenas `0xFF + longitud + texto`. Se cotejan las referencias recuperadas con `ROOT.CDB`. Para el fixture del repositorio se esperan B1, D1 y R1 presentes en ambas fuentes.
+- Este lector todavía no reconstruye coordenadas, símbolos, pines, extremos de cables ni nets; por lo tanto, no se puede considerar importado el circuito completo. El análisis sigue contrastado con una sola muestra.
+
+
 - Livewire 1.11 (`.lvw`) y PCB Wizard 3.50 (`.pcb`): se reconoce la firma binaria inicial `Dsg\\0`. Las dos muestras comparten esa firma, por lo que todavía no se decodifican objetos, pines, conexiones, huellas ni pistas.
 - Proteus 8.13 (`.pdsprj`): se valida el contenedor ZIP y `PROJECT.XML`. El lector ahora recupera parcialmente de `ROOT.CDB` los metadatos de tres registros de la muestra: B1 (9V / BATTERY), D1 (LED-RED) y R1 (1k / 10WATT1K / RES180), incluidas sus propiedades de texto.
 - `ROOT.DSN` todavía no está decodificado. No se recuperan ubicaciones en la hoja, geometría de símbolos, patillajes, cables ni nets. La extracción de `ROOT.CDB` se ha contrastado con una sola muestra: no se declara todavía como parser general de Proteus 8.13.
