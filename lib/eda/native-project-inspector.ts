@@ -801,7 +801,18 @@ function parseProteusSymbolDefinition(
     }
   }
   if (entries.length === 0) {
-    diagnostics.push(`device-definition-not-found:${device}:tag-offsets=${tagOffsets.length}`);
+    const rawDeviceOffsets = findAllBufferOccurrences(
+      buffer.subarray(0, libraryEnd),
+      deviceBytes,
+    );
+    const samples = rawDeviceOffsets.slice(0, 12).map((offset) => ({
+      offset,
+      prefixHex: buffer.subarray(Math.max(0, offset - 4), offset).toString("hex"),
+      suffixHex: buffer.subarray(offset + deviceBytes.length, offset + deviceBytes.length + 8).toString("hex"),
+    }));
+    diagnostics.push(
+      `device-definition-not-found:${device}:library-end=${libraryEnd}:tag-offsets=${tagOffsets.length}:raw-name-offsets=${rawDeviceOffsets.length}:samples=${JSON.stringify(samples)}`,
+    );
     return null;
   }
   entries.sort((left, right) => left.offset - right.offset);
