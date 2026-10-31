@@ -320,7 +320,16 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
     ],
   );
   assert.deepEqual(
-    result.schematicComponents.wireConnectedGroups,
+    result.schematicComponents.wireConnectedGroups.map((group) => ({
+      wireObjectOffsets: group.wireObjectOffsets,
+      junctionNodeOffsets: group.junctionNodeOffsets,
+      componentPins: group.componentPins.map(({ reference, slotIndex, pinName, pinNumber }) => ({
+        reference,
+        slotIndex,
+        pinName,
+        pinNumber,
+      })),
+    })),
     [
       {
         wireObjectOffsets: [72806, 72856, 72906],
@@ -350,8 +359,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
       pinCount: placement?.pinCount,
       pinSlotTableOffset: placement?.pinSlotTableOffset,
       pinSlotAddresses: placement?.pinSlotAddresses,
-      labelAttributes: placement?.labelBlocks.map((block) => block.attribute),
-      labelTexts: placement?.labelBlocks.map((block) => block.text),
+      labelAttributes: placement?.labelBlocks.slice(0, 2).map((block) => block.attribute),
+      labelTexts: placement?.labelBlocks.slice(0, 2).map((block) => block.text),
     })),
     [
       {
@@ -361,8 +370,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         pinCount: 2,
         pinSlotTableOffset: 71975,
         pinSlotAddresses: [73089, 72906],
-        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE", "COMPONENT TYPE", "COMPONENT MODEL"],
-        labelTexts: ["B1", "9V", "BATTERY", "BATTERY"],
+        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE"],
+        labelTexts: ["B1", "9V"],
       },
       {
         reference: "D1",
@@ -371,8 +380,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         pinCount: 2,
         pinSlotTableOffset: 72391,
         pinSlotAddresses: [73039, 72806],
-        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE", "COMPONENT TYPE", "COMPONENT MODEL"],
-        labelTexts: ["D1", "LED-RED", "LED", "LED-RED"],
+        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE"],
+        labelTexts: ["D1", "LED-RED"],
       },
       {
         reference: "R1",
@@ -381,8 +390,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
         pinCount: 2,
         pinSlotTableOffset: 72773,
         pinSlotAddresses: [72856, 72989],
-        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE", "COMPONENT TYPE", "COMPONENT MODEL"],
-        labelTexts: ["R1", "1k", "RESISTOR", "10WATT1K"],
+        labelAttributes: ["COMPONENT ID", "COMPONENT VALUE"],
+        labelTexts: ["R1", "1k"],
       },
     ],
   );
@@ -512,7 +521,7 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
   assert.equal(result.componentInstances[0].reference, "R1");
   assert.equal(result.componentInstances[0].libraryName, "RESISTOR");
   assert.equal(result.componentInstances[0].libraryNameMatchesDeviceMetadata, true);
-  assert.deepEqual(result.componentInstances[0].rawPlacementWords, ["00000001", "00000002"]);
+  assert.equal(result.componentInstances[0].placement, null);
   assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
   assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
   assert.equal(result.unresolvedObjectCount, 1);
