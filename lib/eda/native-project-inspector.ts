@@ -359,7 +359,7 @@ function parseProteusDsnComponentInstances(
     throw new Error("ROOT.DSN no comienza con la cabecera ISIS SCHEMATIC FILE esperada.");
   }
 
-  const marker = Buffer.from("COMPONENT ID\\0", "ascii");
+  const marker = Buffer.concat([Buffer.from("COMPONENT ID", "ascii"), Buffer.from([0])]);
   const offsets = findAllBufferOccurrences(buffer, marker);
   const metadataReferences = new Set(libraryComponents.map((component) => component.reference));
   const seenReferences = new Set<string>();
