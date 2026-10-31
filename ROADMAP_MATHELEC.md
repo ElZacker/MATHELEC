@@ -564,23 +564,30 @@ El importador tendrá que detectar el formato, leer componentes y conexiones, ex
 
 También debemos tratar los archivos subidos por usuarios como datos no confiables: validar el tamaño y el formato, aislar el procesamiento y evitar ejecutar código que venga dentro de los archivos.
 
-### La estrategia para Livewire, PCB Wizard y Proteus
+### Estrategia actualizada: generación nativa para Livewire, Proteus y PCB Wizard
 
-Primero estudiaremos cómo exporta e importa archivos cada programa, qué información conserva y qué interfaces documentadas ofrece. No supondremos que cambiar una extensión permite crear un proyecto válido.
+El objetivo de esta etapa ahora incluye **generar proyectos editables nativos**, además de importar archivos. El modelo universal de Mathelect seguirá siendo la fuente de verdad; cada destino tendrá un adaptador separado y una tabla explícita de equivalencias de componentes, terminales, propiedades y huellas.
 
-Una prioridad razonable será la siguiente:
+No se considerará compatible un archivo por el solo hecho de tener la extensión correcta. Tampoco se aceptará un contenedor vacío, una imagen renombrada o una netlist presentada como si fuera un proyecto esquemático nativo.
 
-| Etapa | Resultado                                                                                                          |
-| ----- | ------------------------------------------------------------------------------------------------------------------ |
-| A     | Crear, guardar y reabrir circuitos en el formato propio de ElectroIA.                                              |
-| B     | Añadir exportaciones gráficas y una lista de conexiones verificable.                                               |
-| C     | Implementar un adaptador de Livewire si logramos generar archivos nativos compatibles y probarlos en el programa.  |
-| D     | Incorporar una primera conversión real hacia Proteus, con tablas de equivalencias de componentes y comprobaciones. |
-| E     | Añadir PCB Wizard y las transformaciones que correspondan entre esquema y placa.                                   |
+| Destino | Archivo de proyecto | Requisitos de salida |
+| --- | --- | --- |
+| Livewire | `.LVW` | Símbolos nativos, referencias, valores, posiciones, terminales y cables; debe abrir y simular en Livewire. |
+| Proteus | `.pdsprj` (y, cuando corresponda, `.DSN`) | Proyecto ISIS con símbolos disponibles, valores, coordenadas, pines, redes y referencias de modelos; debe abrir en Proteus. |
+| PCB Wizard | `.PCB` | Documento PCB con componentes/huellas, pads, redes, contorno, pistas y reglas; debe abrir y permitir editar el diseño. |
 
-Hay que distinguir la conversión de un esquema de la conversión a un diseño PCB. Una placa requiere huellas físicas, pads, reglas de separación, conexiones de cobre y, cuando corresponda, archivos de fabricación. No se obtiene simplemente transformando una imagen.
+La investigación inicial encontró que Livewire guarda documentos de circuito en `.LVW`; PCB Wizard 3 puede abrir circuitos Livewire y convertirlos a placas; y sus salidas de fabricación incluyen Gerber y NC-Drill. Proteus moderno utiliza proyectos `.pdsprj` que contienen datos internos de esquema y bibliotecas; el `ROOT.DSN` de esos proyectos es binario. Una netlist SPICE es texto de conectividad/simulación y no contiene por sí sola la representación gráfica de un esquema.
 
-Como referencia alternativa, KiCad dispone de formatos y documentación pública que pueden servir para estudiar un flujo de exportación editable. Eso no significa que reemplace los formatos que buscás, sino que puede funcionar como puente técnico mientras evaluamos cada integración.&#x20;
+**Bloqueo técnico que debe resolverse antes de habilitar los exportadores:** se necesitan archivos de referencia reales, creados y guardados por cada aplicación y versión objetivo. Se usarán para identificar estructura, metadatos, bibliotecas y reglas de serialización. No se incorporarán proyectos ajenos con bibliotecas o modelos propietarios al repositorio.
+
+Orden de implementación:
+1. Definir fixtures propios y reproducibles de Livewire, Proteus y PCB Wizard, con un circuito sencillo y completamente cableado.
+2. Analizar cada archivo, documentar su estructura y determinar qué campos pueden generarse sin depender de bibliotecas privadas.
+3. Implementar un escritor independiente por formato y un mapeador que rechace componentes/pines sin equivalencia validada.
+4. Validar cada salida: firma y estructura del contenedor, componentes esperados, valores, conectividad por pin, apertura en el programa y simulación/ruteo cuando aplique.
+5. Agregar regresiones con los fixtures y conservar los archivos de referencia autorizados para el proyecto.
+
+Hay que distinguir la conversión de un esquema de la conversión a un diseño PCB. Una placa requiere huellas físicas, pads, reglas de separación, conexiones de cobre y, cuando corresponda, archivos de fabricación. No se obtiene simplemente transformando una imagen.&#x20;
 
 [image](https://www.google.com/s2/favicons?domain=https://github.com\&sz=32)
 
