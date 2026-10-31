@@ -10,6 +10,9 @@ const fixture = (name: string) =>
 test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar componentes", () => {
   const result = inspectNativeEdaProject("Mathelecprueba.lvw", fixture("Mathelecprueba.lvw"));
   assert.equal(result.format, "livewire");
+  assert.equal(result.targetApplication.application, "Livewire");
+  assert.equal(result.targetApplication.installedVersion, "1.11");
+  assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
   assert.equal(result.componentDataDecoded, false);
@@ -19,6 +22,9 @@ test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar com
 test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión", () => {
   const result = inspectNativeEdaProject("Mathelecprueba.pcb", fixture("Mathelecprueba.pcb"));
   assert.equal(result.format, "pcb-wizard");
+  assert.equal(result.targetApplication.application, "PCB Wizard");
+  assert.equal(result.targetApplication.installedVersion, "3.50");
+  assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
   assert.equal(result.componentDataDecoded, false);
@@ -28,11 +34,33 @@ test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión",
 test("Proteus: valida el contenedor y los archivos internos esenciales del proyecto real", () => {
   const result = inspectNativeEdaProject("mathelecprueba.pdsprj", fixture("mathelecprueba.pdsprj"));
   assert.equal(result.format, "proteus");
+  assert.equal(result.targetApplication.application, "Proteus");
+  assert.equal(result.targetApplication.installedVersion, "8.13");
+  assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.container, "zip");
   assert.equal(result.hasProjectXml, true);
   assert.equal(result.hasRootDsn, true);
   assert.equal(result.hasRootCdb, true);
   assert.equal(result.schematicDecoded, false);
+  assert.equal(result.status, "recognized-project-with-partial-component-metadata");
+  assert.equal(result.componentMetadata.status, "partial");
+  assert.equal(result.componentMetadata.source, "ROOT.CDB");
+  assert.equal(result.componentMetadata.count, 3);
+  assert.deepEqual(
+    result.componentMetadata.components.map(({ reference, value, device, package: packageName }) => ({
+      reference,
+      value,
+      device,
+      package: packageName,
+    })),
+    [
+      { reference: "B1", value: "9V", device: "BATTERY", package: "" },
+      { reference: "D1", value: "LED-RED", device: "LED-RED", package: "" },
+      { reference: "R1", value: "1k", device: "10WATT1K", package: "RES180" },
+    ],
+  );
+  assert.equal(result.componentMetadata.components.find((component) => component.reference === "D1")?.properties.VF, "2.2V");
+  assert.equal(result.componentMetadata.components.find((component) => component.reference === "R1")?.properties.PRIMTYPE, "RESISTOR");
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "PROJECT.XML"));
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "ROOT.DSN"));
 });

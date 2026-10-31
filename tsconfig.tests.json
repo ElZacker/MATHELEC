@@ -24,6 +24,8 @@
     "lib/circuits/components.ts",
     "lib/circuits/transient-simulation.ts",
     "tests/native-eda-formats.test.ts",
-    "lib/eda/native-project-inspector.ts"
+    "lib/eda/native-project-inspector.ts",
+    "tests/eda-compatibility-matrix.test.ts",
+    "lib/eda/compatibility-matrix.ts"
   ]
 }

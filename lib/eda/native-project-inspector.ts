@@ -1,9 +1,28 @@
 import { inflateRawSync } from "node:zlib";
+import { getNativeEdaCompatibilityProfile } from "./compatibility-matrix";
+import type { NativeEdaFormat } from "./compatibility-matrix";
+export type { NativeEdaFormat } from "./compatibility-matrix";
 
-export type NativeEdaFormat = "livewire" | "pcb-wizard" | "proteus";
+export type TargetApplicationContext = {
+  application: string;
+  installedVersion: string;
+  versionSource: "user-confirmed";
+  fileVersionDetected: false;
+};
+
+function getTargetApplicationContext(format: NativeEdaFormat): TargetApplicationContext {
+  const profile = getNativeEdaCompatibilityProfile(format);
+  return {
+    application: profile.application,
+    installedVersion: profile.installedVersion,
+    versionSource: profile.versionSource,
+    fileVersionDetected: false,
+  };
+}
 
 export type NewWaveInspection = {
   format: "livewire" | "pcb-wizard";
+  targetApplication: TargetApplicationContext;
   recognized: true;
   byteLength: number;
   signature: "Dsg\\0";
@@ -21,8 +40,25 @@ export type ProteusZipEntry = {
   crc32: string;
 };
 
+export type ProteusComponentMetadata = {
+  reference: string;
+  value: string;
+  device: string;
+  package: string;
+  properties: Record<string, string>;
+};
+
+export type ProteusComponentMetadataInspection = {
+  status: "partial" | "unavailable";
+  source: "ROOT.CDB" | null;
+  count: number;
+  components: ProteusComponentMetadata[];
+  limitations: string[];
+};
+
 export type ProteusInspection = {
   format: "proteus";
+  targetApplication: TargetApplicationContext;
   recognized: true;
   byteLength: number;
   container: "zip";
@@ -31,7 +67,8 @@ export type ProteusInspection = {
   hasRootDsn: boolean;
   hasRootCdb: boolean;
   projectXmlBytes: number | null;
-  status: "recognized-project-with-binary-schematic";
+  componentMetadata: ProteusComponentMetadataInspection;
+  status: "recognized-project-with-partial-component-metadata";
   schematicDecoded: false;
   limitations: string[];
 };
@@ -228,6 +265,79 @@ function extractZipEntry(buffer: Buffer, entry: ProteusZipEntry): Buffer {
   return data;
 }
 
+
+/**
+ * Recover the conservative, length-prefixed component metadata records found in
+ * the ROOT.CDB fixture. The record table is not treated as a complete schematic:
+ * placement, symbols, pin geometry and connectivity live elsewhere.
+ *
+ * The size field in the observed Proteus 8.13 sample spans a trailing NUL and
+ * table bytes after the printable property block. We therefore stop properties
+ * at the first NUL and keep the remainder opaque.
+ */
+function parseProteusCdbComponentMetadata(buffer: Buffer): ProteusComponentMetadata[] {
+  const components: ProteusComponentMetadata[] = [];
+  const seenReferences = new Set<string>();
+
+  const readLengthPrefixedField = (offset: number): { value: string; next: number } | null => {
+    if (offset >= buffer.length) return null;
+    const length = buffer[offset];
+    if (length > 256 || offset + 1 + length > buffer.length) return null;
+    const bytes = buffer.subarray(offset + 1, offset + 1 + length);
+    for (const byte of bytes) {
+      if (byte < 32 || byte > 126) return null;
+    }
+    return { value: bytes.toString("latin1"), next: offset + 1 + length };
+  };
+
+  for (let offset = 0; offset < buffer.length; offset += 1) {
+    const referenceField = readLengthPrefixedField(offset);
+    if (!referenceField || !/^[A-Z]{1,5}[0-9]{1,5}$/.test(referenceField.value)) continue;
+
+    let cursor = referenceField.next;
+    const fields = [referenceField.value];
+    let validFields = true;
+    for (let fieldIndex = 0; fieldIndex < 3; fieldIndex += 1) {
+      const field = readLengthPrefixedField(cursor);
+      if (!field) {
+        validFields = false;
+        break;
+      }
+      fields.push(field.value);
+      cursor = field.next;
+    }
+    if (!validFields || cursor + 4 > buffer.length) continue;
+
+    const propertyDataLength = buffer.readUInt32LE(cursor);
+    cursor += 4;
+    if (propertyDataLength < 1 || propertyDataLength > 8192 || cursor + propertyDataLength > buffer.length) {
+      continue;
+    }
+
+    const propertyData = buffer.subarray(cursor, cursor + propertyDataLength);
+    const nulOffset = propertyData.indexOf(0);
+    const propertyText = (nulOffset >= 0 ? propertyData.subarray(0, nulOffset) : propertyData).toString("latin1");
+    if (!propertyText.startsWith("{") || !propertyText.includes("}")) continue;
+    if (!/^[\t\r\n\x20-\x7e]*$/.test(propertyText)) continue;
+
+    const properties: Record<string, string> = {};
+    for (const match of propertyText.matchAll(/\{([^{}=\r\n]+)=([^{}\r\n]*)\}/g)) {
+      const key = match[1].trim();
+      if (key) properties[key] = match[2].trim();
+    }
+    if (Object.keys(properties).length === 0) continue;
+
+    const [reference, value, device, packageName] = fields;
+    if (seenReferences.has(reference)) {
+      throw new Error(`ROOT.CDB contiene más de un registro de metadatos para ${reference}; no se puede resolver con seguridad.`);
+    }
+    seenReferences.add(reference);
+    components.push({ reference, value, device, package: packageName, properties });
+  }
+
+  return components.sort((left, right) => left.reference.localeCompare(right.reference));
+}
+
 function getAsciiMarkers(buffer: Buffer): string[] {
   const text = buffer.toString("latin1");
   const knownMarkers = ["page &p of &n", "Arial"];
@@ -244,6 +354,7 @@ function inspectNewWaveDocument(
 
   return {
     format,
+    targetApplication: getTargetApplicationContext(format),
     recognized: true,
     byteLength: buffer.length,
     signature: "Dsg\\0",
@@ -279,10 +390,15 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
     throw new Error("PROJECT.XML no contiene XML de texto válido.");
   }
 
-  // Validar también que el diseño binario se encuentre dentro del contenedor.
-  // El contenido ROOT.DSN se mantiene opaco hasta contar con un decodificador verificado.
+  // ROOT.CDB contiene metadatos de la biblioteca/instancias. Esta lectura parcial
+  // no reconstruye la colocación ni las conexiones del esquemático ROOT.DSN.
+  const cdbComponents = rootCdb
+    ? parseProteusCdbComponentMetadata(extractZipEntry(buffer, rootCdb))
+    : [];
+
   return {
     format: "proteus",
+    targetApplication: getTargetApplicationContext("proteus"),
     recognized: true,
     byteLength: buffer.length,
     container: "zip",
@@ -291,12 +407,24 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
     hasRootDsn: true,
     hasRootCdb: Boolean(rootCdb),
     projectXmlBytes: projectXmlData.length,
-    status: "recognized-project-with-binary-schematic",
+    componentMetadata: {
+      status: cdbComponents.length > 0 ? "partial" : "unavailable",
+      source: rootCdb ? "ROOT.CDB" : null,
+      count: cdbComponents.length,
+      components: cdbComponents,
+      limitations: [
+        "Se recuperan únicamente campos de metadatos de componente observados en ROOT.CDB: referencia, valor, dispositivo, paquete y propiedades de texto.",
+        "Estos registros no prueban que cada componente esté colocado en ROOT.DSN ni indican su posición en la hoja.",
+        "Todavía no se reconstruyen símbolos, patillajes físicos, cables, nodos eléctricos ni nets.",
+        "El lector se ha contrastado con la muestra de referencia del repositorio; necesita más fixtures reales de Proteus 8.13 antes de declararse general.",
+      ],
+    },
+    status: "recognized-project-with-partial-component-metadata",
     schematicDecoded: false,
     limitations: [
-      "Se valida la estructura ZIP, PROJECT.XML y la presencia de ROOT.DSN; esto no equivale a reconstruir el esquema.",
-      "ROOT.DSN y ROOT.CDB siguen siendo datos binarios sin decodificador verificado.",
-      "No se extraen ni se reconstruyen todavía componentes, pines, valores, redes, modelos o posiciones de Proteus.",
+      "Se valida la estructura ZIP y PROJECT.XML; ROOT.DSN y ROOT.CDB se inspeccionan solo parcialmente.",
+      "La metadata parcial de ROOT.CDB no equivale a importar el circuito ni a recuperar su conectividad.",
+      "No se extraen todavía posiciones, pines conectados, cables ni redes del esquemático Proteus.",
       "No se genera ni modifica un proyecto .pdsprj en esta etapa.",
     ],
   };
