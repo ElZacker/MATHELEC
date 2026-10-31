@@ -12,9 +12,15 @@ The repository contains three reference projects under `archivosdeprueba/compati
 | `Mathelecprueba.pcb` | 1,093 bytes | Binary document beginning with the same `Dsg\\0` signature | Recognizable New Wave / PCB Wizard-family signature; body remains opaque |
 | `mathelecprueba.pdsprj` | 12,281 bytes | ZIP container | Contains `PROJECT.XML`, `ROOT.DSN`, `ROOT.CDB` and `SCRIPTS/PWRRAILS.DAT` |
 
-The Livewire and PCB Wizard samples share the first four signature bytes, but the binary content diverges shortly afterwards. Therefore, the signature alone cannot distinguish these two applications; the file extension and application context are both required. Both samples also contain the printable strings `page &p of &n` and `Arial`, which are document metadata, not a decoded circuit model.
+The Livewire and PCB Wizard samples share the first 38 bytes, but the binary content diverges at byte offset 38. Therefore, the signature and common prefix cannot distinguish these two applications; the file extension and application context are both required. Both samples contain the printable strings `page &p of &n` at byte offset 90 and `Arial` at byte offset 104. Mathelect now reports these exact offsets for regression and controlled-diff work; they are document metadata, not decoded circuit objects.
 
 The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `ROOT.DSN` and `ROOT.CDB` are binary. A valid ZIP wrapper is not sufficient to create a valid Proteus schematic: the DSN design content still needs a verified decoder/writer.
+
+## Vendor-documented interoperability path
+
+New Wave Concepts documents that PCB Wizard 3 can open a Livewire circuit file and convert it into a PCB layout: https://www.new-wave-concepts.com/ed/pw_faq.html. Mathelect records this as a vendor-documented **Livewire → PCB Wizard** path. This is an application workflow, not a Mathelect-native parser or writer: the application open/convert step has not been smoke-tested by Mathelect, and neither format is advertised as imported or exported by Mathelect.
+
+The compatibility API exposes this path with `vendorDocumented: true` and `applicationSmokeTested: false`; future UI can offer it as a guided external workflow only after the user has PCB Wizard installed.
 
 ## Installed application versions confirmed for the current target
 
@@ -104,3 +110,10 @@ Rules:
 - Proteus project sample analysis: `.pdsprj` ZIP structure and binary `ROOT.DSN`: https://deepwiki.com/codehacked/Pulse-and-Wave-Generator/3.2-schematic-design-data-(root.dsn)
 
 These references establish the initial investigation only. They do not substitute for opening generated files in the exact application versions used by Mathelect users.
+
+
+## Incremental decoder diagnostics — 31 October 2026
+
+- Livewire 1.11 and PCB Wizard 3.50 reports now include byte offsets for the two confirmed printable document markers. These offsets are tested against each repository fixture (90 for `page &p of &n`, 104 for `Arial`).
+- Proteus 8.13 inspection now also attempts to read the length-prefixed library/part identifier that follows the NUL-terminated `COMPONENT VALUE` marker. It reports whether that identifier matches the `device` field from ROOT.CDB as a diagnostic only; a mismatch is not silently rewritten or treated as a fatal decode error.
+- This is additional inspection metadata, not component placement, pin, wire, net, footprint-pad or track decoding. Native import/export and application-level tests remain unimplemented.
