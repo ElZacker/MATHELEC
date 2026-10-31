@@ -403,7 +403,7 @@ test("Proteus DSN: agrupa contactos geométricos pero no cruces interiores sin v
     marker,
     wire([[-100, 0], [100, 0]]),
     wire([[0, -100], [0, 100]]), // Cruza la horizontal sin tocar ninguno de sus vértices.
-    wire([[0, 0], [0, 50]]), // Su primer vértice cae sobre la horizontal.
+    wire([[25, 0], [25, 50]]), // Su primer vértice cae sobre la horizontal, pero fuera del cruce vertical.
   ]);
   const result = inspectProteusSchematicBytes(dsn);
 
