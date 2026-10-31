@@ -661,8 +661,8 @@ function inspectNewWaveDocument(
     status: "recognized-binary-not-yet-decoded",
     componentDataDecoded: false,
     limitations: [
-      "La firma identifica un documento binario de la familia New Wave, pero no demuestra que se hayan decodificado sus componentes.",
-      "Livewire y PCB Wizard comparten la firma inicial; la extensión y el contexto del proyecto se usan para distinguirlos.",
+      "La firma identifica la familia binaria New Wave, pero no demuestra que se hayan decodificado sus componentes.",
+      "La clasificación específica Livewire/PCB Wizard se basa en la extensión: ambas muestras comparten Dsg\\0 y el inspector no ha verificado una firma exclusiva de cada aplicación.",
       "Todavía no se interpretan instancias, pines, propiedades, nets, footprints ni pistas de cobre.",
       "No se genera ni modifica un archivo nativo de estos formatos en esta etapa.",
     ],
