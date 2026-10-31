@@ -368,9 +368,16 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
       Number.isFinite(instance.placement.rotationDegrees) &&
       (instance.placement.mirrorFlag === 0 || instance.placement.mirrorFlag === 1),
   ));
-  assert.ok(result.schematicComponents.componentInstances.every(
-    (instance) => instance.symbolDefinition !== null && instance.symbolDefinition.pins.length === 2,
-  ));
+  assert.ok(
+    result.schematicComponents.componentInstances.every(
+      (instance) => instance.symbolDefinition !== null && instance.symbolDefinition.pins.length === 2,
+    ),
+    JSON.stringify(result.schematicComponents.componentInstances.map((instance) => ({
+      reference: instance.reference,
+      device: instance.placement?.device,
+      symbolDefinitionDiagnostics: instance.symbolDefinitionDiagnostics,
+    }))),
+  );
   assert.deepEqual(
     result.schematicComponents.componentInstances.map((instance) => ({
       reference: instance.reference,
