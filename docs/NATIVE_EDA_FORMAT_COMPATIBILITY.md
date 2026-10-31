@@ -12,7 +12,7 @@ The repository contains three reference projects under `archivosdeprueba/compati
 | `Mathelecprueba.pcb` | 1,093 bytes | Binary document beginning with the same `Dsg\\0` signature | Recognizable New Wave / PCB Wizard-family signature; body remains opaque |
 | `mathelecprueba.pdsprj` | 12,281 bytes | ZIP container | Contains `PROJECT.XML`, `ROOT.DSN`, `ROOT.CDB` and `SCRIPTS/PWRRAILS.DAT` |
 
-The Livewire and PCB Wizard samples share the first 38 bytes, but the binary content diverges at byte offset 38. Therefore, the signature and common prefix cannot distinguish these two applications; the file extension and application context are both required. Both samples contain the printable strings `page &p of &n` at byte offset 90 and `Arial` at byte offset 104. Mathelect now reports these exact offsets for regression and controlled-diff work; they are document metadata, not decoded circuit objects.
+The Livewire and PCB Wizard samples share the first 38 bytes, but the binary content diverges at byte offset 38. Therefore, the signature and common prefix cannot distinguish these two applications; the file extension is the only discriminator currently used by the inspector. The report now states this explicitly through `formatIdentification.selectedBy = "file-extension"` and does not claim an application-specific signature check. Both samples contain the printable strings `page &p of &n` at byte offset 90 and `Arial` at byte offset 104. Mathelect reports these offsets for regression and controlled-diff work; they are document metadata, not decoded circuit objects.
 
 The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `ROOT.DSN` and `ROOT.CDB` are binary. A valid ZIP wrapper is not sufficient to create a valid Proteus schematic: the DSN design content still needs a verified decoder/writer.
 
@@ -130,3 +130,8 @@ These references establish the initial investigation only. They do not substitut
 - A separate public Proteus project was inspected manually to compare the marker sequence and special instrument objects. It was not copied into the repository or treated as a passing CI fixture.
 
 The remaining Proteus schematic work is now specifically: identify the raw placement word semantics with controlled saves/moves; resolve symbol/part definitions to pin geometry; decode terminals, wires and net membership; then build a writer and test open + simulation in Proteus 8.13.
+
+
+## New Wave identification confidence — 31 October 2026
+
+Both repository samples begin with the same four-byte `Dsg\\0` family signature and share their first 38 bytes. The current inspector therefore reports `formatIdentification.selectedBy = "file-extension"` and `applicationSpecificSignatureVerified = false` for both Livewire and PCB Wizard. This prevents the file inspector from implying that the application-specific format has been independently identified from binary content. Component, terminal, wire and PCB object decoding remain open.
