@@ -36,7 +36,7 @@ The version-aware registry lives in `lib/eda/compatibility-matrix.ts`. Every ins
 |---|---|---|---|---|---|
 | Livewire 1.11 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
 | PCB Wizard 3.50 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
-| Proteus 8.13 | Project container recognized | ZIP validated; partial component metadata recovered from ROOT.CDB | Not implemented | Not implemented | Not verified |
+| Proteus 8.13 | Project container recognized | Partial metadata from ROOT.CDB and component references/values from ROOT.DSN | Not implemented | Not implemented | Not verified |
 
 The registry is a version-target baseline, not a claim of native import/export compatibility. The tests enforce that distinction so a future change cannot accidentally advertise a decoder or writer before one exists.
 
@@ -44,7 +44,7 @@ The registry is a version-target baseline, not a claim of native import/export c
 
 The next implementation milestone is not a native writer yet. It is to establish verified object-level decoding for the formats, in this order:
 
-1. **Proteus 8.13:** the first partial read-only step now extracts reference, value, device, package and text properties from the observed `ROOT.CDB` metadata records. Next decode `ROOT.DSN` object records, positions, symbol references, pin identities and wire/net topology, then cross-check its references against `ROOT.CDB`.
+1. **Proteus 8.13:** the reader now extracts reference, value, device, package and text properties from `ROOT.CDB`, plus a partial set of placed-component references/values from `ROOT.DSN` records anchored by `COMPONENT ID\\0`. On the repository fixture, the two sources match B1, D1 and R1. Next decode object coordinates, symbol references, pin identities and wire/net topology.
 2. **Livewire 1.11:** identify record boundaries and the serialized component / terminal / wire fields in the New Wave binary stream. A successful signature check is not enough.
 3. **PCB Wizard 3.50:** investigate its board-specific records independently, including board outline, footprints, numbered pads, nets and tracks. Do not reuse a Livewire decoder merely because both samples begin with `Dsg\\0`.
 
@@ -54,7 +54,7 @@ A decoder is accepted only when it reproduces the known reference circuit's comp
 
 - `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
 - The New Wave inspector checks the `Dsg\\0` signature and returns only metadata that can be established safely. It deliberately reports that component data is not decoded.
-- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. It now partially recovers component reference, value, device, package and text properties from the observed `ROOT.CDB` records. This metadata is not yet mapped to sheet placements or schematic connectivity in `ROOT.DSN`.
+- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. It recovers component reference/value/device/package/properties from `ROOT.CDB` and partially decodes `ROOT.DSN` records anchored by `COMPONENT ID\\0`. The fixture's B1, D1 and R1 references match across both records.
 - `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report. The preview panel exposes this through **Inspeccionar archivo nativo**; it does not replace the current Mathelect circuit or claim to import it.
 - Proteus ZIP inspection is bounded: at most 256 entries, 16 MB per uncompressed entry, 32 MB total declared uncompressed data and 2 MB for `PROJECT.XML`. Local and central headers are cross-checked, unsafe entry paths are rejected, and extracted XML is size/CRC checked.
 - `tests/native-eda-formats.test.ts` uses the three repository samples as regression fixtures. In addition to recognition and container integrity, the Proteus fixture asserts the recovered B1 / D1 / R1 component metadata. These tests do not prove that a generated project opens or simulates in the desktop applications.
@@ -69,7 +69,7 @@ The binary records must be decoded into component instances, values, positions, 
 
 ### Proteus
 
-The next decoder must interpret `ROOT.DSN` (schematic objects, symbol/library references, pin identities, wires, nets and placement) and correlate those objects with the component metadata now recovered from `ROOT.CDB`. The current `ROOT.CDB` reader is deliberately partial and has only been checked against the single repository fixture; it needs more real 8.13 projects before general support can be claimed. A writer must maintain valid internal references and package those records with the expected project metadata. Writing only `PROJECT.XML` or a netlist is not native project generation.
+The next decoder must interpret `ROOT.DSN` object coordinates, symbol/library references, pin identities, wire endpoints and nets, and correlate these with the component metadata recovered from `ROOT.CDB`. The current readers are deliberately partial and have only been checked against the single repository fixture; they need more real 8.13 projects before general support can be claimed. A writer must maintain valid internal references and package those records with the expected project metadata. Writing only `PROJECT.XML` or a netlist is not native project generation.
 
 ### PCB Wizard
 
