@@ -661,7 +661,7 @@ function parseProteusSymbolDefinition(
   const blockEnd = entry.offset + entry.byteLength;
   const block = buffer.subarray(entry.offset, blockEnd);
   const blockText = block.toString("latin1");
-  const markerPattern = /\\$PIN[A-Z]+\0/g;
+  const markerPattern = /\$PIN[A-Z]+\0/g;
   const pins: ProteusSchematicSymbolPin[] = [];
 
   for (const match of blockText.matchAll(markerPattern)) {
