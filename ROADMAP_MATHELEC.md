@@ -1227,3 +1227,8 @@ El lector de Proteus ya diferencia definiciones de biblioteca de instancias colo
 Los objetos que no tienen un designador habitual (por ejemplo, instrumentos virtuales) y las referencias duplicadas se conservan como objetos no resueltos para que una futura importación no los pierda sin aviso. El mapeo de los tres componentes B1, D1 y R1 de la muestra Mathelect se contrasta con ROOT.CDB; también se agregaron pruebas sintéticas para varias secciones OBJECT DATA y objetos especiales.
 
 **Siguiente criterio de aceptación:** verificar el significado de las palabras de colocación con proyectos de Proteus 8.13 guardados antes/después de mover un componente, resolver símbolos y pines, y decodificar cables/nets. Livewire 1.11 y PCB Wizard 3.50 continúan siendo trabajos independientes: la firma Dsg compartida no autoriza reutilizar un parser sin evidencia.
+
+
+### Matriz de compatibilidad — precisión del reconocimiento New Wave
+
+Livewire 1.11 y PCB Wizard 3.50 continúan compartiendo la firma de familia `Dsg\\0`. El inspector ahora expone que la selección entre ambos se hace por extensión y que no se ha verificado una firma exclusiva de aplicación. Esto no aumenta por sí solo la decodificación de circuitos, pero evita presentar una clasificación contextual como si fuera una identificación binaria concluyente.
