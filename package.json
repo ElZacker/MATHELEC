@@ -1,5 +1,5 @@
 {
-  "name": "mathelec",
+  "name": "mathelect",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsc -p tsconfig.tests.json && node --test .test-build/tests/simulation.test.js .test-build/tests/wire-routing.test.js .test-build/tests/known-circuit-templates.test.js"
+    "test": "tsc -p tsconfig.tests.json && node --test .test-build/tests/simulation.test.js .test-build/tests/wire-routing.test.js .test-build/tests/known-circuit-templates.test.js .test-build/tests/native-eda-formats.test.js"
   },
   "dependencies": {
     "next": "16.4.2",
