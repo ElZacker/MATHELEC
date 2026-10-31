@@ -26,6 +26,12 @@ export type NewWaveInspection = {
   recognized: true;
   byteLength: number;
   signature: "Dsg\\0";
+  formatIdentification: {
+    family: "New Wave Dsg";
+    selectedBy: "file-extension";
+    confidence: "shared-family-signature-plus-extension";
+    applicationSpecificSignatureVerified: false;
+  };
   textMarkers: string[];
   textMarkerOffsets: Array<{ marker: string; offset: number }>;
   status: "recognized-binary-not-yet-decoded";
@@ -644,6 +650,12 @@ function inspectNewWaveDocument(
     recognized: true,
     byteLength: buffer.length,
     signature: "Dsg\\0",
+    formatIdentification: {
+      family: "New Wave Dsg",
+      selectedBy: "file-extension",
+      confidence: "shared-family-signature-plus-extension",
+      applicationSpecificSignatureVerified: false,
+    },
     textMarkers: getAsciiMarkers(buffer),
     textMarkerOffsets: getAsciiMarkerOffsets(buffer),
     status: "recognized-binary-not-yet-decoded",
