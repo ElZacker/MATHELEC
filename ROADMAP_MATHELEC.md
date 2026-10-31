@@ -1245,3 +1245,10 @@ Además del inventario de offsets, el lector guarda para cada marcador WIRE la v
 El lector ya valida el encabezado binario de cada objeto WIRE, recupera la cantidad de vértices y lee sus coordenadas X/Y como enteros little-endian. La escala observada en el fixture se verifica con 2540 unidades por mil. La CI comprueba los seis objetos de la muestra, sus posiciones, longitudes, vértices y un cable de longitud cero.
 
 Se añadió un agrupador geométrico basado en contactos exactos: un vértice de un cable debe caer sobre un segmento de otro. Los cruces interiores sin vértice común no se fusionan. Esto produce grupos de cables, no nets eléctricas completas: aún falta resolver los extremos contra los pines de símbolos, las ranuras de conexión de cada componente, los terminales de alimentación/tierra, etiquetas de red y objetos de nodo T.
+
+
+## Proteus 8.13 — referencias de cables dentro de registros de componentes
+
+El lector encuentra valores de 32 bits en las colas de los registros B1, D1 y R1 que coinciden exactamente con direcciones de objetos WIRE ya validados. Se conservan con su offset de origen: dos referencias por componente en el fixture actual. Esto crea el primer vínculo comprobable entre instancias y objetos de cable.
+
+Todavía no se declaran como índices de patas: falta reconstruir la tabla completa de slots, distinguir slots cero/no conectados y correlacionar cada índice con los nombres y números de pin de las definiciones de símbolo y biblioteca.
