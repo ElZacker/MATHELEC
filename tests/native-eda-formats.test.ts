@@ -356,8 +356,9 @@ test("Proteus DSN: agrupa contactos geométricos pero no cruces interiores sin v
   const result = inspectProteusSchematicBytes(dsn);
 
   assert.equal(result.wireSegments.length, 3);
+  const [horizontal, crossing, tee] = result.wireSegments.map((segment) => segment.objectOffset);
   assert.deepEqual(result.wireTouchGroups, [
-    { wireObjectOffsets: [dsn.indexOf(Buffer.from([0x00, 0x1d, 0x00, 0x00, 0x00]))] },
+    { wireObjectOffsets: [horizontal, tee] },
+    { wireObjectOffsets: [crossing] },
   ]);
-  assert.deepEqual(result.wireTouchGroups.map((group) => group.wireObjectOffsets.length), [2, 1]);
 });
