@@ -50,7 +50,7 @@ The registry is a version-target baseline, not a claim of native import/export c
 
 The next implementation milestone is not a native writer yet. It is to establish verified object-level decoding for the formats, in this order:
 
-1. **Proteus 8.13:** the reader now extracts reference, value, device, package and text properties from `ROOT.CDB`, plus a partial set of placed-component references/values from `ROOT.DSN` records anchored by `COMPONENT ID\\0`. On the repository fixture, the two sources match B1, D1 and R1. Next decode object coordinates, symbol references, pin identities and wire/net topology.
+1. **Proteus 8.13:** the reader isolates placed records under `OBJECT DATA\\0`, excluding a library/template `COMPONENT ID` marker outside that section. It extracts reference, visible value, the library identifier after `COMPONENT VALUE\\0`, brace-delimited instance properties, and two raw 32-bit words after the reference token. On the repository fixture, B1, D1 and R1 match their ROOT.CDB devices; the raw words are preserved as opaque bytes and are **not** yet interpreted as coordinates. Objects without a normal reference (for example virtual instruments) are retained in an unresolved-object list. Next decode coordinate semantics, symbols, pin identities and wire/net topology.
 2. **Livewire 1.11:** identify record boundaries and the serialized component / terminal / wire fields in the New Wave binary stream. A successful signature check is not enough.
 3. **PCB Wizard 3.50:** investigate its board-specific records independently, including board outline, footprints, numbered pads, nets and tracks. Do not reuse a Livewire decoder merely because both samples begin with `Dsg\\0`.
 
@@ -60,12 +60,12 @@ A decoder is accepted only when it reproduces the known reference circuit's comp
 
 - `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
 - The New Wave inspector checks the `Dsg\\0` signature and returns only metadata that can be established safely. It deliberately reports that component data is not decoded.
-- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. It recovers component reference/value/device/package/properties from `ROOT.CDB` and partially decodes `ROOT.DSN` records anchored by `COMPONENT ID\\0`. The fixture's B1, D1 and R1 references match across both records.
+- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. In `ROOT.DSN`, it scopes component records to `OBJECT DATA\\0`, recovers the visible value and library identifier across observed binary padding, reads brace-delimited properties, and cross-checks the device identifier against `ROOT.CDB`. The repository fixture's B1, D1 and R1 records all match. Duplicate or missing designators are reported as unresolved objects rather than silently discarded. Two 32-bit words after each designator are preserved in hexadecimal for later placement analysis; their units/meaning remain unknown.
 - `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report. The preview panel exposes this through **Inspeccionar archivo nativo**; it does not replace the current Mathelect circuit or claim to import it.
 - Proteus ZIP inspection is bounded: at most 256 entries, 16 MB per uncompressed entry, 32 MB total declared uncompressed data and 2 MB for `PROJECT.XML`. Local and central headers are cross-checked, unsafe entry paths are rejected, and extracted XML is size/CRC checked.
 - `tests/native-eda-formats.test.ts` uses the three repository samples as regression fixtures. In addition to recognition and container integrity, the Proteus fixture asserts the recovered B1 / D1 / R1 component metadata. These tests do not prove that a generated project opens or simulates in the desktop applications.
 
-This is still **inspection only**. Proteus metadata extraction now returns the three reference components present in the repository sample (B1, D1 and R1), but does not reconstruct their sheet placements, symbols, pin mappings or electrical connections. No format has native import or export yet.
+This is still **inspection only**. The Proteus reader now recovers three placed, metadata-matched components in the repository sample and preserves special unresolved objects plus raw placement words, but it does not reconstruct usable sheet coordinates, symbol geometry, pin mappings or electrical connections. A second public Proteus project was inspected manually to study a larger object list and virtual instruments; that file is not added to the automated fixtures, so automated regression coverage still relies on the repository's own sample plus synthetic edge-case records. No format has native import or export yet.
 
 ## What is still required for real import/export
 
@@ -117,3 +117,16 @@ These references establish the initial investigation only. They do not substitut
 - Livewire 1.11 and PCB Wizard 3.50 reports now include byte offsets for the two confirmed printable document markers. These offsets are tested against each repository fixture (90 for `page &p of &n`, 104 for `Arial`).
 - Proteus 8.13 inspection now also attempts to read the length-prefixed library/part identifier that follows the NUL-terminated `COMPONENT VALUE` marker. It reports whether that identifier matches the `device` field from ROOT.CDB as a diagnostic only; a mismatch is not silently rewritten or treated as a fatal decode error.
 - This is additional inspection metadata, not component placement, pin, wire, net, footprint-pad or track decoding. Native import/export and application-level tests remain unimplemented.
+
+
+## Proteus ROOT.DSN object-decoding increment — 31 October 2026
+
+- Placed components are now selected only when their `COMPONENT ID` marker occurs after an `OBJECT DATA` marker. This avoids mistaking a library/template definition elsewhere in the DSN for a component on the sheet.
+- For each placed component, the reader extracts the designator, visible value, library identifier following `COMPONENT VALUE` (scanning a bounded window because the marker is followed by binary padding), and all printable brace-delimited instance properties.
+- The library identifier is compared with the `device` field from `ROOT.CDB` as a diagnostic; a mismatch is reported, not guessed away.
+- Objects that lack a conventional designator, or repeat an already-seen designator, are preserved in `unresolvedObjects`. This matters for virtual instruments and unusual schematic objects.
+- Two 32-bit words immediately following the reference token are preserved as hex `rawPlacementWords`. Their semantics and units have not been confirmed; the implementation does not label them coordinates or use them to position components.
+- Regression coverage asserts the real fixture's B1/D1/R1 library mappings, per-instance properties and raw words, plus a synthetic case containing a library marker outside `OBJECT DATA`, a component, multiple object-data sections and an unlabelled virtual instrument.
+- A separate public Proteus project was inspected manually to compare the marker sequence and special instrument objects. It was not copied into the repository or treated as a passing CI fixture.
+
+The remaining Proteus schematic work is now specifically: identify the raw placement word semantics with controlled saves/moves; resolve symbol/part definitions to pin geometry; decode terminals, wires and net membership; then build a writer and test open + simulation in Proteus 8.13.
