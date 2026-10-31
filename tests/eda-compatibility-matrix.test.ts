@@ -39,7 +39,7 @@ test("distingue la inspección ZIP parcial de Proteus del reconocimiento por fir
   const pcbWizard = getNativeEdaCompatibilityProfile("pcb-wizard");
 
   assert.equal(proteus.capabilities.containerIntegrity, "partial");
-  assert.equal(proteus.capabilities.projectMetadata, "presence-only");
+  assert.equal(proteus.capabilities.projectMetadata, "partial");
   assert.equal(livewire.capabilities.fileRecognition, "signature-only");
   assert.equal(pcbWizard.capabilities.fileRecognition, "signature-only");
 });
