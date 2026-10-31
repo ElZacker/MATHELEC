@@ -129,11 +129,15 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     knownFacts: [
       "La muestra mathelecprueba.pdsprj mide 12.281 bytes y es un contenedor ZIP.",
       "El contenedor incluye PROJECT.XML, ROOT.DSN y ROOT.CDB.",
-      "Mathelect recupera metadatos de componentes desde ROOT.CDB y referencias/valores de los registros COMPONENT ID de ROOT.DSN; todavía no reconstruye coordenadas, símbolos, pines ni redes eléctricas.",
+      "Mathelect limita las instancias colocadas a los marcadores COMPONENT ID dentro de OBJECT DATA, obtiene valor, identificador de biblioteca y todas las propiedades de texto, y contrasta biblioteca/dispositivo con ROOT.CDB.",
+      "Los objetos de OBJECT DATA sin designador o con referencias repetidas se conservan como no resueltos; se preservan también dos palabras binarias posteriores al designador como datos opacos, sin afirmar que sean coordenadas.",
+      "La extracción de instancias está automatizada y probada contra la muestra del repositorio; un segundo proyecto externo fue inspeccionado manualmente para estudiar objetos de instrumento y límites de sección, pero no es todavía una fixture de CI.",
+      "No se reconstruyen todavía posiciones con unidades, símbolos, pines, cables ni nets eléctricos.",
     ],
     nextEvidenceRequired: [
-      "Decodificación contrastada de coordenadas, símbolos, pines, cables y redes eléctricas de ROOT.DSN.",
-      "Mapeo verificable entre referencias de ROOT.DSN y registros de ROOT.CDB.",
+      "Identificación de la semántica y escala de las dos palabras binarias de colocación, usando archivos de referencia con movimientos controlados.",
+      "Decodificación de símbolos, pines, terminales, cables y redes eléctricas, incluidos instrumentos y objetos especiales.",
+      "Validación automatizada sobre varios proyectos Proteus 8.13 y mapeo completo con ROOT.CDB.",
       "Apertura y simulación del proyecto generado dentro de Proteus 8.13.",
     ],
   },
