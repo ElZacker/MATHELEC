@@ -129,7 +129,7 @@ These references establish the initial investigation only. They do not substitut
 - Regression coverage asserts the real fixture's B1/D1/R1 library mappings, per-instance properties and raw words, plus a synthetic case containing a library marker outside `OBJECT DATA`, a component, multiple object-data sections and an unlabelled virtual instrument.
 - A separate public Proteus project was inspected manually to compare the marker sequence and special instrument objects. It was not copied into the repository or treated as a passing CI fixture.
 
-The repository fixture's `ROOT.DSN` also contains NUL-terminated structural markers at stable byte offsets: six `WIRE` markers (72831, 72881, 72931, 73014, 73064, 73114), 26 `TERMINAL` markers, three `PROPERTIES` markers (71921, 72249, 72661), and no `TERMINAL LABEL` markers. The inspector exposes these exact offsets as a diagnostic inventory. This is deliberately **not** reported as six decoded wires or 26 connected pins: the payload schemas and the distinction between library terminals and placed terminals remain to be decoded.
+The repository fixture's `ROOT.DSN` also contains NUL-terminated structural markers at stable byte offsets: six `WIRE` markers (72831, 72881, 72931, 73014, 73064, 73114), 26 `TERMINAL` markers, three `PROPERTIES` markers (71921, 72249, 72661), and no `TERMINAL LABEL` markers. The inspector exposes these exact offsets as a diagnostic inventory. For the six local `WIRE` markers it also exposes the byte-window length to the next `WIRE` marker or `OBJECT DATA` boundary (50, 50, 83, 50, 50 and 69 bytes). This is deliberately **not** reported as six decoded wires or 26 connected pins: the payload schemas and the distinction between library terminals and placed terminals remain to be decoded.
 
 The remaining Proteus schematic work is now specifically: identify the raw placement word semantics with controlled saves/moves; resolve symbol/part definitions to pin geometry; decode terminals, wires and net membership; then build a writer and test open + simulation in Proteus 8.13.
 
@@ -142,3 +142,6 @@ Both repository samples begin with the same four-byte `Dsg\\0` family signature 
 ### ROOT.DSN structural marker inventory
 
 The current repository sample is covered by exact offset regression assertions for all six `WIRE\\0` markers, all 26 `TERMINAL\\0` markers, all three `PROPERTIES\\0` markers and the absence of `TERMINAL LABEL\\0`. These are byte positions for later decoding, not interpreted wire counts, pin counts or net connectivity. The second public Proteus project inspected manually has a larger set of wire and terminal markers, but remains a research reference rather than an automated fixture.
+
+
+The WIRE window lengths are regression diagnostics bounded by the next visible marker/section boundary; they are not yet asserted to be canonical record lengths. Their variable size is a reason to retain raw offsets and defer endpoint decoding until the binary payload structure is established.
