@@ -1,42 +1,44 @@
 # Native EDA format compatibility
 
-Status: research and fixture collection. This document is deliberately explicit about what is and is not implemented.
+Status: **reference inspection implemented; native project generation is not implemented yet**. This document distinguishes format recognition from actual circuit decoding and export.
 
-## Current Mathelect export state
+## Reference files inspected (31 October 2026)
 
-The application currently exports its own JSON project, an SVG drawing, and a text connection report. SVG and the text report are not editable simulation projects for Livewire, Proteus, or PCB Wizard. No native writer for those three formats is currently present.
+The repository contains three reference projects under `archivosdeprueba/compatibilidad/`:
 
-## Target formats and constraints
+| File | Size | Observed structure | What is confirmed |
+|---|---:|---|---|
+| `Mathelecprueba.lvw` | 1,144 bytes | Binary document beginning with `44 73 67 00` (`Dsg\\0`) | Recognizable New Wave / Livewire-family signature; body remains opaque |
+| `Mathelecprueba.pcb` | 1,093 bytes | Binary document beginning with the same `Dsg\\0` signature | Recognizable New Wave / PCB Wizard-family signature; body remains opaque |
+| `mathelecprueba.pdsprj` | 12,281 bytes | ZIP container | Contains `PROJECT.XML`, `ROOT.DSN`, `ROOT.CDB` and `SCRIPTS/PWRRAILS.DAT` |
+
+The Livewire and PCB Wizard samples share the first four signature bytes, but the binary content diverges shortly afterwards. Therefore, the signature alone cannot distinguish these two applications; the file extension and application context are both required. Both samples also contain the printable strings `page &p of &n` and `Arial`, which are document metadata, not a decoded circuit model.
+
+The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `ROOT.DSN` and `ROOT.CDB` are binary. A valid ZIP wrapper is not sufficient to create a valid Proteus schematic: the DSN design content still needs a verified decoder/writer.
+
+## Implemented in Mathelect
+
+- `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
+- The New Wave inspector checks the `Dsg\\0` signature and returns only metadata that can be established safely. It deliberately reports that component data is not decoded.
+- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies the extracted XML entry's size and CRC32. It reports whether `ROOT.DSN` and `ROOT.CDB` are present without claiming to interpret their contents.
+- `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report.
+- `tests/native-eda-formats.test.ts` uses the three repository samples as regression fixtures. These tests check file recognition and container integrity, not that the projects open in the desktop applications.
+
+This is the first real compatibility layer, but it is **inspection only**. The current code does not reconstruct the sample circuits, map component library identifiers, or write native projects.
+
+## What is still required for real import/export
 
 ### Livewire
 
-- Native circuit documents use the `.LVW` extension.
-- A useful document must preserve actual component instances, values, positions, pins, wires, and simulation inputs—not just a rendered drawing.
-- PCB Wizard 3 is documented by New Wave Concepts as able to open Livewire circuit files and convert them into PCB layouts.
-- The binary/container structure and stable writer interface are not established by the current repository.
+The binary records must be decoded into component instances, values, positions, terminal/pin identifiers, wires, and simulation properties. Then the writer must emit those records from Mathelect's circuit model. The common `Dsg` signature is not enough to safely build the record stream.
 
 ### Proteus
 
-- The current project extension is `.pdsprj`; legacy ISIS designs use `.DSN`.
-- Sample `.pdsprj` files are ZIP containers. Common entries include `PROJECT.XML`, `ROOT.DSN`, and `ROOT.CDB`.
-- `ROOT.DSN` carries schematic data and is binary, so generating a valid project requires more than creating XML or a text netlist.
-- A SPICE netlist contains electrical connectivity and model directives but no graphical schematic placement. It must never be advertised as a native Proteus project.
+The next decoder must interpret `ROOT.DSN` (schematic objects, symbol/library references, pin identities, wires, nets and placement) and the relevant `ROOT.CDB` database records. A writer must maintain valid internal references and package those records with the expected project metadata. Writing only `PROJECT.XML` or a netlist is not native project generation.
 
 ### PCB Wizard
 
-- The native project extension is `.PCB`.
-- A valid PCB design needs board geometry, component footprints, pad numbering, nets and copper routing. A list of schematic components or an SVG is not a PCB.
-- The official product documentation describes Gerber and NC-Drill outputs as manufacturing exports. Those outputs are not an editable PCB Wizard project.
-
-## Required reference fixtures
-
-For each application/version that Mathelect intends to support, collect a small project created and saved by that application itself:
-
-1. **Livewire:** a simple, fully wired low-voltage LED + series resistor + DC source circuit, saved as `.LVW`.
-2. **Proteus:** the same simple circuit, saved as a `.pdsprj` project. Include the complete project file, not a screenshot or renamed text file.
-3. **PCB Wizard:** a small PCB document created from the circuit, with real footprints assigned and all required tracks routed, saved as `.PCB`. Include the source `.LVW` if the PCB was generated from Livewire.
-
-Do not upload installers, licensed application binaries, private credentials, or third-party component libraries. The user's own small example projects are sufficient for initial format analysis.
+The writer must create a board design with board geometry, actual footprints, numbered pads, net assignments and copper tracks. The sample's binary record structure needs to be decoded independently of Livewire even though their signatures overlap. A schematic-only file, Gerber or NC-Drill export is not an editable PCB Wizard project.
 
 ## Exporter architecture
 
@@ -44,7 +46,7 @@ Do not upload installers, licensed application binaries, private credentials, or
 AI proposal
   -> Mathelect Circuit model
   -> structural + electrical validation
-  -> target component/pin/footprint mapper
+  -> target component / pin / footprint mapper
   -> target-specific native writer
   -> format/container validation
   -> application-level open + simulation/routing smoke test
@@ -57,7 +59,7 @@ Rules:
 - A file is not marked supported until it opens in the target software and its component count, values, and net connectivity are checked.
 - For Livewire/Proteus, run the circuit in the application's simulator for the supported subset.
 - For PCB Wizard, verify pad-to-net connectivity and that every required net is routed or is explicitly reported as unrouted.
-- Keep fixtures and expected mappings under automated regression tests once their use and redistribution are confirmed.
+- Keep the user's reference projects as fixtures only for the current repository tests; do not present those tests as a substitute for application-level validation.
 
 ## Initial research sources
 
