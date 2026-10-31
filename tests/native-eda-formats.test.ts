@@ -10,6 +10,9 @@ const fixture = (name: string) =>
 test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar componentes", () => {
   const result = inspectNativeEdaProject("Mathelecprueba.lvw", fixture("Mathelecprueba.lvw"));
   assert.equal(result.format, "livewire");
+  assert.equal(result.targetApplication.application, "Livewire");
+  assert.equal(result.targetApplication.installedVersion, "1.11");
+  assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
   assert.equal(result.componentDataDecoded, false);
@@ -19,6 +22,9 @@ test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar com
 test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión", () => {
   const result = inspectNativeEdaProject("Mathelecprueba.pcb", fixture("Mathelecprueba.pcb"));
   assert.equal(result.format, "pcb-wizard");
+  assert.equal(result.targetApplication.application, "PCB Wizard");
+  assert.equal(result.targetApplication.installedVersion, "3.50");
+  assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.recognized, true);
   assert.equal(result.signature, "Dsg\\0");
   assert.equal(result.componentDataDecoded, false);
@@ -28,6 +34,9 @@ test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión",
 test("Proteus: valida el contenedor y los archivos internos esenciales del proyecto real", () => {
   const result = inspectNativeEdaProject("mathelecprueba.pdsprj", fixture("mathelecprueba.pdsprj"));
   assert.equal(result.format, "proteus");
+  assert.equal(result.targetApplication.application, "Proteus");
+  assert.equal(result.targetApplication.installedVersion, "8.13");
+  assert.equal(result.targetApplication.fileVersionDetected, false);
   assert.equal(result.container, "zip");
   assert.equal(result.hasProjectXml, true);
   assert.equal(result.hasRootDsn, true);
