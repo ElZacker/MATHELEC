@@ -572,3 +572,69 @@ test("Proteus DSN: agrupa contactos geométricos pero no cruces interiores sin v
     { wireObjectOffsets: [crossing] },
   ]);
 });
+
+
+test("Proteus DSN: decodifica un terminal POWER y valida su puntero y punto de conexión", () => {
+  const signature = Buffer.from("ISIS SCHEMATIC FILE", "ascii");
+  const objectData = Buffer.from("OBJECT DATA\\0", "ascii");
+  const wireHeader = Buffer.from([
+    0x00, 0x1d, 0x00, 0x00, 0x00,
+    0x00, 0xc0, 0x9e, 0x00, 0x00,
+    0x00, 0x40, 0x00,
+    0x00, 0x01, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00,
+    0x02, 0x7f, 0x57, 0x49, 0x52, 0x45, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+  ]);
+  wireHeader.writeUInt16LE(2, 32);
+  const wireVertices = Buffer.alloc(16);
+  wireVertices.writeInt32LE(0, 0);
+  wireVertices.writeInt32LE(0, 4);
+  wireVertices.writeInt32LE(200 * 2540, 8);
+  wireVertices.writeInt32LE(0, 12);
+  const wire = Buffer.concat([wireHeader, wireVertices]);
+
+  const dsnPrefix = Buffer.concat([signature, Buffer.alloc(8), objectData]);
+  const wireObjectOffset = dsnPrefix.length;
+  const terminalName = Buffer.from("$TERPOWER", "ascii");
+  const terminal = Buffer.alloc(96 + terminalName.length);
+  terminal[0] = 0x10;
+  terminal.writeInt32LE(100 * 2540, 1);
+  terminal.writeInt32LE(100 * 2540, 5);
+  terminal.writeUInt16LE(terminalName.length, 13);
+  terminalName.copy(terminal, 15);
+  const tailOffset = 15 + terminalName.length;
+  // The read-only 8.13 terminal parser uses the persisted label anchor to
+  // reconstruct the connection point, as the terminal records do.
+  terminal.writeInt32LE(0, tailOffset + 11);
+  terminal.writeInt32LE(300 * 2540, tailOffset + 15);
+  Buffer.from("TERMINAL LABEL\\0", "ascii").copy(terminal, tailOffset + 35);
+  terminal.writeUInt32LE(wireObjectOffset, tailOffset + 77);
+
+  const dsn = Buffer.concat([dsnPrefix, wire, terminal]);
+  const result = inspectProteusSchematicBytes(dsn);
+
+  assert.equal(result.terminalPlacements.length, 1);
+  assert.deepEqual(result.terminalPlacements[0], {
+    sourceOffset: wireObjectOffset + wire.length,
+    byteLength: 105,
+    kind: "POWER",
+    origin: { x: 100, y: 100 },
+    labelAnchor: { x: 0, y: 300 },
+    connectionPoint: { x: 100, y: 0 },
+    wireObjectOffset,
+    wireReferenceValid: true,
+    connectionPointMatchesWire: true,
+  });
+  assert.deepEqual(result.wireConnectedGroups, [
+    {
+      wireObjectOffsets: [wireObjectOffset],
+      junctionNodeOffsets: [],
+      componentPins: [],
+      terminals: [{
+        sourceOffset: wireObjectOffset + wire.length,
+        kind: "POWER",
+        connectionPointMatchesWire: true,
+      }],
+    },
+  ]);
+});
