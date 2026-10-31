@@ -569,8 +569,12 @@ function parseProteusComponentRecordAt(
 
     const textBytes = buffer.subarray(textStart, textEnd);
     const attributeBytes = buffer.subarray(attributeOffset, attributeEnd);
+    // The PROPERTIES label contains line-separated brace records in actual
+    // Proteus 8.13 saves; permit ASCII whitespace inside label text only.
     if (
-      [...textBytes].some((byte) => byte < 0x20 || byte > 0x7e) ||
+      [...textBytes].some((byte) =>
+        (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d) || byte > 0x7e
+      ) ||
       [...attributeBytes].some((byte) => byte < 0x20 || byte > 0x7e)
     ) {
       return fail(`label-${blockIndex}:non-printable-text-or-attribute`);
