@@ -182,6 +182,18 @@ export type ProteusSchematicJunctionNode = {
   wireObjectOffsets: number[];
 };
 
+export type ProteusSchematicTerminalPlacement = {
+  sourceOffset: number;
+  byteLength: number;
+  kind: "POWER" | "GROUND";
+  origin: { x: number; y: number };
+  labelAnchor: { x: number; y: number };
+  connectionPoint: { x: number; y: number };
+  wireObjectOffset: number | null;
+  wireReferenceValid: boolean | null;
+  connectionPointMatchesWire: boolean | null;
+};
+
 export type ProteusSchematicWireConnectedGroup = {
   wireObjectOffsets: number[];
   junctionNodeOffsets: number[];
@@ -191,6 +203,11 @@ export type ProteusSchematicWireConnectedGroup = {
     pinName: string;
     pinNumber: string;
     mappingBasis: "symbol-pin-name" | "cdb-order-unverified";
+    connectionPointMatchesWire: boolean | null;
+  }>;
+  terminals: Array<{
+    sourceOffset: number;
+    kind: "POWER" | "GROUND";
     connectionPointMatchesWire: boolean | null;
   }>;
 };
@@ -207,6 +224,7 @@ export type ProteusSchematicInspection = {
   unresolvedWireMarkerOffsets: number[];
   wireTouchGroups: ProteusSchematicWireTouchGroup[];
   junctionNodes: ProteusSchematicJunctionNode[];
+  terminalPlacements: ProteusSchematicTerminalPlacement[];
   wireConnectedGroups: ProteusSchematicWireConnectedGroup[];
   terminalMarkerOffsets: number[];
   terminalLabelMarkerOffsets: number[];
@@ -767,6 +785,116 @@ function rotateProteusPoint(
   };
 }
 
+function parseProteusTerminalPlacements(
+  buffer: Buffer,
+  objectDataOffsets: number[],
+  objectDataMarker: Buffer,
+  wireSegments: ProteusSchematicWireSegment[],
+): ProteusSchematicTerminalPlacement[] {
+  const kinds = [
+    { kind: "POWER" as const, name: "$TERPOWER", pinOffset: { x: 100, y: -300 } },
+    { kind: "GROUND" as const, name: "$TERGROUND", pinOffset: { x: 100, y: 300 } },
+  ];
+  const knownWireOffsets = new Set(wireSegments.map((wire) => wire.objectOffset));
+  const placements: ProteusSchematicTerminalPlacement[] = [];
+
+  for (const { kind, name, pinOffset } of kinds) {
+    const nameBytes = Buffer.from(name, "ascii");
+    const tag = Buffer.alloc(nameBytes.length + 2);
+    tag.writeUInt16LE(nameBytes.length, 0);
+    nameBytes.copy(tag, 2);
+
+    for (const tagOffset of findAllBufferOccurrences(buffer, nameBytes)) {
+      const objectOffset = tagOffset - 15;
+      const objectDataStart = objectDataOffsets
+        .filter((candidate) => candidate < tagOffset)
+        .pop();
+      const objectDataEnd = objectDataOffsets.find((candidate) => candidate > tagOffset) ?? buffer.length;
+      const byteLength = 96 + nameBytes.length;
+      if (
+        objectDataStart === undefined ||
+        objectOffset < objectDataStart + objectDataMarker.length ||
+        objectOffset + byteLength > objectDataEnd ||
+        !buffer.subarray(objectOffset + 13, objectOffset + 15).equals(tag.subarray(0, 2)) ||
+        !buffer.subarray(tagOffset, tagOffset + nameBytes.length).equals(nameBytes) ||
+        buffer[objectOffset] !== 0x10
+      ) {
+        continue;
+      }
+
+      const tailOffset = objectOffset + 15 + nameBytes.length;
+      const labelMarker = Buffer.from("TERMINAL LABEL\\0", "ascii");
+      const labelMarkerOffset = buffer.indexOf(labelMarker, tailOffset, objectOffset + byteLength);
+      if (labelMarkerOffset < tailOffset) continue;
+
+      const originRaw = {
+        x: buffer.readInt32LE(objectOffset + 1),
+        y: buffer.readInt32LE(objectOffset + 5),
+      };
+      const labelRaw = {
+        x: buffer.readInt32LE(tailOffset + 11),
+        y: buffer.readInt32LE(tailOffset + 15),
+      };
+      const wireValue = buffer.readUInt32LE(tailOffset + 77);
+      const wireObjectOffset = wireValue === 0 ? null : wireValue;
+      const connectionPoint = {
+        x: labelRaw.x / 2540 + pinOffset.x,
+        y: labelRaw.y / 2540 + pinOffset.y,
+      };
+      const rawConnectionPoint = {
+        x: Math.round(connectionPoint.x * 2540),
+        y: Math.round(connectionPoint.y * 2540),
+      };
+      const wire = wireObjectOffset === null
+        ? undefined
+        : wireSegments.find((candidate) => candidate.objectOffset === wireObjectOffset);
+      const connectionPointMatchesWire = wireObjectOffset === null
+        ? null
+        : wire
+          ? wire.rawPoints.some((vertex, index) =>
+              index < wire.rawPoints.length - 1 &&
+              pointOnProteusWireSegment(
+                rawConnectionPoint,
+                vertex,
+                wire.rawPoints[index + 1],
+              ),
+            )
+          : false;
+
+      placements.push({
+        sourceOffset: objectOffset,
+        byteLength,
+        kind,
+        origin: { x: originRaw.x / 2540, y: originRaw.y / 2540 },
+        labelAnchor: { x: labelRaw.x / 2540, y: labelRaw.y / 2540 },
+        connectionPoint,
+        wireObjectOffset,
+        wireReferenceValid: wireObjectOffset === null ? null : knownWireOffsets.has(wireObjectOffset),
+        connectionPointMatchesWire,
+      });
+    }
+  }
+
+  return placements.sort((left, right) => left.sourceOffset - right.sourceOffset);
+}
+
+function pointOnProteusWireSegment(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): boolean {
+  if (start.x === end.x && start.y === end.y) {
+    return point.x === start.x && point.y === start.y;
+  }
+  const cross = (end.x - start.x) * (point.y - start.y) -
+    (end.y - start.y) * (point.x - start.x);
+  if (cross !== 0) return false;
+  const dot = (point.x - start.x) * (end.x - start.x) +
+    (point.y - start.y) * (end.y - start.y);
+  const squaredLength = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
+  return dot >= 0 && dot <= squaredLength;
+}
+
 function parseProteusDsnComponentInstances(
   buffer: Buffer,
   libraryComponents: ProteusComponentMetadata[],
@@ -932,6 +1060,13 @@ function parseProteusDsnComponentInstances(
   const wireTouchGroups = [...wireGroups.values()]
     .map((wireObjectOffsets) => ({ wireObjectOffsets }))
     .sort((left, right) => left.wireObjectOffsets[0] - right.wireObjectOffsets[0]);
+
+  const terminalPlacements = parseProteusTerminalPlacements(
+    buffer,
+    objectDataOffsets,
+    objectDataMarker,
+    wireSegments,
+  );
 
   const wireByObjectOffset = new Map(wireSegments.map((segment) => [segment.objectOffset, segment]));
   const pointLiesOnWire = (
@@ -1342,6 +1477,15 @@ function parseProteusDsnComponentInstances(
             connectionPointMatchesWire: pin.connectionPointMatchesWire,
           })),
       ),
+      terminals: terminalPlacements
+        .filter((terminal) =>
+          terminal.wireObjectOffset !== null && wireOffsets.has(terminal.wireObjectOffset),
+        )
+        .map((terminal) => ({
+          sourceOffset: terminal.sourceOffset,
+          kind: terminal.kind,
+          connectionPointMatchesWire: terminal.connectionPointMatchesWire,
+        })),
     };
   });
   const componentLibraryNamesWithoutDeviceMetadataMatch = componentInstances
@@ -1361,6 +1505,7 @@ function parseProteusDsnComponentInstances(
     unresolvedWireMarkerOffsets,
     wireTouchGroups,
     junctionNodes,
+    terminalPlacements,
     wireConnectedGroups,
     terminalMarkerOffsets,
     terminalLabelMarkerOffsets,
@@ -1384,6 +1529,8 @@ function parseProteusDsnComponentInstances(
       "Se decodifican las tablas de patas de ROOT.CDB (nombre y número, incluso número vacío) y se enlazan con slots DSN solo cuando el tamaño coincide y todos los punteros son direcciones WIRE válidas.",
       "wireConnectedGroups añade a cada grupo geométrico las patas de componentes enlazadas por índice de CDB; todavía no incluye etiquetas ni terminales de alimentación/tierra.",
       "Los cruces interiores sin vértice compartido no se fusionan; las etiquetas de red, terminales y pines todavía no se incorporan al agrupamiento.",
+      "Los objetos $TERPOWER y $TERGROUND se decodifican con su estructura de 13 bytes de cabecera, longitud de nombre, anclajes y puntero de cable; un puntero se considera asociado solo si resuelve a un WIRE conocido.",
+      "Las conexiones de terminal se incluyen en wireConnectedGroups solo cuando su puntero apunta a un cable del grupo; también se valida geométricamente el punto de conexión.",
       "Los marcadores WIRE que no cumplen la estructura tipada se conservan en unresolvedWireMarkerOffsets, en lugar de interpretarse por aproximación.",
       "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
