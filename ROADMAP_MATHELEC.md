@@ -1252,3 +1252,15 @@ Se añadió un agrupador geométrico basado en contactos exactos: un vértice de
 El lector encuentra valores de 32 bits en las colas de los registros B1, D1 y R1 que coinciden exactamente con direcciones de objetos WIRE ya validados. Se conservan con su offset de origen: dos referencias por componente en el fixture actual. Esto crea el primer vínculo comprobable entre instancias y objetos de cable.
 
 Todavía no se declaran como índices de patas: falta reconstruir la tabla completa de slots, distinguir slots cero/no conectados y correlacionar cada índice con los nombres y números de pin de las definiciones de símbolo y biblioteca.
+
+
+## Proteus 8.13 — patas de componentes enlazadas a cables (31 de octubre de 2026)
+
+Se decodificó la tabla de patas de ROOT.CDB y se enlazó con las ranuras de punteros a WIRE en ROOT.DSN. En el archivo de referencia:
+- B1: + y -.
+- D1: A y K.
+- R1: 1 y 2.
+
+Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El lector solo declara `matched-by-cdb-order` cuando se cumple esa triple condición. Los grupos geométricos ahora también muestran sus nodos T y patas conectadas.
+
+Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.
