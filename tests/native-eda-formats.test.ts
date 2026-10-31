@@ -576,7 +576,7 @@ test("Proteus DSN: agrupa contactos geométricos pero no cruces interiores sin v
 
 test("Proteus DSN: decodifica un terminal POWER y valida su puntero y punto de conexión", () => {
   const signature = Buffer.from("ISIS SCHEMATIC FILE", "ascii");
-  const objectData = Buffer.from("OBJECT DATA\\0", "ascii");
+  const objectData = Buffer.from("OBJECT DATA\0", "ascii");
   const wireHeader = Buffer.from([
     0x00, 0x1d, 0x00, 0x00, 0x00,
     0x00, 0xc0, 0x9e, 0x00, 0x00,
@@ -607,7 +607,7 @@ test("Proteus DSN: decodifica un terminal POWER y valida su puntero y punto de c
   // reconstruct the connection point, as the terminal records do.
   terminal.writeInt32LE(0, tailOffset + 11);
   terminal.writeInt32LE(300 * 2540, tailOffset + 15);
-  Buffer.from("TERMINAL LABEL\\0", "ascii").copy(terminal, tailOffset + 35);
+  Buffer.from("TERMINAL LABEL\0", "ascii").copy(terminal, tailOffset + 35);
   terminal.writeUInt32LE(wireObjectOffset, tailOffset + 77);
 
   const dsn = Buffer.concat([dsnPrefix, wire, terminal]);
