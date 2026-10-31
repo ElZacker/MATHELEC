@@ -22,6 +22,19 @@ import { createTransientState, runTransientStep, type TransientState } from "@/l
 import { findWireRoutingIssues, routeOrthogonalWires } from "@/lib/circuits/wire-routing";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
+type NativeInspectionResponse = {
+  error?: string;
+  format?: string;
+  byteLength?: number;
+  status?: string;
+  hasProjectXml?: boolean;
+  hasRootDsn?: boolean;
+  hasRootCdb?: boolean;
+  entries?: { name: string }[];
+  textMarkers?: string[];
+  limitations?: string[];
+};
+
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -789,6 +802,7 @@ function handleMoveComponent(
   const fileInput = useRef<HTMLInputElement>(null);
   const projectFileInput = useRef<HTMLInputElement>(null);
   const spiceFileInput = useRef<HTMLInputElement>(null);
+  const nativeEdaFileInput = useRef<HTMLInputElement>(null);
   const messageEnd = useRef<HTMLDivElement>(null);
   const activeChat = chats.find((chat) => chat.id === activeChatId) ?? chats[0];
 
@@ -1159,6 +1173,45 @@ function handleMoveComponent(
     }
   }
 
+  async function inspectNativeEdaFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!["lvw", "pcb", "pdsprj"].includes(extension ?? "")) {
+      setNotice("Elegí un archivo .lvw, .pcb o .pdsprj. Esta acción inspecciona el formato, no importa todavía el circuito.");
+      return;
+    }
+    if (file.size === 0 || file.size > 12 * 1024 * 1024) {
+      setNotice("El archivo está vacío o supera el límite de 12 MB para inspección.");
+      return;
+    }
+
+    const data = new FormData();
+    data.append("file", file);
+    try {
+      const response = await fetch("/api/eda/inspect", { method: "POST", body: data });
+      const result = await response.json() as NativeInspectionResponse;
+      if (!response.ok) throw new Error(result.error ?? "No se pudo inspeccionar el archivo.");
+
+      const size = result.byteLength ? `${result.byteLength.toLocaleString("es-AR")} bytes` : "tamaño no informado";
+      if (result.format === "proteus") {
+        const entries = (result.entries ?? []).map((entry) => entry.name).join(", ");
+        setNotice(
+          `Proteus reconocido (${size}). Archivos internos: ${entries || "sin listado"}. PROJECT.XML: ${result.hasProjectXml ? "presente" : "ausente"}; ROOT.DSN: ${result.hasRootDsn ? "presente" : "ausente"}; ROOT.CDB: ${result.hasRootCdb ? "presente" : "ausente"}. El esquema binario todavía no fue decodificado y el circuito no se importó.`,
+        );
+      } else {
+        const format = result.format === "livewire" ? "Livewire" : "PCB Wizard";
+        setNotice(
+          `${format} reconocido por su firma binaria (${size}). Esta inspección todavía no decodifica componentes, pines ni conexiones; no se importó ni modificó el circuito.`,
+        );
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? `No se pudo inspeccionar ${file.name}: ${error.message}` : "No se pudo inspeccionar el archivo nativo.");
+    }
+  }
+
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -1327,9 +1380,11 @@ function handleMoveComponent(
         <div className="project-file-actions">
           <input ref={projectFileInput} type="file" accept=".json,.mathelect.json,application/json" hidden onChange={loadProjectFile} />
           <input ref={spiceFileInput} type="file" accept=".cir,.net,.sp,.ckt,.txt,text/plain" hidden onChange={importSpiceFile} />
+          <input ref={nativeEdaFileInput} type="file" accept=".lvw,.pcb,.pdsprj" hidden onChange={inspectNativeEdaFile} />
           <button type="button" onClick={saveProjectFile}>Guardar proyecto (.json)</button>
           <button type="button" onClick={() => projectFileInput.current?.click()}>Abrir proyecto (.json)</button>
           <button type="button" onClick={() => spiceFileInput.current?.click()}>Importar netlist SPICE (experimental)</button>
+          <button type="button" onClick={() => nativeEdaFileInput.current?.click()}>Inspeccionar archivo nativo (.lvw/.pcb/.pdsprj)</button>
         </div>
 
         <div className="preview-project">
