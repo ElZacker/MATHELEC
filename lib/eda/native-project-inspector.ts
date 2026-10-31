@@ -127,6 +127,9 @@ export type ProteusSchematicComponentInstance = {
   reference: string;
   recordStartOffset: number;
   sourceOffset: number;
+  componentRecordParseStatus: "decoded" | "not-found" | "ambiguous";
+  componentRecordCandidateOffsets: number[];
+  componentRecordDiagnostics: string[];
   placement: ProteusSchematicComponentPlacement | null;
   value: string | null;
   libraryName: string | null;
@@ -513,30 +516,53 @@ type ParsedProteusComponentRecord = {
   placement: ProteusSchematicComponentPlacement;
 };
 
+type ProteusComponentRecordSearchResult = {
+  record: ParsedProteusComponentRecord | null;
+  candidateOffsets: number[];
+  diagnostics: string[];
+  ambiguous: boolean;
+};
+
 function parseProteusComponentRecordAt(
   buffer: Buffer,
   recordStartOffset: number,
   expectedComponentIdMarkerOffset: number,
+  diagnostics: string[],
 ): ParsedProteusComponentRecord | null {
+  const fail = (reason: string): null => {
+    diagnostics.push(reason);
+    return null;
+  };
   let cursor = recordStartOffset;
   const labelBlocks: ProteusSchematicLabelBlock[] = [];
 
   for (let blockIndex = 0; blockIndex < 4; blockIndex += 1) {
-    if (cursor + 5 > buffer.length || buffer[cursor] !== 0xff) return null;
+    if (cursor + 5 > buffer.length || buffer[cursor] !== 0xff) {
+      return fail(`label-${blockIndex}:missing-ff-header`);
+    }
     const textLength = buffer.readUInt32LE(cursor + 1);
-    if (textLength < 1 || textLength > 4096) return null;
+    if (textLength < 1 || textLength > 4096) {
+      return fail(`label-${blockIndex}:invalid-u32-length-${textLength}`);
+    }
     const textStart = cursor + 5;
     const textEnd = textStart + textLength;
     const anchorOffset = textEnd;
     const styleOffset = anchorOffset + 8;
     const fontOffset = styleOffset + 26;
     const attributeOffset = fontOffset + 13;
-    if (attributeOffset >= buffer.length || !buffer.subarray(fontOffset, attributeOffset).equals(Buffer.from("Default Font\0", "ascii"))) {
-      return null;
+    if (
+      attributeOffset >= buffer.length ||
+      !buffer.subarray(fontOffset, attributeOffset).equals(Buffer.from("Default Font\\0", "ascii"))
+    ) {
+      return fail(`label-${blockIndex}:default-font-mismatch`);
     }
     const attributeEnd = buffer.indexOf(0, attributeOffset);
-    if (attributeEnd < 0 || attributeEnd > attributeOffset + 40 || attributeEnd + 5 > buffer.length) {
-      return null;
+    if (
+      attributeEnd < 0 ||
+      attributeEnd > attributeOffset + 40 ||
+      attributeEnd + 5 > buffer.length
+    ) {
+      return fail(`label-${blockIndex}:invalid-attribute-terminator`);
     }
 
     const textBytes = buffer.subarray(textStart, textEnd);
@@ -545,7 +571,7 @@ function parseProteusComponentRecordAt(
       [...textBytes].some((byte) => byte < 0x20 || byte > 0x7e) ||
       [...attributeBytes].some((byte) => byte < 0x20 || byte > 0x7e)
     ) {
-      return null;
+      return fail(`label-${blockIndex}:non-printable-text-or-attribute`);
     }
 
     const rawX = buffer.readInt32LE(anchorOffset);
@@ -562,25 +588,39 @@ function parseProteusComponentRecordAt(
   }
 
   const componentIdBlock = labelBlocks[0];
-  if (!componentIdBlock || componentIdBlock.attribute !== "COMPONENT ID") return null;
-  if (recordStartOffset < 0 || recordStartOffset > expectedComponentIdMarkerOffset) return null;
+  if (!componentIdBlock || componentIdBlock.attribute !== "COMPONENT ID") {
+    return fail(`first-label-is-not-component-id:${componentIdBlock?.attribute ?? "missing"}`);
+  }
+  if (recordStartOffset < 0 || recordStartOffset > expectedComponentIdMarkerOffset) {
+    return fail("component-id-marker-before-record-start");
+  }
   const componentIdMarkerOffset = recordStartOffset +
     5 + componentIdBlock.text.length + 8 + 26 + 13;
-  if (componentIdMarkerOffset !== expectedComponentIdMarkerOffset) return null;
-  if (!isProteusDesignator(componentIdBlock.text)) return null;
+  if (componentIdMarkerOffset !== expectedComponentIdMarkerOffset) {
+    return fail(
+      `component-id-marker-offset-mismatch:expected-${expectedComponentIdMarkerOffset}:got-${componentIdMarkerOffset}`,
+    );
+  }
+  if (!isProteusDesignator(componentIdBlock.text)) {
+    return fail(`invalid-component-designator:${componentIdBlock.text}`);
+  }
 
-  if (cursor + 4 > buffer.length) return null;
+  if (cursor + 4 > buffer.length) return fail("missing-component-device-header");
   const pinCount = buffer.readUInt16LE(cursor);
   const deviceNameLength = buffer.readUInt16LE(cursor + 2);
-  if (pinCount < 1 || pinCount > 300 || deviceNameLength < 1 || deviceNameLength > 60) return null;
+  if (pinCount < 1 || pinCount > 300 || deviceNameLength < 1 || deviceNameLength > 60) {
+    return fail(`invalid-pin-count-or-device-length:${pinCount}:${deviceNameLength}`);
+  }
   const deviceStart = cursor + 4;
   const originOffset = deviceStart + deviceNameLength;
   const tailStart = originOffset + 8;
   const pinSlotTableOffset = tailStart + 17;
   const pinSlotArrayEnd = pinSlotTableOffset + pinCount * 4;
-  if (pinSlotArrayEnd > buffer.length) return null;
+  if (pinSlotArrayEnd > buffer.length) return fail("component-pin-slot-array-out-of-range");
   const deviceBytes = buffer.subarray(deviceStart, originOffset);
-  if ([...deviceBytes].some((byte) => byte < 0x20 || byte > 0x7e)) return null;
+  if ([...deviceBytes].some((byte) => byte < 0x20 || byte > 0x7e)) {
+    return fail("component-device-name-not-printable");
+  }
 
   const rawOrigin = {
     x: buffer.readInt32LE(originOffset),
@@ -617,22 +657,48 @@ function findProteusComponentRecord(
   buffer: Buffer,
   markerOffset: number,
   objectDataStart: number,
-): ParsedProteusComponentRecord | null {
+): ProteusComponentRecordSearchResult {
   const searchStart = Math.max(objectDataStart, markerOffset - 512);
   const candidates: ParsedProteusComponentRecord[] = [];
+  const candidateOffsets: number[] = [];
+  const diagnostics: string[] = [];
+
   for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
     if (buffer[candidate] !== 0xff || candidate + 5 > buffer.length) continue;
     const textLength = buffer.readUInt32LE(candidate + 1);
     if (textLength < 1 || textLength > 6) continue;
-    const parsed = parseProteusComponentRecordAt(buffer, candidate, markerOffset);
+    candidateOffsets.push(candidate);
+    const attemptDiagnostics: string[] = [];
+    const parsed = parseProteusComponentRecordAt(
+      buffer,
+      candidate,
+      markerOffset,
+      attemptDiagnostics,
+    );
     if (parsed) candidates.push(parsed);
+    else diagnostics.push(`${candidate}:${attemptDiagnostics.join("|")}`);
   }
-  if (candidates.length === 0) return null;
+
+  if (candidates.length === 0) {
+    return { record: null, candidateOffsets, diagnostics, ambiguous: false };
+  }
   if (candidates.length > 1) {
     const starts = new Set(candidates.map((candidate) => candidate.recordStartOffset));
-    if (starts.size > 1) return null;
+    if (starts.size > 1) {
+      return {
+        record: null,
+        candidateOffsets,
+        diagnostics: [...diagnostics, `ambiguous-valid-record-candidates:${[...starts].join(",")}`],
+        ambiguous: true,
+      };
+    }
   }
-  return candidates.sort((left, right) => left.recordStartOffset - right.recordStartOffset)[0];
+  return {
+    record: candidates.sort((left, right) => left.recordStartOffset - right.recordStartOffset)[0],
+    candidateOffsets,
+    diagnostics,
+    ambiguous: false,
+  };
 }
 
 /**
@@ -1131,7 +1197,8 @@ function parseProteusDsnComponentInstances(
     const nextObjectDataMarker = objectDataOffsets.find((objectOffset) => objectOffset > markerOffset);
     const recordEnd = Math.min(nextComponentMarker, nextObjectDataMarker ?? buffer.length);
     const objectDataStart = objectDataOffset + objectDataMarker.length;
-    const parsedRecord = findProteusComponentRecord(buffer, markerOffset, objectDataStart);
+    const recordSearch = findProteusComponentRecord(buffer, markerOffset, objectDataStart);
+    const parsedRecord = recordSearch.record;
     const searchStart = Math.max(objectDataStart, markerOffset - 80);
     let reference: string | null = parsedRecord?.reference ?? null;
     let referenceTokenEnd: number | null = null;
@@ -1220,6 +1287,13 @@ function parseProteusDsnComponentInstances(
     seenReferences.add(reference);
     componentInstances.push({
       reference,
+      componentRecordParseStatus: parsedRecord
+        ? "decoded"
+        : recordSearch.ambiguous
+          ? "ambiguous"
+          : "not-found",
+      componentRecordCandidateOffsets: recordSearch.candidateOffsets,
+      componentRecordDiagnostics: recordSearch.diagnostics,
       recordStartOffset: parsedRecord?.recordStartOffset ??
         (referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length)),
       sourceOffset: markerOffset,
