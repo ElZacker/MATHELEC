@@ -110,6 +110,17 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.ok(result.schematicComponents.componentInstances.every(
     (instance) => instance.sourceOffset > 0,
   ));
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map(({ reference, rawPlacementWords }) => ({
+      reference,
+      rawPlacementWords,
+    })),
+    [
+      { reference: "B1", rawPlacementWords: ["ff6d0840", "00179080"] },
+      { reference: "D1", rawPlacementWords: ["ff8ae018", "001476c0"] },
+      { reference: "R1", rawPlacementWords: ["ffa2e7a8", "0013b050"] },
+    ],
+  );
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
   assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
   assert.deepEqual(result.schematicComponents.metadataReferencesWithoutSchematicInstance, []);
@@ -170,7 +181,7 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
     Buffer.alloc(100),
     marker("OBJECT DATA"),
     token("R1"),
-    Buffer.alloc(8),
+    Buffer.from([0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00]),
     marker("COMPONENT ID"),
     Buffer.alloc(5),
     token("15k"),
@@ -206,6 +217,7 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
   assert.equal(result.componentInstances[0].reference, "R1");
   assert.equal(result.componentInstances[0].libraryName, "RESISTOR");
   assert.equal(result.componentInstances[0].libraryNameMatchesDeviceMetadata, true);
+  assert.deepEqual(result.componentInstances[0].rawPlacementWords, ["00000001", "00000002"]);
   assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
   assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
   assert.equal(result.unresolvedObjectCount, 1);
