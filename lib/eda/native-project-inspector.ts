@@ -94,6 +94,11 @@ export type ProteusSchematicWireSegment = {
   byteLength: number;
   vertexCount: number;
   points: Array<{ x: number; y: number }>;
+  rawPoints: Array<{ x: number; y: number }>;
+};
+
+export type ProteusSchematicWireTouchGroup = {
+  wireObjectOffsets: number[];
 };
 
 export type ProteusSchematicInspection = {
@@ -106,6 +111,7 @@ export type ProteusSchematicInspection = {
   wireMarkerSpans: ProteusSchematicMarkerSpan[];
   wireSegments: ProteusSchematicWireSegment[];
   unresolvedWireMarkerOffsets: number[];
+  wireTouchGroups: ProteusSchematicWireTouchGroup[];
   terminalMarkerOffsets: number[];
   terminalLabelMarkerOffsets: number[];
   propertiesMarkerOffsets: number[];
@@ -487,18 +493,79 @@ function parseProteusDsnComponentInstances(
       continue;
     }
 
-    const points = Array.from({ length: vertexCount }, (_, index) => ({
-      x: buffer.readInt32LE(objectOffset + 34 + index * 8) / 2540,
-      y: buffer.readInt32LE(objectOffset + 38 + index * 8) / 2540,
+    const rawPoints = Array.from({ length: vertexCount }, (_, index) => ({
+      x: buffer.readInt32LE(objectOffset + 34 + index * 8),
+      y: buffer.readInt32LE(objectOffset + 38 + index * 8),
     }));
+    const points = rawPoints.map(({ x, y }) => ({ x: x / 2540, y: y / 2540 }));
     wireSegments.push({
       objectOffset,
       markerOffset,
       byteLength,
       vertexCount,
       points,
+      rawPoints,
     });
   }
+
+  const pointOnWireSegment = (
+    point: { x: number; y: number },
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+  ): boolean => {
+    if (start.x === end.x && start.y === end.y) {
+      return point.x === start.x && point.y === start.y;
+    }
+    const cross = (end.x - start.x) * (point.y - start.y) -
+      (end.y - start.y) * (point.x - start.x);
+    if (cross !== 0) return false;
+    const dot = (point.x - start.x) * (end.x - start.x) +
+      (point.y - start.y) * (end.y - start.y);
+    const squaredLength = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
+    return dot >= 0 && dot <= squaredLength;
+  };
+  const wireSegmentsTouch = (
+    left: ProteusSchematicWireSegment,
+    right: ProteusSchematicWireSegment,
+  ): boolean => {
+    for (const point of left.rawPoints) {
+      for (let index = 0; index < right.rawPoints.length - 1; index += 1) {
+        if (pointOnWireSegment(point, right.rawPoints[index], right.rawPoints[index + 1])) return true;
+      }
+    }
+    for (const point of right.rawPoints) {
+      for (let index = 0; index < left.rawPoints.length - 1; index += 1) {
+        if (pointOnWireSegment(point, left.rawPoints[index], left.rawPoints[index + 1])) return true;
+      }
+    }
+    return false;
+  };
+  const wireParents = wireSegments.map((_, index) => index);
+  const findWireRoot = (index: number): number => {
+    while (wireParents[index] !== index) {
+      wireParents[index] = wireParents[wireParents[index]];
+      index = wireParents[index];
+    }
+    return index;
+  };
+  for (let left = 0; left < wireSegments.length; left += 1) {
+    for (let right = left + 1; right < wireSegments.length; right += 1) {
+      if (!wireSegmentsTouch(wireSegments[left], wireSegments[right])) continue;
+      const leftRoot = findWireRoot(left);
+      const rightRoot = findWireRoot(right);
+      if (leftRoot !== rightRoot) wireParents[rightRoot] = leftRoot;
+    }
+  }
+  const wireGroups = new Map<number, number[]>();
+  wireSegments.forEach((segment, index) => {
+    const root = findWireRoot(index);
+    const group = wireGroups.get(root) ?? [];
+    group.push(segment.objectOffset);
+    wireGroups.set(root, group);
+  });
+  const wireTouchGroups = [...wireGroups.values()]
+    .map((wireObjectOffsets) => ({ wireObjectOffsets }))
+    .sort((left, right) => left.wireObjectOffsets[0] - right.wireObjectOffsets[0]);
 
   const markersOutsideObjectData = offsets.filter((markerOffset) =>
     !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
@@ -648,6 +715,7 @@ function parseProteusDsnComponentInstances(
     wireMarkerSpans,
     wireSegments,
     unresolvedWireMarkerOffsets,
+    wireTouchGroups,
     terminalMarkerOffsets,
     terminalLabelMarkerOffsets,
     propertiesMarkerOffsets,
@@ -665,7 +733,8 @@ function parseProteusDsnComponentInstances(
       "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
       "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
       "Los bloques WIRE reconocidos se decodifican como cadenas de vértices int32 (mils = unidades / 2540); las ventanas de marcador permanecen como información diagnóstica aparte.",
-      "La geometría de los cables se recupera, pero todavía no se reconstruyen redes eléctricas ni se correlacionan sus extremos con pines/terminales.",
+      "Se agrupan los objetos WIRE que comparten vértices con segmentos ajenos; los grupos son geometría wire-only, no redes eléctricas completas ni asignaciones de pines.",
+      "Los cruces interiores sin vértice compartido no se fusionan; las etiquetas de red, terminales, pines y nodos T todavía no se incorporan al agrupamiento.",
       "Los marcadores WIRE que no cumplen la estructura tipada se conservan en unresolvedWireMarkerOffsets, en lugar de interpretarse por aproximación.",
       "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
       "Se intenta recuperar el nombre de biblioteca después de COMPONENT VALUE; la comparación con el campo device de ROOT.CDB es solo diagnóstica, porque ambos identificadores pueden diferir.",
