@@ -1238,3 +1238,10 @@ El inventario binario de `ROOT.DSN` ya conserva offsets exactos para marcadores 
 
 
 Además del inventario de offsets, el lector guarda para cada marcador WIRE la ventana de bytes hasta el siguiente WIRE o el siguiente límite OBJECT DATA. En la muestra actual las ventanas miden 50, 50, 83, 50, 50 y 69 bytes. Se usan como evidencia estructural, no como longitudes de registro confirmadas ni como conexiones decodificadas.
+
+
+## Proteus 8.13 — decodificación geométrica de WIRE (31 de octubre de 2026)
+
+El lector ya valida el encabezado binario de cada objeto WIRE, recupera la cantidad de vértices y lee sus coordenadas X/Y como enteros little-endian. La escala observada en el fixture se verifica con 2540 unidades por mil. La CI comprueba los seis objetos de la muestra, sus posiciones, longitudes, vértices y un cable de longitud cero.
+
+Se añadió un agrupador geométrico basado en contactos exactos: un vértice de un cable debe caer sobre un segmento de otro. Los cruces interiores sin vértice común no se fusionan. Esto produce grupos de cables, no nets eléctricas completas: aún falta resolver los extremos contra los pines de símbolos, las ranuras de conexión de cada componente, los terminales de alimentación/tierra, etiquetas de red y objetos de nodo T.
