@@ -44,6 +44,10 @@ const ZIP_CENTRAL_HEADER = 0x02014b50;
 const ZIP_END_OF_CENTRAL_DIRECTORY = 0x06054b50;
 const MAX_ZIP_COMMENT = 0xffff;
 const MIN_ZIP_EOCD_SIZE = 22;
+const MAX_ZIP_ENTRIES = 256;
+const MAX_ENTRY_UNCOMPRESSED_BYTES = 16 * 1024 * 1024;
+const MAX_TOTAL_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
+const MAX_PROJECT_XML_BYTES = 2 * 1024 * 1024;
 
 function requireRange(buffer: Buffer, offset: number, length: number, label: string): void {
   if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > buffer.length) {
@@ -140,15 +144,32 @@ function parseZipDirectory(buffer: Buffer): ProteusZipEntry[] {
     if (compressionMethod !== 0 && compressionMethod !== 8) {
       throw new Error(`La entrada ${name} usa el método de compresión ${compressionMethod}, no compatible.`);
     }
+    if (uncompressedSize > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+      throw new Error(`La entrada ${name} supera el límite de descompresión de 16 MB.`);
+    }
+    totalUncompressedSize += uncompressedSize;
+    if (totalUncompressedSize > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+      throw new Error("El contenido total del ZIP supera el límite de descompresión de 32 MB.");
+    }
 
     requireRange(buffer, localHeaderOffset, 30, `cabecera local de ${name}`);
     if (buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_HEADER) {
       throw new Error(`La entrada ${name} no tiene una cabecera local ZIP válida.`);
     }
+    const localFlags = buffer.readUInt16LE(localHeaderOffset + 6);
+    const localMethod = buffer.readUInt16LE(localHeaderOffset + 8);
     const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
     const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+    requireRange(buffer, localHeaderOffset + 30, localNameLength + localExtraLength, `metadatos locales de ${name}`);
+    const localName = buffer.subarray(localHeaderOffset + 30, localHeaderOffset + 30 + localNameLength).toString("utf8");
+    if (localName !== name || localMethod !== compressionMethod || (localFlags & 0x0001) !== 0) {
+      throw new Error(`La cabecera local de ${name} no coincide con el directorio central.`);
+    }
     const dataOffset = localHeaderOffset + 30 + localNameLength + localExtraLength;
     requireRange(buffer, dataOffset, compressedSize, `datos comprimidos de ${name}`);
+    if (dataOffset + compressedSize > centralDirectoryOffset) {
+      throw new Error(`Los datos de ${name} invaden el directorio central ZIP.`);
+    }
 
     entries.push({
       name,
@@ -186,9 +207,12 @@ function extractZipEntry(buffer: Buffer, entry: ProteusZipEntry): Buffer {
   const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
   const dataOffset = localHeaderOffset + 30 + localNameLength + localExtraLength;
   const compressed = buffer.subarray(dataOffset, dataOffset + entry.compressedSize);
+  if (entry.uncompressedSize > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+    throw new Error(`La entrada ${entry.name} supera el límite de descompresión de 16 MB.`);
+  }
   const data = entry.compressionMethod === 0
     ? Buffer.from(compressed)
-    : inflateRawSync(compressed);
+    : inflateRawSync(compressed, { maxOutputLength: MAX_ENTRY_UNCOMPRESSED_BYTES });
 
   if (data.length !== entry.uncompressedSize) {
     throw new Error(`La entrada ${entry.name} no coincide con el tamaño descomprimido declarado.`);
@@ -242,6 +266,9 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
     throw new Error("El ZIP no parece un proyecto Proteus completo: requiere PROJECT.XML y ROOT.DSN.");
   }
 
+  if (projectXml.uncompressedSize > MAX_PROJECT_XML_BYTES) {
+    throw new Error("PROJECT.XML supera el límite de 2 MB.");
+  }
   const projectXmlData = extractZipEntry(buffer, projectXml);
   const xmlText = projectXmlData.toString("utf8").trim();
   if (!xmlText.startsWith("<") || xmlText.includes("\u0000")) {
