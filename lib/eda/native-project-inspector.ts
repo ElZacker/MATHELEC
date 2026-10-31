@@ -337,14 +337,14 @@ function isProteusDesignator(value: string): boolean {
   return /^[A-Za-z]{1,5}[0-9]{1,5}$/.test(value.trim());
 }
 
-function extractProteusProperty(text: string, key: string): string | null {
-  const marker = `{${key}=`;
-  const start = text.indexOf(marker);
-  if (start < 0) return null;
-  const valueStart = start + marker.length;
-  const valueEnd = text.indexOf("}", valueStart);
-  if (valueEnd < 0) return null;
-  return text.slice(valueStart, valueEnd).trim();
+function extractProteusProperties(text: string): Record<string, string> {
+  const properties: Record<string, string> = {};
+  for (const match of text.matchAll(/\\{([^{}=\\r\\n]{1,64})=([^{}\\r\\n]{0,256})\\}/g)) {
+    const key = match[1].trim();
+    if (!/^[A-Za-z][A-Za-z0-9_. -]*$/.test(key)) continue;
+    if (!(key in properties)) properties[key] = match[2].trim();
+  }
+  return properties;
 }
 
 /**
@@ -384,7 +384,7 @@ function parseProteusDsnComponentInstances(
     const markerOffset = offsets[index];
     const objectDataOffset = objectDataOffsets
       .filter((objectOffset) => objectOffset < markerOffset)
-      .at(-1);
+      .pop();
     // Library/template definitions also contain COMPONENT ID markers. Only records
     // nested after OBJECT DATA are placed schematic instances.
     if (objectDataOffset === undefined) continue;
@@ -444,11 +444,7 @@ function parseProteusDsnComponentInstances(
     }
 
     const recordText = buffer.subarray(markerOffset, recordEnd).toString("latin1");
-    const properties: Record<string, string> = {};
-    for (const key of ["PACKAGE", "PRIMTYPE"]) {
-      const property = extractProteusProperty(recordText, key);
-      if (property !== null) properties[key] = property;
-    }
+    const properties = extractProteusProperties(recordText);
 
     const metadata = libraryComponents.find((component) => component.reference === reference);
     const libraryNameMatchesDeviceMetadata = libraryName !== null && metadata
