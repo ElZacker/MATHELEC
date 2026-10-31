@@ -1203,3 +1203,16 @@ Esto amplía los modelos, pero no constituye un simulador universal ni una equiv
 - La búsqueda con Google Search se activa solo en pedidos de diseño no cubiertos por plantillas y su cuota/costo debe revisarse antes de habilitar un volumen elevado. Si no se puede confirmar la fuente, Mathelect no debe afirmar que realizó investigación.
 - Las reparaciones secundarias de JSON y cableado tienen un timeout de 8 segundos; si la propuesta sigue incompleta, se rechaza con un diagnóstico en vez de esperar una segunda llamada larga sin límite práctico.
 - SCR/TRIAC cuentan con un modelo funcional inicial de disparo/enclavamiento, no con el modelo de fabricante completo; especialmente, no debe afirmarse que la simulación cubre los cuatro cuadrantes del TRIAC ni los parámetros de recuperación de un SCR.
+
+
+---
+
+## Avance de compatibilidad EDA — 31 de octubre de 2026
+
+Se continúa en paralelo con los tres formatos, conservando un indicador independiente por aplicación. Las cifras son estimaciones de hitos técnicos cubiertos dentro del objetivo completo de importación/exportación nativa; no son porcentajes de archivos que Mathelect ya abre correctamente.
+
+- **Livewire 1.11:** el inspector informa los desplazamientos binarios exactos de `page &p of &n` y `Arial`, contrastados con el archivo de referencia. La estructura de componentes, pines y conexiones sigue pendiente.
+- **PCB Wizard 3.50:** comparte las pruebas de offsets como diagnóstico del contenedor New Wave y se registra la ruta oficial Livewire → PCB Wizard documentada por el fabricante. Mathelect todavía no produce proyectos PCB nativos ni valida pads, nets o pistas.
+- **Proteus 8.13:** el lector amplía ROOT.DSN para recuperar, cuando existe el marcador, el identificador de biblioteca que sigue a `COMPONENT VALUE`; lo compara de forma diagnóstica con el campo `device` de ROOT.CDB. No reconstruye todavía geometría, pines ni conectividad.
+
+Los nuevos resultados deben superar pruebas de regresión, TypeScript, ESLint y compilación de producción antes de actualizar los indicadores de avance. No se cambia la matriz de capacidades para declarar importación o exportación hasta validar archivos en las aplicaciones de destino.
