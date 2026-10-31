@@ -100,8 +100,8 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   assert.equal(result.schematicComponents.source, "ROOT.DSN");
   assert.equal(result.schematicComponents.header, "ISIS SCHEMATIC FILE");
   assert.equal(result.schematicComponents.status, "partial");
-  assert.equal(result.schematicComponents.objectDataSectionCount, 1);
-  assert.equal(result.schematicComponents.componentIdMarkersOutsideObjectData, 1);
+  assert.equal(result.schematicComponents.objectDataSectionCount, 2);
+  assert.equal(result.schematicComponents.componentIdMarkersOutsideObjectData, 0);
   assert.equal(result.schematicComponents.componentInstanceCount, 3);
   assert.deepEqual(
     result.schematicComponents.componentInstances.map((instance) => instance.reference),
