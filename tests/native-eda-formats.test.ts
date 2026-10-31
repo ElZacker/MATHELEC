@@ -69,6 +69,17 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
   );
   assert.equal(result.componentMetadata.components.find((component) => component.reference === "D1")?.properties.VF, "2.2V");
   assert.equal(result.componentMetadata.components.find((component) => component.reference === "R1")?.properties.PRIMTYPE, "RESISTOR");
+  const batteryProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "B1")?.properties;
+  const ledProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "D1")?.properties;
+  const resistorProperties = result.schematicComponents.componentInstances.find((instance) => instance.reference === "R1")?.properties;
+  assert.equal(batteryProperties?.PRIMITIVE, "ANALOGUE");
+  assert.equal(batteryProperties?.RINT, "0.1");
+  assert.equal(ledProperties?.MODFILE, "LEDA");
+  assert.equal(ledProperties?.VF, "2.2V");
+  assert.equal(ledProperties?.IMAX, "10mA");
+  assert.equal(ledProperties?.ROFF, "100k");
+  assert.equal(resistorProperties?.PRIMTYPE, "RESISTOR");
+  assert.equal(resistorProperties?.PACKAGE, "RES180");
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "PROJECT.XML"));
   assert.ok(result.entries.some((entry) => entry.name.toUpperCase() === "ROOT.DSN"));
   assert.equal(result.schematicComponents.source, "ROOT.DSN");
