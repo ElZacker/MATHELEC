@@ -63,13 +63,20 @@ export type ProteusComponentMetadataInspection = {
   limitations: string[];
 };
 
+export type ProteusSchematicWireAddressReference = {
+  byteOffset: number;
+  wireObjectOffset: number;
+};
+
 export type ProteusSchematicComponentInstance = {
   reference: string;
+  recordStartOffset: number;
   sourceOffset: number;
   rawPlacementWords: [string, string] | null;
   value: string | null;
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
+  wireAddressReferences: ProteusSchematicWireAddressReference[];
   properties: Record<string, string>;
   matchesComponentMetadata: boolean;
 };
@@ -733,14 +740,45 @@ function parseProteusDsnComponentInstances(
     seenReferences.add(reference);
     componentInstances.push({
       reference,
+      recordStartOffset: referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length),
       sourceOffset: markerOffset,
       rawPlacementWords,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
+      wireAddressReferences: [],
       properties,
       matchesComponentMetadata: metadataReferences.has(reference),
     });
+  }
+
+  // The tail of each observed placed-component record contains 32-bit references
+  // to WIRE object addresses. Preserve the raw byte offsets without assuming a
+  // physical pin number/name; that mapping still needs the library pin table.
+  const knownWireOffsets = new Set(wireSegments.map((segment) => segment.objectOffset));
+  const orderedInstances = [...componentInstances].sort(
+    (left, right) => left.recordStartOffset - right.recordStartOffset,
+  );
+  for (let index = 0; index < orderedInstances.length; index += 1) {
+    const instance = orderedInstances[index];
+    const nextComponentStart = orderedInstances[index + 1]?.recordStartOffset;
+    const nextObjectStart = [
+      ...junctionNodes.map((node) => node.objectOffset),
+      ...wireSegments.map((wire) => wire.objectOffset),
+    ]
+      .filter((offset) => offset > instance.recordStartOffset)
+      .sort((left, right) => left - right)[0];
+    const boundaryCandidates = [nextComponentStart, nextObjectStart]
+      .filter((value): value is number => value !== undefined);
+    const recordBoundary = boundaryCandidates.length > 0
+      ? Math.min(...boundaryCandidates)
+      : buffer.length;
+    const tailStart = Math.max(instance.recordStartOffset, recordBoundary - 32);
+    for (let byteOffset = tailStart; byteOffset + 4 <= recordBoundary; byteOffset += 1) {
+      const wireObjectOffset = buffer.readUInt32LE(byteOffset);
+      if (!knownWireOffsets.has(wireObjectOffset)) continue;
+      instance.wireAddressReferences.push({ byteOffset, wireObjectOffset });
+    }
   }
 
   componentInstances.sort((left, right) => left.reference.localeCompare(right.reference));
@@ -788,6 +826,7 @@ function parseProteusDsnComponentInstances(
       "Los bloques WIRE reconocidos se decodifican como cadenas de vértices int32 (mils = unidades / 2540); las ventanas de marcador permanecen como información diagnóstica aparte.",
       "Se agrupan los objetos WIRE que comparten vértices con segmentos ajenos; los grupos son geometría wire-only, no redes eléctricas completas ni asignaciones de pines.",
       "Se decodifican nodos de unión de 25 bytes solo cuando al menos tres referencias apuntan a cables conocidos y sus tres geometrías pasan por las coordenadas del nodo.",
+      "Se conservan punteros de 32 bits hallados en la cola binaria de cada registro de componente cuando coinciden exactamente con direcciones WIRE conocidas; todavía no se asignan a nombres o números de pines.",
       "Los cruces interiores sin vértice compartido no se fusionan; las etiquetas de red, terminales y pines todavía no se incorporan al agrupamiento.",
       "Los marcadores WIRE que no cumplen la estructura tipada se conservan en unresolvedWireMarkerOffsets, en lugar de interpretarse por aproximación.",
       "Se registran los offsets de TERMINAL, TERMINAL LABEL y PROPERTIES como inventario para la próxima etapa; todavía no equivalen a pines conectados o propiedades completamente tipadas.",
