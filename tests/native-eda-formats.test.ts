@@ -222,6 +222,39 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
     (instance) => instance.sourceOffset > 0,
   ));
   assert.deepEqual(
+    result.schematicComponents.componentInstances.map(({ reference, recordStartOffset, wireAddressReferences }) => ({
+      reference,
+      recordStartOffset,
+      wireAddressReferences,
+    })),
+    [
+      {
+        reference: "B1",
+        recordStartOffset: 71629,
+        wireAddressReferences: [
+          { byteOffset: 71975, wireObjectOffset: 73089 },
+          { byteOffset: 71979, wireObjectOffset: 72906 },
+        ],
+      },
+      {
+        reference: "D1",
+        recordStartOffset: 71984,
+        wireAddressReferences: [
+          { byteOffset: 72391, wireObjectOffset: 73039 },
+          { byteOffset: 72395, wireObjectOffset: 72806 },
+        ],
+      },
+      {
+        reference: "R1",
+        recordStartOffset: 72400,
+        wireAddressReferences: [
+          { byteOffset: 72773, wireObjectOffset: 72856 },
+          { byteOffset: 72777, wireObjectOffset: 72989 },
+        ],
+      },
+    ],
+  );
+  assert.deepEqual(
     result.schematicComponents.componentInstances.map(({ reference, rawPlacementWords }) => ({
       reference,
       rawPlacementWords,
