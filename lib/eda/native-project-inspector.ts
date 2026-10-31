@@ -429,12 +429,18 @@ function parseProteusDsnComponentInstances(
       componentValueMarkerOffset >= valueStart &&
       componentValueMarkerOffset + componentValueMarker.length <= recordEnd
     ) {
-      const libraryField = readProteusLengthPrefixedAscii(
-        buffer,
-        componentValueMarkerOffset + componentValueMarker.length,
-        128,
-      );
-      if (libraryField && libraryField.next <= recordEnd) libraryName = libraryField.value;
+      // The marker is followed by reserved/binary bytes before the FF-length token.
+      // Search only a small bounded window, just as for COMPONENT ID's visible value.
+      const libraryValueStart = componentValueMarkerOffset + componentValueMarker.length;
+      const libraryValueLimit = Math.min(recordEnd, libraryValueStart + 16);
+      for (let candidate = libraryValueStart; candidate < libraryValueLimit; candidate += 1) {
+        if (buffer[candidate] !== 0xff) continue;
+        const libraryField = readProteusLengthPrefixedAscii(buffer, candidate, 128);
+        if (libraryField && libraryField.next <= recordEnd) {
+          libraryName = libraryField.value;
+          break;
+        }
+      }
     }
 
     const recordText = buffer.subarray(markerOffset, recordEnd).toString("latin1");
