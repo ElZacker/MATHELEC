@@ -900,3 +900,94 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
   ]);
 
 });
+
+
+test("New Wave: registra las tres muestras de Livewire y PCB Wizard y sus variantes binarias", () => {
+  const fixtureSets = [
+    {
+      format: "livewire",
+      fileNames: ["Mathelecprueba.lvw", "Mathelecprueba2a.lvw", "Mathelecprueba2b.lvw"],
+      expectedLengths: [1144, 1462, 1616],
+    },
+    {
+      format: "pcb-wizard",
+      fileNames: ["Mathelecprueba.pcb", "Mathelecprueba2a.pcb", "Mathelecprueba2b.pcb"],
+      expectedLengths: [1093, 1428, 1428],
+    },
+  ] as const;
+
+  for (const set of fixtureSets) {
+    const files = set.fileNames.map((name) => fixture(name));
+    assert.deepEqual(files.map((file) => file.length), set.expectedLengths);
+    assert.ok(files.every((file) => file.subarray(0, 4).equals(Buffer.from([0x44, 0x73, 0x67, 0x00]))));
+    assert.ok(!files[0].equals(files[1]));
+    assert.ok(!files[0].equals(files[2]));
+    assert.ok(!files[1].equals(files[2]));
+
+    for (const [index, file] of files.entries()) {
+      const result = inspectNativeEdaProject(set.fileNames[index], file);
+      assert.equal(result.format, set.format);
+      assert.equal(result.componentDataDecoded, false);
+      assert.deepEqual(result.textFields.map(({ marker, offset, declaredLength, status }) => ({
+        marker, offset, declaredLength, status,
+      })), [
+        { marker: "page &p of &n", offset: 90, declaredLength: 13, status: "length-prefix-validated" },
+        { marker: "Arial", offset: 104, declaredLength: 5, status: "length-prefix-validated" },
+      ]);
+    }
+  }
+});
+
+test("Proteus 8.13: inspecciona las variantes con componentes y conexiones desplazados", () => {
+  const fileNames = [
+    "mathelecprueba.pdsprj",
+    "mathelecprueba2a.pdsprj",
+    "mathelecprueba2b.pdsprj",
+  ];
+  const results = fileNames.map((name) => {
+    const result = inspectNativeEdaProject(name, fixture(name));
+    assert.equal(result.format, "proteus");
+    assert.equal(result.hasProjectXml, true);
+    assert.equal(result.hasRootDsn, true);
+    assert.equal(result.hasRootCdb, true);
+    assert.ok(result.componentMetadata.count > 0);
+    assert.ok(result.schematicComponents.componentInstanceCount > 0);
+    assert.ok(result.schematicComponents.wireSegments.length > 0);
+    return {
+      name,
+      bytes: result.byteLength,
+      cdbComponents: result.componentMetadata.components.map(({ reference, value, device, pinEntryStatus, pins }) => ({
+        reference, value, device, pinEntryStatus, pins,
+      })),
+      instances: result.schematicComponents.componentInstances.map((instance) => ({
+        reference: instance.reference,
+        value: instance.value,
+        libraryName: instance.libraryName,
+        placement: instance.placement,
+        pinSlotMappingStatus: instance.pinSlotMappingStatus,
+        pinConnections: instance.pinConnections.map((pin) => ({
+          slotIndex: pin.slotIndex,
+          pinName: pin.pinName,
+          pinNumber: pin.pinNumber,
+          mappingBasis: pin.mappingBasis,
+          wireObjectOffset: pin.wireObjectOffset,
+          connectionPoint: pin.connectionPoint,
+          connectionPointMatchesWire: pin.connectionPointMatchesWire,
+        })),
+        wireAddressReferences: instance.wireAddressReferences,
+      })),
+      wireSegments: result.schematicComponents.wireSegments,
+      wireTouchGroups: result.schematicComponents.wireTouchGroups,
+      junctionNodes: result.schematicComponents.junctionNodes,
+      terminalPlacements: result.schematicComponents.terminalPlacements,
+      unresolvedObjects: result.schematicComponents.unresolvedObjects,
+    };
+  });
+
+  console.log("PROTEUS_REFERENCE_VARIANT_DIAGNOSTICS", JSON.stringify(results));
+  assert.notDeepEqual(
+    results[0].instances.map(({ reference, placement, wireAddressReferences }) => ({ reference, placement, wireAddressReferences })),
+    results[1].instances.map(({ reference, placement, wireAddressReferences }) => ({ reference, placement, wireAddressReferences })),
+  );
+  assert.notDeepEqual(results[1].wireSegments, results[2].wireSegments);
+});
