@@ -1265,6 +1265,7 @@ function parseProteusDsnComponentInstances(
   const markersOutsideObjectData = offsets.filter((markerOffset) =>
     !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
   ).length;
+  const knownWireOffsets = new Set(wireSegments.map((segment) => segment.objectOffset));
   const metadataReferences = new Set(libraryComponents.map((component) => component.reference));
   const seenReferences = new Set<string>();
   const componentInstances: ProteusSchematicComponentInstance[] = [];
@@ -1437,7 +1438,6 @@ function parseProteusDsnComponentInstances(
 
   // The structural parser provides the exact pin-slot table offset. The
   // bounded tail scan remains only as a fallback for synthetic/legacy records.
-  const knownWireOffsets = new Set(wireSegments.map((segment) => segment.objectOffset));
   const orderedInstances = [...componentInstances].sort(
     (left, right) => left.recordStartOffset - right.recordStartOffset,
   );
