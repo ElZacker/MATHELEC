@@ -1915,8 +1915,8 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
     throw new Error("PROJECT.XML no contiene XML de texto válido.");
   }
 
-  // ROOT.CDB contiene metadatos de la biblioteca/instancias. Esta lectura parcial
-  // no reconstruye la colocación ni las conexiones del esquemático ROOT.DSN.
+  // ROOT.CDB aporta metadatos y tablas de patas; la colocación, los slots WIRE,
+  // la geometría de cables y los objetos POWER/GROUND se inspeccionan desde ROOT.DSN.
   const cdbComponents = rootCdb
     ? parseProteusCdbComponentMetadata(extractZipEntry(buffer, rootCdb))
     : [];
@@ -1940,9 +1940,9 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
       count: cdbComponents.length,
       components: cdbComponents,
       limitations: [
-        "Se recuperan únicamente campos de metadatos de componente observados en ROOT.CDB: referencia, valor, dispositivo, paquete y propiedades de texto.",
-        "Estos registros no prueban que cada componente esté colocado en ROOT.DSN ni indican su posición en la hoja.",
-        "Todavía no se reconstruyen símbolos, patillajes físicos, cables, nodos eléctricos ni nets.",
+        "ROOT.CDB aporta metadatos, propiedades y nombres/números de patas; no contiene por sí solo la colocación gráfica ni los punteros a WIRE, que se leen por separado desde ROOT.DSN.",
+        "La existencia de un registro CDB no demuestra por sí misma que el componente esté colocado; las instancias se contrastan con los registros completos encontrados bajo OBJECT DATA en ROOT.DSN.",
+        "El orden físico de los nombres de pata CDB depende de las definiciones $PIN de biblioteca; cuando esas definiciones no aparecen, la asociación se conserva como cdb-order-unverified.",
         "El lector se ha contrastado con la muestra de referencia del repositorio; necesita más fixtures reales de Proteus 8.13 antes de declararse general.",
       ],
     },
@@ -1950,9 +1950,10 @@ function inspectProteusDocument(buffer: Buffer): ProteusInspection {
     status: "recognized-project-with-partial-schematic-data",
     schematicDecoded: false,
     limitations: [
-      "Se valida la estructura ZIP y PROJECT.XML; ROOT.DSN y ROOT.CDB se inspeccionan solo parcialmente.",
-      "La metadata parcial de ROOT.CDB no equivale a importar el circuito ni a recuperar su conectividad.",
-      "No se extraen todavía posiciones, pines conectados, cables ni redes del esquemático Proteus.",
+      "Se valida la estructura ZIP y PROJECT.XML; ROOT.DSN se decodifica parcialmente para recuperar registros de componentes, origen/orientación, geometría WIRE, nodos T y slots que apuntan a cables conocidos.",
+      "La asociación entre slots y objetos WIRE se valida por sus punteros; los nombres físicos de patas permanecen sin confirmar cuando faltan definiciones $PIN coincidentes.",
+      "Las agrupaciones geométricas todavía no son una netlist completa: faltan etiquetas/nombres de red, instrumentos virtuales, el cuerpo gráfico completo de símbolos y fixtures reales de terminales POWER/GROUND.",
+      "La inspección no importa ni modifica el circuito, y no demuestra que el proyecto se abra o simule en Proteus 8.13.",
       "No se genera ni modifica un proyecto .pdsprj en esta etapa.",
     ],
   };
