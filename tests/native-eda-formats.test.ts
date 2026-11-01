@@ -353,6 +353,47 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
       { reference: "R1", rawPlacementWords: ["ffa2e7a8", "0013b050"] },
     ],
   );
+  assert.deepEqual(
+    result.schematicComponents.componentInstances.map(({ reference, placementCandidate }) => ({
+      reference,
+      placementCandidate,
+    })),
+    [
+      {
+        reference: "B1",
+        placementCandidate: {
+          rawX: -9631680,
+          rawY: 1544320,
+          xMils: -3792,
+          yMils: 608,
+          unitsPerMil: 2540,
+          status: "scale-consistent-unverified",
+        },
+      },
+      {
+        reference: "D1",
+        placementCandidate: {
+          rawX: -7675880,
+          rawY: 1341120,
+          xMils: -3022,
+          yMils: 528,
+          unitsPerMil: 2540,
+          status: "scale-consistent-unverified",
+        },
+      },
+      {
+        reference: "R1",
+        placementCandidate: {
+          rawX: -6101080,
+          rawY: 1290320,
+          xMils: -2402,
+          yMils: 508,
+          unitsPerMil: 2540,
+          status: "scale-consistent-unverified",
+        },
+      },
+    ],
+  );
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
   assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
   assert.deepEqual(result.schematicComponents.metadataReferencesWithoutSchematicInstance, []);
@@ -455,6 +496,7 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
   assert.equal(result.componentInstances[0].libraryName, "RESISTOR");
   assert.equal(result.componentInstances[0].libraryNameMatchesDeviceMetadata, true);
   assert.deepEqual(result.componentInstances[0].rawPlacementWords, ["00000001", "00000002"]);
+  assert.equal(result.componentInstances[0].placementCandidate, null);
   assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
   assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
   assert.equal(result.unresolvedObjectCount, 1);
