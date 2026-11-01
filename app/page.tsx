@@ -32,6 +32,24 @@ type NativeInspectionResponse = {
   hasRootCdb?: boolean;
   entries?: { name: string }[];
   textMarkers?: string[];
+  schematicComponents?: {
+    componentInstanceCount?: number;
+    componentInstances?: Array<{
+      reference: string;
+      value: string | null;
+      placementCandidate?: {
+        xMils: number;
+        yMils: number;
+        status: "scale-consistent-unverified";
+      } | null;
+      pinSlotMappingStatus?: string;
+      pinConnections?: Array<{
+        pinName: string;
+        pinNumber: string;
+        wireObjectOffset: number | null;
+      }>;
+    }>;
+  };
   limitations?: string[];
 };
 
@@ -1198,8 +1216,18 @@ function handleMoveComponent(
       const size = result.byteLength ? `${result.byteLength.toLocaleString("es-AR")} bytes` : "tamaño no informado";
       if (result.format === "proteus") {
         const entries = (result.entries ?? []).map((entry) => entry.name).join(", ");
+        const instances = result.schematicComponents?.componentInstances ?? [];
+        const componentSummary = instances.length
+          ? instances.map((component) => {
+              const position = component.placementCandidate
+                ? `posición candidata (${component.placementCandidate.xMils}, ${component.placementCandidate.yMils}) mil, sin confirmar`
+                : "posición todavía no decodificada";
+              const connectedPins = component.pinConnections?.filter((pin) => pin.wireObjectOffset !== null).length ?? 0;
+              return `${component.reference} ${component.value ?? "(sin valor)"}: ${position}; ${connectedPins} patas enlazadas a cables`;
+            }).join(" · ")
+          : "sin instancias decodificadas";
         setNotice(
-          `Proteus reconocido (${size}). Archivos internos: ${entries || "sin listado"}. PROJECT.XML: ${result.hasProjectXml ? "presente" : "ausente"}; ROOT.DSN: ${result.hasRootDsn ? "presente" : "ausente"}; ROOT.CDB: ${result.hasRootCdb ? "presente" : "ausente"}. El esquema binario todavía no fue decodificado y el circuito no se importó.`,
+          `Proteus reconocido (${size}). Archivos internos: ${entries || "sin listado"}. PROJECT.XML: ${result.hasProjectXml ? "presente" : "ausente"}; ROOT.DSN: ${result.hasRootDsn ? "presente" : "ausente"}; ROOT.CDB: ${result.hasRootCdb ? "presente" : "ausente"}. Componentes: ${componentSummary}. Estas posiciones son candidatas, no se usan para reconstruir símbolos; el circuito no se importó.`,
         );
       } else {
         const format = result.format === "livewire" ? "Livewire" : "PCB Wizard";
