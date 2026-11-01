@@ -564,10 +564,10 @@ function parseProteusComponentRecordAt(
     // Placed-component label blocks in the supplied Proteus 8.13 fixture use
     // FF + one-byte text length (unlike some other ISIS data strings).
     const textLength = buffer[cursor + 1];
-    if (
-      (textLength < 1 && blockIndex !== 0 && blockIndex !== 3) ||
-      textLength > 128
-    ) {
+    // Real placed Proteus objects can leave any visible label empty (for
+    // example, an unreferenced SWITCH has no COMPONENT VALUE text). The
+    // attribute/font/layout structure remains mandatory for every block.
+    if (textLength > 128) {
       return fail(`label-${blockIndex}:invalid-u8-length-${textLength}`);
     }
     const textStart = cursor + 2;
