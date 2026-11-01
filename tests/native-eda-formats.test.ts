@@ -679,10 +679,6 @@ test("New Wave fixtures: diagnostic differential map for format research", () =>
 
 test("Proteus DSN: verifica el orden y la geometría física de patas mediante una definición $PIN", () => {
   const bytes = (...parts: Buffer[]) => Buffer.concat(parts);
-  const lengthPrefixed = (value: string) => {
-    const raw = Buffer.from(value, "ascii");
-    return bytes(Buffer.from([0xff, raw.length]), raw);
-  };
   const labelBlock = (
     text: string,
     attribute: string,
@@ -699,8 +695,8 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
         return result;
       })(),
       Buffer.alloc(26),
-      Buffer.from("Default Font\\0", "ascii"),
-      Buffer.from(attribute + "\\0", "ascii"),
+      Buffer.from("Default Font\0", "ascii"),
+      Buffer.from(attribute + "\0", "ascii"),
       Buffer.alloc(4),
     );
   };
@@ -722,7 +718,7 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
     return bytes(header, vertices);
   };
   const pinRecord = (name: string, number: string, x: number, y: number) => {
-    const marker = Buffer.from("$PINDEFAULT\\0", "ascii");
+    const marker = Buffer.from("$PINDEFAULT\0", "ascii");
     const prefix = Buffer.alloc(16);
     prefix.writeUInt32LE(0, 0);
     prefix.writeInt32LE(x * 2540, 4);
@@ -730,8 +726,8 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
     return bytes(
       prefix,
       marker,
-      Buffer.from(name + "\\0", "ascii"),
-      Buffer.from(number + "\\0", "ascii"),
+      Buffer.from(name + "\0", "ascii"),
+      Buffer.from(number + "\0", "ascii"),
     );
   };
 
@@ -770,7 +766,7 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
     Buffer.from("ISIS SCHEMATIC FILE", "ascii"),
     Buffer.alloc(8),
     librarySection,
-    Buffer.from("OBJECT DATA\\0", "ascii"),
+    Buffer.from("OBJECT DATA\0", "ascii"),
   );
   const wireA = wire([[-200, 0], [-300, 0]]);
   const wireB = wire([[200, 0], [300, 0]]);
