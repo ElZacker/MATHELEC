@@ -500,13 +500,28 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
   assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
   assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
   assert.equal(result.unresolvedObjectCount, 1);
-  assert.deepEqual(result.unresolvedObjects, [{
-    sourceOffset: result.unresolvedObjects[0].sourceOffset,
+  assert.equal(result.unresolvedObjects.length, 1);
+  assert.deepEqual({
+    reference: result.unresolvedObjects[0].reference,
+    value: result.unresolvedObjects[0].value,
+    libraryName: result.unresolvedObjects[0].libraryName,
+    reason: result.unresolvedObjects[0].reason,
+    componentRecordParseStatus: result.unresolvedObjects[0].componentRecordParseStatus,
+    placement: result.unresolvedObjects[0].placement,
+    wireAddressReferences: result.unresolvedObjects[0].wireAddressReferences,
+    properties: result.unresolvedObjects[0].properties,
+  }, {
     reference: null,
     value: "$IOSCOPE",
     libraryName: "$IOSCOPE",
     reason: "missing-reference-designator",
-  }]);
+    componentRecordParseStatus: "not-found",
+    placement: null,
+    wireAddressReferences: [],
+    properties: {},
+  });
+  assert.ok(Array.isArray(result.unresolvedObjects[0].componentRecordCandidateOffsets));
+  assert.ok(Array.isArray(result.unresolvedObjects[0].componentRecordDiagnostics));
 });
 
 
@@ -899,4 +914,208 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
     },
   ]);
 
+});
+
+
+test("New Wave: registra las tres muestras de Livewire y PCB Wizard y sus variantes binarias", () => {
+  const fixtureSets = [
+    {
+      format: "livewire",
+      fileNames: ["Mathelecprueba.lvw", "Mathelecprueba2a.lvw", "Mathelecprueba2b.lvw"],
+      expectedLengths: [1144, 1462, 1616],
+    },
+    {
+      format: "pcb-wizard",
+      fileNames: ["Mathelecprueba.pcb", "Mathelecprueba2a.pcb", "Mathelecprueba2b.pcb"],
+      expectedLengths: [1093, 1428, 1428],
+    },
+  ] as const;
+
+  for (const set of fixtureSets) {
+    const files = set.fileNames.map((name) => fixture(name));
+    assert.deepEqual(files.map((file) => file.length), set.expectedLengths);
+    assert.ok(files.every((file) => file.subarray(0, 4).equals(Buffer.from([0x44, 0x73, 0x67, 0x00]))));
+    assert.ok(!files[0].equals(files[1]));
+    assert.ok(!files[0].equals(files[2]));
+    assert.ok(!files[1].equals(files[2]));
+
+    for (const [index, file] of files.entries()) {
+      const result = inspectNativeEdaProject(set.fileNames[index], file);
+      assert.equal(result.format, set.format);
+      assert.equal(result.componentDataDecoded, false);
+      assert.deepEqual(result.textFields.map(({ marker, offset, declaredLength, status }) => ({
+        marker, offset, declaredLength, status,
+      })), [
+        { marker: "page &p of &n", offset: 90, declaredLength: 13, status: "length-prefix-validated" },
+        { marker: "Arial", offset: 104, declaredLength: 5, status: "length-prefix-validated" },
+      ]);
+    }
+  }
+
+  const livewireFiles = [
+    fixture("Mathelecprueba.lvw"),
+    fixture("Mathelecprueba2a.lvw"),
+    fixture("Mathelecprueba2b.lvw"),
+  ];
+  for (const bytes of livewireFiles.slice(1)) {
+    assert.deepEqual(bytes.subarray(41, 272), livewireFiles[0].subarray(41, 272));
+  }
+
+  const pcb2a = fixture("Mathelecprueba2a.pcb");
+  const pcb2b = fixture("Mathelecprueba2b.pcb");
+  assert.equal(pcb2a.length, 1428);
+  assert.equal(pcb2b.length, 1428);
+  assert.deepEqual(pcb2a.subarray(0, 921), pcb2b.subarray(0, 921));
+  assert.deepEqual(pcb2a.subarray(1241), pcb2b.subarray(1241));
+  assert.notDeepEqual(pcb2a.subarray(921, 1241), pcb2b.subarray(921, 1241));
+});
+
+test("New Wave: conserva tokens ASCII prefijados como evidencia sin clasificarlos como componentes", () => {
+  const cases = [
+    {
+      fileName: "Mathelecprueba.pcb",
+      fields: [[302, "B"], [304, "9V"], [450, "R"], [452, "1K"], [598, "D"]],
+    },
+    {
+      fileName: "Mathelecprueba2a.pcb",
+      fields: [[331, "B"], [333, "9V"], [479, "R"], [481, "1K"], [627, "D"], [773, "SW"]],
+    },
+    {
+      fileName: "Mathelecprueba2b.pcb",
+      fields: [[331, "B"], [333, "9V"], [479, "R"], [481, "1K"], [627, "D"], [773, "SW"]],
+    },
+    {
+      fileName: "Mathelecprueba.lvw",
+      fields: [[459, "1K"]],
+    },
+  ] as const;
+
+  for (const sample of cases) {
+    const bytes = fixture(sample.fileName);
+    for (const [offset, expectedText] of sample.fields) {
+      const length = bytes[offset];
+      assert.equal(length, expectedText.length);
+      assert.equal(bytes.toString("ascii", offset + 1, offset + 1 + length), expectedText);
+    }
+  }
+});
+
+
+test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin designador en las tres muestras", () => {
+  const fileNames = [
+    "mathelecprueba.pdsprj",
+    "mathelecprueba2a.pdsprj",
+    "mathelecprueba2b.pdsprj",
+  ] as const;
+  const expected = [
+    {
+      bytes: 12281,
+      wireCount: 6,
+      junctionCount: 2,
+      wireGroupSizes: [3, 3],
+      unresolvedLibraries: [],
+      origins: [
+        { reference: "B1", x: -4000, y: 400 },
+        { reference: "D1", x: -3200, y: 400 },
+        { reference: "R1", x: -2500, y: 300 },
+      ],
+    },
+    {
+      bytes: 12756,
+      wireCount: 10,
+      junctionCount: 4,
+      wireGroupSizes: [5, 5],
+      unresolvedLibraries: ["SWITCH"],
+      origins: [
+        { reference: "B1", x: -4000, y: 400 },
+        { reference: "D1", x: -3200, y: 400 },
+        { reference: "R1", x: -2500, y: 300 },
+      ],
+    },
+    {
+      bytes: 12766,
+      wireCount: 10,
+      junctionCount: 4,
+      wireGroupSizes: [5, 5],
+      unresolvedLibraries: ["SWITCH"],
+      origins: [
+        { reference: "B1", x: -4100, y: 400 },
+        { reference: "D1", x: -2900, y: 400 },
+        { reference: "R1", x: -2400, y: 300 },
+      ],
+    },
+  ] as const;
+
+  for (const [index, fileName] of fileNames.entries()) {
+    const result = inspectNativeEdaProject(fileName, fixture(fileName));
+    assert.equal(result.format, "proteus");
+    assert.equal(result.byteLength, expected[index].bytes);
+    assert.equal(result.hasProjectXml, true);
+    assert.equal(result.hasRootDsn, true);
+    assert.equal(result.hasRootCdb, true);
+    assert.equal(result.componentMetadata.count, 3);
+    assert.equal(result.schematicComponents.componentInstanceCount, 3);
+    assert.equal(result.schematicComponents.wireSegments.length, expected[index].wireCount);
+    assert.equal(result.schematicComponents.junctionNodes.length, expected[index].junctionCount);
+    assert.deepEqual(
+      result.schematicComponents.wireTouchGroups.map((group) => group.wireObjectOffsets.length),
+      expected[index].wireGroupSizes,
+    );
+    assert.deepEqual(
+      result.schematicComponents.componentInstances.map((instance) => ({
+        reference: instance.reference,
+        x: instance.placement?.origin.x,
+        y: instance.placement?.origin.y,
+      })),
+      expected[index].origins,
+    );
+    assert.deepEqual(
+      result.schematicComponents.unresolvedObjects.map((object) => object.libraryName),
+      expected[index].unresolvedLibraries,
+    );
+
+    const wireOffsets = new Set(result.schematicComponents.wireSegments.map((wire) => wire.objectOffset));
+    if (expected[index].unresolvedLibraries.length > 0) {
+      const unresolvedSwitch = result.schematicComponents.unresolvedObjects.find(
+        (object) => object.libraryName === "SWITCH",
+      );
+      assert.ok(unresolvedSwitch);
+      assert.equal(unresolvedSwitch.reference, null);
+      assert.equal(unresolvedSwitch.reason, "missing-reference-designator");
+      assert.equal(unresolvedSwitch.componentRecordParseStatus, "decoded", JSON.stringify(unresolvedSwitch));
+      assert.equal(unresolvedSwitch.placement?.device, "SWITCH");
+      assert.equal(unresolvedSwitch.placement?.pinCount, 2);
+      assert.ok(unresolvedSwitch.recordStartOffset !== null);
+      assert.equal(unresolvedSwitch.wireAddressReferences.length, 2);
+      assert.ok(unresolvedSwitch.wireAddressReferences.every((pointer) => wireOffsets.has(pointer.wireObjectOffset)));
+    }
+    assert.equal(result.schematicComponents.terminalPlacements.length, 0);
+
+    for (const component of result.schematicComponents.componentInstances) {
+      assert.equal(component.pinSlotMappingStatus, "slot-table-valid-symbol-order-unverified");
+      assert.equal(component.wireAddressReferences.length, 2);
+      assert.ok(component.wireAddressReferences.every((pointer) => wireOffsets.has(pointer.wireObjectOffset)));
+      assert.ok(component.pinConnections.every((pin) => pin.mappingBasis === "cdb-order-unverified"));
+    }
+    assert.ok(result.componentMetadata.components.every((component) => component.pinEntryStatus === "decoded"));
+  }
+
+  const variant2a = inspectNativeEdaProject(fileNames[1], fixture(fileNames[1]));
+  const variant2b = inspectNativeEdaProject(fileNames[2], fixture(fileNames[2]));
+  if (variant2a.format !== "proteus" || variant2b.format !== "proteus") {
+    throw new Error("Las variantes Proteus se clasificaron con un formato inesperado.");
+  }
+
+  assert.ok(variant2a.schematicComponents.wireSegments.some((wire) =>
+    JSON.stringify(wire.points) === JSON.stringify([{ x: -4000, y: 700 }, { x: -3600, y: 700 }]),
+  ));
+  assert.ok(variant2b.schematicComponents.wireSegments.some((wire) =>
+    JSON.stringify(wire.points) === JSON.stringify([
+      { x: -2900, y: 600 },
+      { x: -2900, y: 800 },
+      { x: -3300, y: 800 },
+      { x: -3300, y: 600 },
+      { x: -3200, y: 600 },
+    ]),
+  ));
 });

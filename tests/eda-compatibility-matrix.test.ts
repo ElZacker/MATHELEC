@@ -38,7 +38,7 @@ test("distingue la inspección ZIP parcial de Proteus del reconocimiento por fir
   const livewire = getNativeEdaCompatibilityProfile("livewire");
   const pcbWizard = getNativeEdaCompatibilityProfile("pcb-wizard");
 
-  assert.equal(proteus.capabilities.containerIntegrity, "partial");
+  assert.equal(proteus.capabilities.containerIntegrity, "verified");
   assert.equal(proteus.capabilities.projectMetadata, "partial");
   assert.equal(livewire.capabilities.fileRecognition, "signature-only");
   assert.equal(pcbWizard.capabilities.fileRecognition, "signature-only");
@@ -92,7 +92,7 @@ test("calcula barras de avance con hitos ponderados y sin confundirlas con compa
   );
   assert.deepEqual(
     [proteus.progress.percent, proteus.progress.completedCount, proteus.progress.partialCount, proteus.progress.totalCount],
-    [42, 3, 4, 12],
+    [50, 5, 2, 12],
   );
 
   for (const profile of profiles) {

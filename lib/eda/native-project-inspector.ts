@@ -165,10 +165,17 @@ export type ProteusSchematicComponentInstance = {
 
 export type ProteusSchematicUnresolvedObject = {
   sourceOffset: number;
+  recordStartOffset: number | null;
   reference: string | null;
   value: string | null;
   libraryName: string | null;
   reason: "missing-reference-designator" | "duplicate-reference";
+  componentRecordParseStatus: "decoded" | "not-found" | "ambiguous";
+  componentRecordCandidateOffsets: number[];
+  componentRecordDiagnostics: string[];
+  placement: ProteusSchematicComponentPlacement | null;
+  wireAddressReferences: ProteusSchematicWireAddressReference[];
+  properties: Record<string, string>;
 };
 
 export type ProteusSchematicMarkerSpan = {
@@ -525,7 +532,7 @@ function extractProteusProperties(text: string): Record<string, string> {
 type ParsedProteusComponentRecord = {
   recordStartOffset: number;
   componentIdMarkerOffset: number;
-  reference: string;
+  reference: string | null;
   value: string | null;
   placement: ProteusSchematicComponentPlacement;
 };
@@ -557,10 +564,10 @@ function parseProteusComponentRecordAt(
     // Placed-component label blocks in the supplied Proteus 8.13 fixture use
     // FF + one-byte text length (unlike some other ISIS data strings).
     const textLength = buffer[cursor + 1];
-    if (
-      (textLength < 1 && blockIndex !== 3) ||
-      textLength > 128
-    ) {
+    // Real placed Proteus objects can leave any visible label empty (for
+    // example, an unreferenced SWITCH has no COMPONENT VALUE text). The
+    // attribute/font/layout structure remains mandatory for every block.
+    if (textLength > 128) {
       return fail(`label-${blockIndex}:invalid-u8-length-${textLength}`);
     }
     const textStart = cursor + 2;
@@ -624,7 +631,7 @@ function parseProteusComponentRecordAt(
       `component-id-marker-offset-mismatch:expected-${expectedComponentIdMarkerOffset}:got-${componentIdMarkerOffset}`,
     );
   }
-  if (!isProteusDesignator(componentIdBlock.text)) {
+  if (componentIdBlock.text && !isProteusDesignator(componentIdBlock.text)) {
     return fail(`invalid-component-designator:${componentIdBlock.text}`);
   }
 
@@ -691,7 +698,7 @@ function parseProteusComponentRecordAt(
   return {
     recordStartOffset,
     componentIdMarkerOffset,
-    reference: componentIdBlock.text,
+    reference: componentIdBlock.text.trim() || null,
     value: labelValue,
     placement: {
       device: deviceBytes.toString("latin1"),
@@ -727,7 +734,7 @@ function findProteusComponentRecord(
   for (let candidate = markerOffset - 1; candidate >= searchStart; candidate -= 1) {
     if (buffer[candidate] !== 0xff || candidate + 2 > buffer.length) continue;
     const textLength = buffer[candidate + 1];
-    if (textLength < 1 || textLength > 6) continue;
+    if (textLength > 6) continue;
     candidateOffsets.push(candidate);
     const attemptDiagnostics: string[] = [];
     const parsed = parseProteusComponentRecordAt(
@@ -1258,6 +1265,7 @@ function parseProteusDsnComponentInstances(
   const markersOutsideObjectData = offsets.filter((markerOffset) =>
     !objectDataOffsets.some((objectOffset) => objectOffset < markerOffset),
   ).length;
+  const knownWireOffsets = new Set(wireSegments.map((segment) => segment.objectOffset));
   const metadataReferences = new Set(libraryComponents.map((component) => component.reference));
   const seenReferences = new Set<string>();
   const componentInstances: ProteusSchematicComponentInstance[] = [];
@@ -1338,22 +1346,47 @@ function parseProteusDsnComponentInstances(
     const properties = extractProteusProperties(recordText);
 
     if (!reference) {
+      const parsedWireReferences = parsedRecord?.placement.pinSlotAddresses
+        .map((wireObjectOffset, slotIndex) => ({
+          byteOffset: parsedRecord.placement.pinSlotTableOffset + slotIndex * 4,
+          wireObjectOffset,
+        }))
+        .filter((reference) => reference.wireObjectOffset !== 0 && knownWireOffsets.has(reference.wireObjectOffset)) ?? [];
       unresolvedObjects.push({
         sourceOffset: markerOffset,
+        recordStartOffset: parsedRecord?.recordStartOffset ?? null,
         reference: null,
-        value,
+        value: value ?? parsedRecord?.value ?? null,
         libraryName,
         reason: "missing-reference-designator",
+        componentRecordParseStatus: parsedRecord ? "decoded" : recordSearch.ambiguous ? "ambiguous" : "not-found",
+        componentRecordCandidateOffsets: recordSearch.candidateOffsets,
+        componentRecordDiagnostics: recordSearch.diagnostics,
+        placement: parsedRecord?.placement ?? null,
+        wireAddressReferences: parsedWireReferences,
+        properties,
       });
       continue;
     }
     if (seenReferences.has(reference)) {
       unresolvedObjects.push({
         sourceOffset: markerOffset,
+        recordStartOffset: parsedRecord?.recordStartOffset ?? null,
         reference,
         value,
         libraryName,
         reason: "duplicate-reference",
+        componentRecordParseStatus: parsedRecord ? "decoded" : recordSearch.ambiguous ? "ambiguous" : "not-found",
+        componentRecordCandidateOffsets: recordSearch.candidateOffsets,
+        componentRecordDiagnostics: recordSearch.diagnostics,
+        placement: parsedRecord?.placement ?? null,
+        wireAddressReferences: parsedRecord?.placement.pinSlotAddresses
+          .map((wireObjectOffset, slotIndex) => ({
+            byteOffset: parsedRecord.placement.pinSlotTableOffset + slotIndex * 4,
+            wireObjectOffset,
+          }))
+          .filter((item) => item.wireObjectOffset !== 0 && knownWireOffsets.has(item.wireObjectOffset)) ?? [],
+        properties,
       });
       continue;
     }
@@ -1405,7 +1438,6 @@ function parseProteusDsnComponentInstances(
 
   // The structural parser provides the exact pin-slot table offset. The
   // bounded tail scan remains only as a fallback for synthetic/legacy records.
-  const knownWireOffsets = new Set(wireSegments.map((segment) => segment.objectOffset));
   const orderedInstances = [...componentInstances].sort(
     (left, right) => left.recordStartOffset - right.recordStartOffset,
   );
