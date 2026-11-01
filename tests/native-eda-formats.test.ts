@@ -29,6 +29,10 @@ test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar com
     { marker: "page &p of &n", offset: 90 },
     { marker: "Arial", offset: 104 },
   ]);
+  assert.deepEqual(result.textFields, [
+    { marker: "page &p of &n", offset: 90, lengthPrefixOffset: 89, declaredLength: 13, decodedLength: 13, status: "length-prefix-validated" },
+    { marker: "Arial", offset: 104, lengthPrefixOffset: 103, declaredLength: 5, decodedLength: 5, status: "length-prefix-validated" },
+  ]);
   assert.ok(result.byteLength > 32);
 });
 
@@ -50,6 +54,10 @@ test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión",
   assert.deepEqual(result.textMarkerOffsets, [
     { marker: "page &p of &n", offset: 90 },
     { marker: "Arial", offset: 104 },
+  ]);
+  assert.deepEqual(result.textFields, [
+    { marker: "page &p of &n", offset: 90, lengthPrefixOffset: 89, declaredLength: 13, decodedLength: 13, status: "length-prefix-validated" },
+    { marker: "Arial", offset: 104, lengthPrefixOffset: 103, declaredLength: 5, decodedLength: 5, status: "length-prefix-validated" },
   ]);
   assert.ok(result.byteLength > 32);
 });
@@ -607,73 +615,50 @@ test("Proteus DSN: decodifica un terminal POWER y valida su puntero y punto de c
 });
 
 
-test("New Wave fixtures: diagnostic differential map for format research", () => {
-  const livewire = fixture("Mathelecprueba.lvw");
-  const pcbWizard = fixture("Mathelecprueba.pcb");
-  const printableRuns = (data: Buffer) => {
-    const runs: Array<{ offset: number; text: string }> = [];
-    let start = -1;
-    for (let index = 0; index <= data.length; index += 1) {
-      const byte = index < data.length ? data[index] : -1;
-      const printable = byte >= 0x20 && byte <= 0x7e;
-      if (printable && start < 0) start = index;
-      if (!printable && start >= 0) {
-        if (index - start >= 3) runs.push({ offset: start, text: data.subarray(start, index).toString("ascii") });
-        start = -1;
-      }
-    }
-    return runs;
-  };
-  const hexRows = (data: Buffer, end: number) => {
-    const rows: string[] = [];
-    for (let offset = 0; offset < Math.min(end, data.length); offset += 16) {
-      rows.push(
-        offset.toString(16).padStart(4, "0") + "  " +
-        Array.from(data.subarray(offset, Math.min(offset + 16, data.length)), (value) => value.toString(16).padStart(2, "0")).join(" "),
-      );
-    }
-    return rows;
-  };
-  const differenceRanges: Array<{ start: number; end: number }> = [];
-  const sharedLength = Math.min(livewire.length, pcbWizard.length);
-  for (let offset = 0; offset < sharedLength; offset += 1) {
-    if (livewire[offset] === pcbWizard[offset]) continue;
-    const last = differenceRanges[differenceRanges.length - 1];
-    if (last && last.end === offset) last.end = offset + 1;
-    else differenceRanges.push({ start: offset, end: offset + 1 });
+test("New Wave: mantiene separados los dos archivos de referencia y valida los campos documentales", () => {
+  const livewireBytes = fixture("Mathelecprueba.lvw");
+  const pcbWizardBytes = fixture("Mathelecprueba.pcb");
+  assert.equal(livewireBytes.length, 1144);
+  assert.equal(pcbWizardBytes.length, 1093);
+  assert.deepEqual([...livewireBytes.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
+  assert.deepEqual([...pcbWizardBytes.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
+
+  let commonPrefixLength = 0;
+  const sharedLength = Math.min(livewireBytes.length, pcbWizardBytes.length);
+  while (
+    commonPrefixLength < sharedLength &&
+    livewireBytes[commonPrefixLength] === pcbWizardBytes[commonPrefixLength]
+  ) {
+    commonPrefixLength += 1;
   }
-  const zeroRuns = (data: Buffer) => {
-    const runs: Array<{ offset: number; length: number }> = [];
-    for (let offset = 0; offset < data.length;) {
-      if (data[offset] !== 0) { offset += 1; continue; }
-      const start = offset;
-      while (offset < data.length && data[offset] === 0) offset += 1;
-      if (offset - start >= 3) runs.push({ offset: start, length: offset - start });
-    }
-    return runs;
-  };
-  const report = {
-    lengths: { livewire: livewire.length, pcbWizard: pcbWizard.length },
-    commonPrefixLength: (() => {
-      let offset = 0;
-      while (offset < sharedLength && livewire[offset] === pcbWizard[offset]) offset += 1;
-      return offset;
-    })(),
-    differenceRanges,
-    livewire: {
-      hex: hexRows(livewire, livewire.length),
-      printableRuns: printableRuns(livewire),
-      zeroRuns: zeroRuns(livewire),
-    },
-    pcbWizard: {
-      hex: hexRows(pcbWizard, pcbWizard.length),
-      printableRuns: printableRuns(pcbWizard),
-      zeroRuns: zeroRuns(pcbWizard),
-    },
-  };
-  console.log("NEW_WAVE_FIXTURE_REPORT " + JSON.stringify(report));
-  assert.deepEqual([...livewire.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
-  assert.deepEqual([...pcbWizard.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
+  assert.equal(commonPrefixLength, 38);
+  assert.notEqual(livewireBytes[commonPrefixLength], pcbWizardBytes[commonPrefixLength]);
+
+  for (const [fileName, bytes] of [
+    ["Mathelecprueba.lvw", livewireBytes],
+    ["Mathelecprueba.pcb", pcbWizardBytes],
+  ] as const) {
+    const result = inspectNativeEdaProject(fileName, bytes);
+    assert.deepEqual(result.textFields, [
+      {
+        marker: "page &p of &n",
+        offset: 90,
+        lengthPrefixOffset: 89,
+        declaredLength: 13,
+        decodedLength: 13,
+        status: "length-prefix-validated",
+      },
+      {
+        marker: "Arial",
+        offset: 104,
+        lengthPrefixOffset: 103,
+        declaredLength: 5,
+        decodedLength: 5,
+        status: "length-prefix-validated",
+      },
+    ]);
+    assert.equal(result.componentDataDecoded, false);
+  }
 });
 
 
