@@ -42,6 +42,8 @@ test("distingue la inspección ZIP parcial de Proteus del reconocimiento por fir
   assert.equal(proteus.capabilities.projectMetadata, "partial");
   assert.equal(livewire.capabilities.fileRecognition, "signature-only");
   assert.equal(pcbWizard.capabilities.fileRecognition, "signature-only");
+  assert.equal(livewire.capabilities.projectMetadata, "partial");
+  assert.equal(pcbWizard.capabilities.projectMetadata, "partial");
 });
 
 test("resuelve perfiles por extensión sin confundir las versiones instaladas con versiones del archivo", () => {
