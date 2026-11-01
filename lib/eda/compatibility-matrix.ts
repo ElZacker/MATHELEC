@@ -137,7 +137,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
       "wireConnectedGroups agrupa cables, nodos T validados y patas de componentes ya enlazadas; las etiquetas de red y los terminales de alimentación/tierra todavía no se incluyen.",
       "Se conservan además los offsets y ventanas de marcadores WIRE/OBJECT DATA, junto con offsets TERMINAL, TERMINAL LABEL y PROPERTIES.",
       "La extracción de instancias está automatizada y probada contra la muestra del repositorio; un segundo proyecto externo fue inspeccionado manualmente para estudiar objetos de instrumento y límites de sección, pero no es todavía una fixture de CI.",
-      "No se reconstruyen todavía posiciones con unidades, símbolos, pines, cables ni nets eléctricos.",
+      "No se reconstruyen posiciones gráficas confirmadas: solo se exponen candidatos X/Y no verificados para tres instancias; tampoco se reconstruyen símbolos, geometría física de pines ni nets eléctricos completos.",
     ],
     nextEvidenceRequired: [
       "Confirmar con archivos Proteus 8.13 guardados antes/después de mover un solo componente si los candidatos X/Y representan coordenadas absolutas, origen local u otro campo que use la misma escala.",
