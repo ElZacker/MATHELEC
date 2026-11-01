@@ -106,7 +106,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     capabilities: {
       fileRecognition: "signature-only",
       containerIntegrity: "not-applicable",
-      projectMetadata: "signature-only",
+      projectMetadata: "partial",
       circuitImport: "not-implemented",
       nativeExport: "not-implemented",
       applicationOpenTest: "not-verified",
@@ -147,7 +147,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     capabilities: {
       fileRecognition: "signature-only",
       containerIntegrity: "not-applicable",
-      projectMetadata: "signature-only",
+      projectMetadata: "partial",
       circuitImport: "not-implemented",
       nativeExport: "not-implemented",
       applicationOpenTest: "not-verified",
