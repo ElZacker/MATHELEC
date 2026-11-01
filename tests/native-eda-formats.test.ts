@@ -639,6 +639,9 @@ test("New Wave: mantiene separados los dos archivos de referencia y valida los c
     ["Mathelecprueba.pcb", pcbWizardBytes],
   ] as const) {
     const result = inspectNativeEdaProject(fileName, bytes);
+    if (result.format === "proteus") {
+      throw new Error("La fixture New Wave se clasificó inesperadamente como Proteus.");
+    }
     assert.deepEqual(result.textFields, [
       {
         marker: "page &p of &n",
