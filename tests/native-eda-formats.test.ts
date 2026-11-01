@@ -500,9 +500,17 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
   assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
   assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
   assert.equal(result.unresolvedObjectCount, 1);
-  assert.deepEqual(result.unresolvedObjects, [{
-    sourceOffset: result.unresolvedObjects[0].sourceOffset,
-    recordStartOffset: null,
+  assert.equal(result.unresolvedObjects.length, 1);
+  assert.deepEqual({
+    reference: result.unresolvedObjects[0].reference,
+    value: result.unresolvedObjects[0].value,
+    libraryName: result.unresolvedObjects[0].libraryName,
+    reason: result.unresolvedObjects[0].reason,
+    componentRecordParseStatus: result.unresolvedObjects[0].componentRecordParseStatus,
+    placement: result.unresolvedObjects[0].placement,
+    wireAddressReferences: result.unresolvedObjects[0].wireAddressReferences,
+    properties: result.unresolvedObjects[0].properties,
+  }, {
     reference: null,
     value: "$IOSCOPE",
     libraryName: "$IOSCOPE",
@@ -511,7 +519,9 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
     placement: null,
     wireAddressReferences: [],
     properties: {},
-  }]);
+  });
+  assert.ok(Array.isArray(result.unresolvedObjects[0].componentRecordCandidateOffsets));
+  assert.ok(Array.isArray(result.unresolvedObjects[0].componentRecordDiagnostics));
 });
 
 
@@ -1071,7 +1081,7 @@ test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin d
       assert.ok(unresolvedSwitch);
       assert.equal(unresolvedSwitch.reference, null);
       assert.equal(unresolvedSwitch.reason, "missing-reference-designator");
-      assert.equal(unresolvedSwitch.componentRecordParseStatus, "decoded");
+      assert.equal(unresolvedSwitch.componentRecordParseStatus, "decoded", JSON.stringify(unresolvedSwitch));
       assert.equal(unresolvedSwitch.placement?.device, "SWITCH");
       assert.equal(unresolvedSwitch.placement?.pinCount, 2);
       assert.ok(unresolvedSwitch.recordStartOffset !== null);
