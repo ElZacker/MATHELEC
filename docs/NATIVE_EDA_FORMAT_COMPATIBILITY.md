@@ -239,3 +239,16 @@ La búsqueda de definiciones de símbolo se ejecuta como intento separado: local
 También se añadió un lector de terminales `$TERPOWER` y `$TERGROUND`: recupera origen, anclaje, punto de conexión y puntero WIRE. La prueba POWER está cubierta con una fixture sintética; la muestra real no incluye terminales colocados, por lo que aún falta una comparación con un terminal guardado desde Proteus 8.13.
 
 **Límites actuales:** no hay definición $PIN verificada para los dispositivos de la muestra, no se reconstruye el cuerpo gráfico completo ni las etiquetas/nombres de red o instrumentos virtuales, y los grupos conectados son parciales. Esto todavía no equivale a una netlist íntegra, importación editable o simulación aprobada en Proteus 8.13.
+
+## Proteus 8.13 — objetos colocados sin designador (1 de noviembre de 2026)
+
+Las variantes reales `mathelecprueba2a.pdsprj` y `mathelecprueba2b.pdsprj` contienen un objeto de biblioteca `SWITCH` sin referencia visible. Antes, el inspector lo conservaba como objeto no resuelto, pero descartaba el registro de colocación porque uno de sus bloques de etiqueta tiene texto vacío.
+
+El lector ahora permite etiquetas vacías cuando el resto de la estructura de los cuatro bloques sigue siendo válido. En ambas variantes, las regresiones verifican que el objeto conserva:
+- su identidad de biblioteca `SWITCH` y la ausencia real de designador;
+- el registro binario de componente decodificado, el dispositivo y sus dos slots;
+- la colocación física y los dos punteros de slot, ambos resueltos a objetos WIRE presentes en el mismo DSN.
+
+La interfaz informa estos objetos especiales por separado y muestra origen, rotación, slots conectados y estado de decodificación. No les inventa una referencia ni los mezcla con la lista de componentes normales.
+
+Esto amplía la conservación de instancias reales de Proteus, pero **no** demuestra todavía la huella gráfica completa del interruptor ni el nombre físico de sus patas: la muestra no aporta una definición de biblioteca `$PIN` verificada para ese dispositivo. Tampoco convierte los punteros WIRE en una netlist completa ni valida la simulación dentro de Proteus.
