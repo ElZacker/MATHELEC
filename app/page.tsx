@@ -22,6 +22,7 @@ import { createTransientState, runTransientStep, type TransientState } from "@/l
 import { findWireRoutingIssues, routeOrthogonalWires } from "@/lib/circuits/wire-routing";
 
 import type { Circuit, ComponentType, ValidationIssue } from "@/lib/circuits/types";
+import { getNativeEdaCompatibilityMatrix } from "@/lib/eda/compatibility-matrix";
 type NativeInspectionResponse = {
   error?: string;
   format?: string;
@@ -91,6 +92,8 @@ const starterIdeas = [
   "Crear una alarma con sensor de luz",
   "Armar un contador digital con CD4017",
 ];
+
+const nativeEdaProfiles = getNativeEdaCompatibilityMatrix();
 
 
 
@@ -1438,6 +1441,45 @@ function handleMoveComponent(
           <button type="button" onClick={() => spiceFileInput.current?.click()}>Importar netlist SPICE (experimental)</button>
           <button type="button" onClick={() => nativeEdaFileInput.current?.click()}>Inspeccionar archivo nativo (.lvw/.pcb/.pdsprj)</button>
         </div>
+
+        <section className="eda-progress-panel" aria-labelledby="eda-progress-title">
+          <div className="eda-progress-heading">
+            <div>
+              <strong id="eda-progress-title">Compatibilidad EDA</strong>
+              <small>Avance técnico por formato</small>
+            </div>
+            <span>3 FORMATOS</span>
+          </div>
+          {nativeEdaProfiles.map((profile) => (
+            <details className="eda-progress-card" key={profile.format}>
+              <summary>
+                <span className="eda-progress-name">
+                  <strong>{profile.application}</strong>
+                  <small>{profile.installedVersion} · {profile.progress.completedCount} completos · {profile.progress.partialCount} parciales</small>
+                </span>
+                <span className="eda-progress-value">{profile.progress.percent}%</span>
+                <span className="eda-progress-track" role="progressbar" aria-label={`Avance técnico de ${profile.application}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={profile.progress.percent}>
+                  <span style={{ width: `${profile.progress.percent}%` }} />
+                </span>
+              </summary>
+              <div className="eda-progress-details">
+                <p>{profile.progress.note}</p>
+                <ol>
+                  {profile.progress.milestones.map((milestone) => (
+                    <li key={milestone.id} className={`eda-milestone eda-milestone-${milestone.status}`}>
+                      <span aria-hidden="true">{milestone.status === "complete" ? "✓" : milestone.status === "partial" ? "◐" : "○"}</span>
+                      <div>
+                        <strong>{milestone.label}</strong>
+                        <small>{milestone.evidence}</small>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </details>
+          ))}
+          <p className="eda-progress-disclaimer">Las barras miden hitos técnicos documentados, no el porcentaje de archivos que Mathelect ya puede abrir, simular o generar.</p>
+        </section>
 
         <div className="preview-project">
           <div className="preview-file-icon">⌘</div>
