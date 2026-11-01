@@ -88,6 +88,14 @@ export type ProteusSchematicComponentInstance = {
   recordStartOffset: number;
   sourceOffset: number;
   rawPlacementWords: [string, string] | null;
+  placementCandidate: {
+    rawX: number;
+    rawY: number;
+    xMils: number;
+    yMils: number;
+    unitsPerMil: 2540;
+    status: "scale-consistent-unverified";
+  } | null;
   value: string | null;
   libraryName: string | null;
   libraryNameMatchesDeviceMetadata: boolean | null;
@@ -700,6 +708,25 @@ function parseProteusDsnComponentInstances(
           ]
         : null;
 
+    // In the repository's Proteus 8.13 fixture, both signed words are exact
+    // multiples of the same 2540-units-per-mil scale used by WIRE vertices.
+    // Expose only a candidate until controlled saves confirm the field meaning.
+    const placementCandidate = referenceTokenEnd !== null && referenceTokenEnd + 8 <= markerOffset
+      ? (() => {
+          const rawX = buffer.readInt32LE(referenceTokenEnd);
+          const rawY = buffer.readInt32LE(referenceTokenEnd + 4);
+          if (rawX % 2540 !== 0 || rawY % 2540 !== 0) return null;
+          return {
+            rawX,
+            rawY,
+            xMils: rawX / 2540,
+            yMils: rawY / 2540,
+            unitsPerMil: 2540 as const,
+            status: "scale-consistent-unverified" as const,
+          };
+        })()
+      : null;
+
     const valueStart = markerOffset + marker.length;
     const valueLimit = Math.min(recordEnd, valueStart + 12);
     let value: string | null = null;
@@ -773,6 +800,7 @@ function parseProteusDsnComponentInstances(
       recordStartOffset: referenceTokenEnd === null ? searchStart : referenceTokenEnd - (2 + reference.length),
       sourceOffset: markerOffset,
       rawPlacementWords,
+      placementCandidate,
       value,
       libraryName,
       libraryNameMatchesDeviceMetadata,
@@ -937,7 +965,7 @@ function parseProteusDsnComponentInstances(
     limitations: [
       "Se reconocen registros COMPONENT ID dentro de secciones OBJECT DATA para evitar confundir definiciones de biblioteca con instancias colocadas.",
       "Se recuperan referencias y valores en formato FF + longitud + texto, junto con el offset del registro dentro de ROOT.DSN.",
-      "Se conservan dos palabras binarias de 32 bits posteriores al designador como datos de colocación opacos; su significado y escala no están confirmados y no se etiquetan como coordenadas.",
+      "Se conservan las dos palabras binarias posteriores al designador y se expone un candidato X/Y solo si, interpretadas como int32 con signo, ambas son divisibles por 2540 (la escala observada en WIRE). El candidato se informa en mils con estado scale-consistent-unverified: todavía requiere confirmación mediante archivos guardados tras mover componentes y no se usa para dibujar ni importar símbolos.",
       "Se extraen las propiedades de texto entre llaves del registro (por ejemplo, PRIMTYPE, PACKAGE, VF, IMAX o RINT).",
       "Los objetos OBJECT DATA sin designador o con referencias duplicadas se conservan como objetos no resueltos; no se descartan silenciosamente.",
       "Los bloques WIRE reconocidos se decodifican como cadenas de vértices int32 (mils = unidades / 2540); las ventanas de marcador permanecen como información diagnóstica aparte.",
