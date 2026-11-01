@@ -1215,11 +1215,11 @@ Las barras de la interfaz se calculan con una rúbrica fija y visible: cada hito
 |---|---:|---:|---:|---:|
 | Livewire 1.11 | 19% | 1 | 1 | 8 |
 | PCB Wizard 3.50 | 19% | 1 | 1 | 8 |
-| Proteus 8.13 | 38% | 3 | 3 | 12 |
+| Proteus 8.13 | 42% | 3 | 4 | 12 |
 
 - **Livewire 1.11:** se validan los prefijos de longitud ASCII de `page &p of &n` (0x0D) y `Arial` (0x05). La firma `Dsg\\0` se comparte con PCB Wizard y la extensión selecciona el perfil; no se decodifican componentes, terminales, posiciones ni conexiones.
 - **PCB Wizard 3.50:** se validan esos dos campos documentales en su propia muestra, pero aún no se decodifican contorno de placa, footprints, pads, nets ni pistas de cobre. La ruta Livewire → PCB Wizard documentada por el fabricante no es un importador de Mathelect ni una prueba de apertura.
-- **Proteus 8.13:** ZIP/archivos internos, registros B1/D1/R1, origen/rotación/espejo y slots exactos están decodificados y probados. Se decodifican los seis objetos WIRE y sus contactos geométricos. Las asociaciones slot→WIRE se sostienen por punteros, pero el nombre físico de las patas sigue sin confirmarse porque faltan definiciones de biblioteca `$PIN`; POWER/GROUND tiene cobertura sintética, no una muestra real. Etiquetas, instrumentos, símbolos completos y netlist total siguen pendientes.
+- **Proteus 8.13:** ZIP/archivos internos, registros B1/D1/R1, origen/rotación/espejo y slots exactos están decodificados y probados. Se decodifican los seis objetos WIRE y sus contactos geométricos. Las asociaciones slot→WIRE se sostienen por punteros. Una fixture sintética ahora verifica el orden $PIN, la geometría de patas y la coincidencia con WIRE tanto en orientación normal como a 90° con espejo; los tres componentes reales del fixture aún carecen de definiciones $PIN. POWER/GROUND conserva cobertura sintética, no una muestra real. Etiquetas, instrumentos, símbolos completos y netlist total siguen pendientes.
 
 **Regla de publicación:** la matriz mantiene importación y exportación nativas como `not-implemented` en los tres formatos, y apertura/simulación/round-trip como `not-verified`. Las barras no pueden cambiar esos estados por sí solas: para ello se exige abrir un archivo generado en la aplicación objetivo y verificar su contenido.
 
