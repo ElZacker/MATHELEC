@@ -177,7 +177,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     extension: ".pdsprj",
     progress: createNativeEdaProgress([
       { id: "container-integrity", label: "Contenedor ZIP y archivos esenciales", status: "complete", evidence: "La fixture valida el ZIP, PROJECT.XML, ROOT.DSN, ROOT.CDB, tamaños y CRC32." },
-      { id: "component-records", label: "Instancias y metadatos de componentes", status: "complete", evidence: "B1, D1 y R1 se decodifican y se contrastan con ROOT.CDB; objetos sin designador quedan sin resolver." },
+      { id: "component-records", label: "Instancias y metadatos de componentes", status: "complete", evidence: "B1, D1 y R1 se decodifican y contrastan con ROOT.CDB; el SWITCH sin designador de las variantes 2a/2b conserva su registro de colocación, dos slots y punteros WIRE sin inventar una referencia." },
       { id: "placement", label: "Origen, rotación y espejo", status: "complete", evidence: "Los registros colocados de B1, D1 y R1 exponen origen físico, ángulo, espejo y slots exactos con regresiones." },
       { id: "wire-geometry", label: "Geometría WIRE y nodos T", status: "complete", evidence: "Tres proyectos reales Proteus 8.13 pasan regresiones: 6, 10 y 10 segmentos WIRE, grupos geométricos de contacto y 2/4/4 nodos T. Los grupos no equivalen todavía a nets eléctricas completas." },
       { id: "slot-wire-links", label: "Slots de componente enlazados a WIRE", status: "complete", evidence: "En tres proyectos reales, los dos slots de B1, D1 y R1 apuntan a objetos WIRE decodificados y cada puntero se valida. La identidad física nombre-de-pata→slot sigue sin confirmarse cuando falta $PIN." },
@@ -203,7 +203,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
       "Las tres muestras mathelecprueba*.pdsprj se validan como ZIP con PROJECT.XML, ROOT.DSN y ROOT.CDB; miden 12.281, 12.756 y 12.766 bytes y pasan la comprobación de integridad de las entradas extraídas.",
       "El contenedor incluye PROJECT.XML, ROOT.DSN y ROOT.CDB.",
       "Mathelect limita las instancias colocadas a los marcadores COMPONENT ID dentro de OBJECT DATA, obtiene valor, identificador de biblioteca y todas las propiedades de texto, y contrasta biblioteca/dispositivo con ROOT.CDB.",
-      "Los objetos de OBJECT DATA sin designador o con referencias repetidas se conservan como no resueltos.",
+      "Los objetos de OBJECT DATA sin designador o con referencias repetidas se conservan separados de la lista de instancias normales; en las variantes 2a/2b el SWITCH sin referencia tiene registro de colocación decodificado y sus dos slots apuntan a objetos WIRE validados.",
       "El lector recupera bloques de etiquetas, dispositivo, origen físico, orientación, flag de espejo y tabla exacta de slots de cada componente colocado.",
       "ROOT.CDB aporta nombres/números de patas y ROOT.DSN aporta la tabla exacta de slots WIRE; la búsqueda de definiciones $PIN no encuentra cabeceras de BATTERY, LED-RED o 10WATT1K en el fixture real.",
       "Una fixture sintética separada contiene una definición $PIN, invierte deliberadamente el orden CDB y valida el enlace por nombre y geometría contra WIRE; la prueba cubre orientación normal y rotación de 90° con espejo.",
