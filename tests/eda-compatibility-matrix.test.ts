@@ -82,11 +82,11 @@ test("calcula barras de avance con hitos ponderados y sin confundirlas con compa
 
   assert.deepEqual(
     [livewire.progress.percent, livewire.progress.completedCount, livewire.progress.partialCount, livewire.progress.totalCount],
-    [13, 0, 2, 8],
+    [19, 1, 1, 8],
   );
   assert.deepEqual(
     [pcbWizard.progress.percent, pcbWizard.progress.completedCount, pcbWizard.progress.partialCount, pcbWizard.progress.totalCount],
-    [13, 0, 2, 8],
+    [19, 1, 1, 8],
   );
   assert.deepEqual(
     [proteus.progress.percent, proteus.progress.completedCount, proteus.progress.partialCount, proteus.progress.totalCount],
