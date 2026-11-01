@@ -1305,3 +1305,9 @@ En ambas muestras reales se verificó que los campos ASCII conocidos tienen un b
 El inspector expone cada campo como `NewWaveTextField`: offset del texto, offset del prefijo, longitud declarada, longitud decodificada y estado `length-prefix-validated` o `marker-only`. Las pruebas cubren ambas muestras y un caso negativo con prefijo incorrecto. Las fixtures Livewire y PCB Wizard conservan decodificadores y pruebas independientes; comparten un prefijo de 38 bytes y difieren desde el offset 38, por lo que la firma común no se trata como identificación específica de aplicación.
 
 Este avance completa el hito de metadatos documentales en cada formato, pero no cambia los hitos de componentes, cableado, pads, nets, importación o exportación.
+
+### Proteus 8.13 — conservación de objetos sin designador (1 de noviembre de 2026)
+
+Las muestras `mathelecprueba2a.pdsprj` y `mathelecprueba2b.pdsprj` incluyen un `SWITCH` sin referencia. El inspector ahora decodifica su registro de colocación pese a que uno de los bloques de etiqueta está vacío, conserva el origen/orientación y valida que sus dos slots apunten a objetos WIRE existentes. La interfaz lo informa como objeto especial sin inventarle un designador.
+
+**Límite:** la definición gráfica y el orden físico de las patas de ese SWITCH no están verificados mediante una definición `$PIN`. Esto no completa la netlist ni acredita apertura/simulación en Proteus. Las pruebas automatizadas de esta revisión pasan: 46/46, TypeScript, ESLint y build de producción.
