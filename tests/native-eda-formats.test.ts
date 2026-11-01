@@ -938,56 +938,106 @@ test("New Wave: registra las tres muestras de Livewire y PCB Wizard y sus varian
   }
 });
 
-test("Proteus 8.13: inspecciona las variantes con componentes y conexiones desplazados", () => {
+test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin designador en las tres muestras", () => {
   const fileNames = [
     "mathelecprueba.pdsprj",
     "mathelecprueba2a.pdsprj",
     "mathelecprueba2b.pdsprj",
-  ];
-  const results = fileNames.map((name) => {
-    const result = inspectNativeEdaProject(name, fixture(name));
+  ] as const;
+  const expected = [
+    {
+      bytes: 12281,
+      wireCount: 6,
+      junctionCount: 2,
+      wireGroupSizes: [3, 3],
+      unresolvedLibraries: [],
+      origins: [
+        { reference: "B1", x: -4000, y: 400 },
+        { reference: "D1", x: -3200, y: 400 },
+        { reference: "R1", x: -2500, y: 300 },
+      ],
+    },
+    {
+      bytes: 12756,
+      wireCount: 10,
+      junctionCount: 4,
+      wireGroupSizes: [5, 5],
+      unresolvedLibraries: ["SWITCH"],
+      origins: [
+        { reference: "B1", x: -4000, y: 400 },
+        { reference: "D1", x: -3200, y: 400 },
+        { reference: "R1", x: -2500, y: 300 },
+      ],
+    },
+    {
+      bytes: 12766,
+      wireCount: 10,
+      junctionCount: 4,
+      wireGroupSizes: [5, 5],
+      unresolvedLibraries: ["SWITCH"],
+      origins: [
+        { reference: "B1", x: -4100, y: 400 },
+        { reference: "D1", x: -2900, y: 400 },
+        { reference: "R1", x: -2400, y: 300 },
+      ],
+    },
+  ] as const;
+
+  for (const [index, fileName] of fileNames.entries()) {
+    const result = inspectNativeEdaProject(fileName, fixture(fileName));
     assert.equal(result.format, "proteus");
+    assert.equal(result.byteLength, expected[index].bytes);
     assert.equal(result.hasProjectXml, true);
     assert.equal(result.hasRootDsn, true);
     assert.equal(result.hasRootCdb, true);
-    assert.ok(result.componentMetadata.count > 0);
-    assert.ok(result.schematicComponents.componentInstanceCount > 0);
-    assert.ok(result.schematicComponents.wireSegments.length > 0);
-    return {
-      name,
-      bytes: result.byteLength,
-      cdbComponents: result.componentMetadata.components.map(({ reference, value, device, pinEntryStatus, pins }) => ({
-        reference, value, device, pinEntryStatus, pins,
-      })),
-      instances: result.schematicComponents.componentInstances.map((instance) => ({
+    assert.equal(result.componentMetadata.count, 3);
+    assert.equal(result.schematicComponents.componentInstanceCount, 3);
+    assert.equal(result.schematicComponents.wireSegments.length, expected[index].wireCount);
+    assert.equal(result.schematicComponents.junctionNodes.length, expected[index].junctionCount);
+    assert.deepEqual(
+      result.schematicComponents.wireTouchGroups.map((group) => group.wireObjectOffsets.length),
+      expected[index].wireGroupSizes,
+    );
+    assert.deepEqual(
+      result.schematicComponents.componentInstances.map((instance) => ({
         reference: instance.reference,
-        value: instance.value,
-        libraryName: instance.libraryName,
-        placement: instance.placement,
-        pinSlotMappingStatus: instance.pinSlotMappingStatus,
-        pinConnections: instance.pinConnections.map((pin) => ({
-          slotIndex: pin.slotIndex,
-          pinName: pin.pinName,
-          pinNumber: pin.pinNumber,
-          mappingBasis: pin.mappingBasis,
-          wireObjectOffset: pin.wireObjectOffset,
-          connectionPoint: pin.connectionPoint,
-          connectionPointMatchesWire: pin.connectionPointMatchesWire,
-        })),
-        wireAddressReferences: instance.wireAddressReferences,
+        x: instance.placement?.origin.x,
+        y: instance.placement?.origin.y,
       })),
-      wireSegments: result.schematicComponents.wireSegments,
-      wireTouchGroups: result.schematicComponents.wireTouchGroups,
-      junctionNodes: result.schematicComponents.junctionNodes,
-      terminalPlacements: result.schematicComponents.terminalPlacements,
-      unresolvedObjects: result.schematicComponents.unresolvedObjects,
-    };
-  });
+      expected[index].origins,
+    );
+    assert.deepEqual(
+      result.schematicComponents.unresolvedObjects.map((object) => object.libraryName),
+      expected[index].unresolvedLibraries,
+    );
+    assert.equal(result.schematicComponents.terminalPlacements.length, 0);
 
-  console.log("PROTEUS_REFERENCE_VARIANT_DIAGNOSTICS", JSON.stringify(results));
-  assert.notDeepEqual(
-    results[0].instances.map(({ reference, placement, wireAddressReferences }) => ({ reference, placement, wireAddressReferences })),
-    results[1].instances.map(({ reference, placement, wireAddressReferences }) => ({ reference, placement, wireAddressReferences })),
-  );
-  assert.notDeepEqual(results[1].wireSegments, results[2].wireSegments);
+    const wireOffsets = new Set(result.schematicComponents.wireSegments.map((wire) => wire.objectOffset));
+    for (const component of result.schematicComponents.componentInstances) {
+      assert.equal(component.pinSlotMappingStatus, "slot-table-valid-symbol-order-unverified");
+      assert.equal(component.wireAddressReferences.length, 2);
+      assert.ok(component.wireAddressReferences.every((pointer) => wireOffsets.has(pointer.wireObjectOffset)));
+      assert.ok(component.pinConnections.every((pin) => pin.mappingBasis === "cdb-order-unverified"));
+    }
+    assert.ok(result.componentMetadata.components.every((component) => component.pinEntryStatus === "decoded"));
+  }
+
+  const variant2a = inspectNativeEdaProject(fileNames[1], fixture(fileNames[1]));
+  const variant2b = inspectNativeEdaProject(fileNames[2], fixture(fileNames[2]));
+  if (variant2a.format !== "proteus" || variant2b.format !== "proteus") {
+    throw new Error("Las variantes Proteus se clasificaron con un formato inesperado.");
+  }
+
+  assert.ok(variant2a.schematicComponents.wireSegments.some((wire) =>
+    JSON.stringify(wire.points) === JSON.stringify([{ x: -4000, y: 700 }, { x: -3600, y: 700 }]),
+  ));
+  assert.ok(variant2b.schematicComponents.wireSegments.some((wire) =>
+    JSON.stringify(wire.points) === JSON.stringify([
+      { x: -2900, y: 600 },
+      { x: -2900, y: 800 },
+      { x: -3300, y: 800 },
+      { x: -3300, y: 600 },
+      { x: -3200, y: 600 },
+    ]),
+  ));
 });
