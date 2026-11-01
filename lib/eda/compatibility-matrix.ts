@@ -95,7 +95,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     extension: ".lvw",
     progress: createNativeEdaProgress([
       { id: "family-signature", label: "Reconocimiento de familia binaria", status: "partial", evidence: "La muestra contiene Dsg\\0; la selección Livewire/PCB Wizard depende de la extensión y no hay firma exclusiva confirmada." },
-      { id: "document-markers", label: "Marcadores documentales", status: "partial", evidence: "Se localizaron page &p of &n y Arial con offsets de bytes probados; no describen el circuito." },
+      { id: "document-markers", label: "Campos documentales con longitud", status: "complete", evidence: "En la muestra real, page &p of &n está precedido por 0x0D y Arial por 0x05; ambos prefijos coinciden con la longitud ASCII y tienen regresiones." },
       { id: "component-records", label: "Componentes, terminales y propiedades", status: "pending", evidence: "No se decodifican registros de componentes ni propiedades eléctricas." },
       { id: "placement-symbols", label: "Posiciones y geometría de símbolos", status: "pending", evidence: "No se reconstruyen coordenadas, símbolos ni orientación." },
       { id: "connectivity", label: "Cables y conectividad eléctrica", status: "pending", evidence: "No se reconstruyen terminales, nets ni conexiones." },
@@ -115,7 +115,9 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     },
     knownFacts: [
       "La muestra Mathelecprueba.lvw mide 1.144 bytes y comienza con la firma Dsg\\0.",
-      "La muestra contiene los marcadores de texto page &p of &n y Arial.",
+      "La muestra contiene page &p of &n (prefijo 0x0D en offset 89) y Arial (prefijo 0x05 en offset 103); ambos campos son length-prefixed ASCII validados por el inspector.",
+      "La muestra comparte los primeros 38 bytes con PCB Wizard, pero diverge a partir del offset 38; el formato concreto no se identifica solo con la firma Dsg.",
+
       "La firma Dsg\\0 también aparece en la muestra PCB Wizard; no identifica por sí sola la aplicación.",
     ],
     nextEvidenceRequired: [
@@ -134,7 +136,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     extension: ".pcb",
     progress: createNativeEdaProgress([
       { id: "family-signature", label: "Reconocimiento de familia binaria", status: "partial", evidence: "La muestra contiene Dsg\\0, compartido con Livewire; la extensión identifica el destino de forma contextual." },
-      { id: "document-markers", label: "Marcadores documentales", status: "partial", evidence: "Se localizaron page &p of &n y Arial con offsets probados; no describen footprints ni pistas." },
+      { id: "document-markers", label: "Campos documentales con longitud", status: "complete", evidence: "En la muestra real, page &p of &n está precedido por 0x0D y Arial por 0x05; ambos prefijos coinciden con la longitud ASCII y tienen regresiones." },
       { id: "board-outline", label: "Contorno y capas de placa", status: "pending", evidence: "No se decodifican límites de placa ni capas." },
       { id: "footprints-pads", label: "Footprints y pads numerados", status: "pending", evidence: "No se decodifican huellas, pads ni coordenadas." },
       { id: "nets-tracks", label: "Nets y pistas de cobre", status: "pending", evidence: "No se reconstruyen redes ni pistas." },
@@ -155,7 +157,9 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     knownFacts: [
       "La muestra Mathelecprueba.pcb mide 1.093 bytes y comienza con la firma Dsg\\0.",
       "La muestra comparte con Livewire la firma inicial, pero los datos binarios posteriores no son idénticos.",
-      "Los marcadores page &p of &n y Arial no describen componentes ni pistas de cobre.",
+      "page &p of &n (prefijo 0x0D en offset 89) y Arial (prefijo 0x05 en offset 103) se decodifican como campos documentales length-prefixed ASCII; no describen componentes ni pistas de cobre.",
+      "La muestra comparte los primeros 38 bytes con Livewire, pero diverge a partir del offset 38; el formato concreto no se identifica solo con la firma Dsg.",
+
     ],
     nextEvidenceRequired: [
       "Proyectos PCB Wizard 3.50 que incluyan placa, footprints, pads numerados, nets y pistas.",
