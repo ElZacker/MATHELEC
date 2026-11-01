@@ -661,17 +661,17 @@ test("New Wave fixtures: diagnostic differential map for format research", () =>
     })(),
     differenceRanges,
     livewire: {
-      hex: hexRows(livewire, 256),
+      hex: hexRows(livewire, livewire.length),
       printableRuns: printableRuns(livewire),
       zeroRuns: zeroRuns(livewire),
     },
     pcbWizard: {
-      hex: hexRows(pcbWizard, 256),
+      hex: hexRows(pcbWizard, pcbWizard.length),
       printableRuns: printableRuns(pcbWizard),
       zeroRuns: zeroRuns(pcbWizard),
     },
   };
   console.log("NEW_WAVE_FIXTURE_REPORT " + JSON.stringify(report));
-  assert.equal(livewire.subarray(0, 4).toString("latin1"), "Dsg\\0");
-  assert.equal(pcbWizard.subarray(0, 4).toString("latin1"), "Dsg\\0");
+  assert.deepEqual([...livewire.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
+  assert.deepEqual([...pcbWizard.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
 });
