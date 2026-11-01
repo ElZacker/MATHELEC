@@ -42,7 +42,7 @@ The version-aware registry lives in `lib/eda/compatibility-matrix.ts`. Every ins
 |---|---|---|---|---|---|
 | Livewire 1.11 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
 | PCB Wizard 3.50 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
-| Proteus 8.13 | Project container recognized | Partial metadata from ROOT.CDB and component references/values from ROOT.DSN | Not implemented | Not implemented | Not verified |
+| Proteus 8.13 | Project container recognized | Partial metadata, decoded WIRE geometry and pin-slot links; scale-consistent but unverified placement candidates | Not implemented | Not implemented | Not verified |
 
 The registry is a version-target baseline, not a claim of native import/export compatibility. The tests enforce that distinction so a future change cannot accidentally advertise a decoder or writer before one exists.
 
@@ -192,3 +192,15 @@ The corresponding DSN pin-slot arrays are:
 All three CDB pin tables contain two entries, all three DSN pin-slot arrays contain two WIRE pointers, and every pointer resolves to a validated WIRE object. The code therefore emits `pinSlotMappingStatus = "matched-by-cdb-order"` and includes these pins in `wireConnectedGroups`. If the count or pointers do not match, the mapping stays unresolved; the code does not assign pins by guesswork.
 
 These checks establish the CDB-name-to-DSN-slot association for this fixture, but not physical pin coordinates, symbol rotation, net labels or power-rail terminals. They also do not replace opening and checking the design in Proteus 8.13.
+
+### Proteus 8.13 — candidate placement coordinates (1 November 2026)
+
+The two 32-bit words already preserved after each placed-component reference are now also read as signed little-endian integers for a conservative scale check. In the repository fixture, all six values are exact multiples of 2540, the same internal-units-per-mil scale independently used by the decoded WIRE vertices. This yields these candidate positions:
+
+| Component | Raw X | Raw Y | Candidate X (mil) | Candidate Y (mil) |
+|---|---:|---:|---:|---:|
+| B1 | -9,631,680 | 1,544,320 | -3,792 | 608 |
+| D1 | -7,675,880 | 1,341,120 | -3,022 | 528 |
+| R1 | -6,101,080 | 1,290,320 | -2,402 | 508 |
+
+The API exposes these as `placementCandidate` with status `scale-consistent-unverified`. This is deliberately not treated as a verified symbol origin, pin coordinate, orientation or complete sheet placement. The three-component fixture alone cannot establish whether the values are absolute positions, local origins, or another field that happens to use the same scale. A controlled pair of Proteus 8.13 projects saved before/after moving one component is still required before using these values to draw or import symbols.
