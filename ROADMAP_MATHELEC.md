@@ -1273,3 +1273,18 @@ Se decodifica el registro de componente colocado: bloques de etiquetas, disposit
 Se añadió además el lector de terminales $TERPOWER/$TERGROUND, con origen, anclaje, punto de conexión y puntero WIRE. La prueba automatizada actual es sintética porque el proyecto real no contiene terminales colocados.
 
 **Pendiente:** conseguir un proyecto Proteus 8.13 que incluya definiciones de biblioteca para validar $PIN en varios dispositivos y orientaciones; comparar terminales con un fixture real; decodificar etiquetas de red, instrumentos y cuerpo gráfico completo; y generar un proyecto que se pueda abrir y simular dentro de Proteus.
+
+
+---
+
+## Compatibilidad EDA — diagnóstico visible de registros Proteus en la interfaz (1 de noviembre de 2026)
+
+La acción **Inspeccionar archivo nativo** ahora puede presentar los datos que ya decodifica el parser de Proteus 8.13 en lugar de informar solamente que el ZIP fue reconocido:
+
+- Para B1, D1, R1 (o las instancias del archivo inspeccionado) muestra valor, origen físico en mils, rotación y bandera de espejo cuando el registro de colocación es válido.
+- Resume cuántos slots de pata apuntan a objetos WIRE y diferencia una correspondencia física confirmada por geometría de la asociación provisional `cdb-order-unverified`.
+- Informa terminales POWER/GROUND colocados y si su punto de conexión coincide con un cable cuando el archivo contiene esos objetos.
+- Muestra cuántos grupos geométricos de cables se han reconstruido.
+- Mantiene el aviso de que inspeccionar no importa el circuito y de que los grupos geométricos aún no representan una netlist completa.
+
+Este cambio es de presentación/diagnóstico: no convierte el inspector en importador editable ni habilita exportación nativa. La matriz continúa dejando esas capacidades como no implementadas.
