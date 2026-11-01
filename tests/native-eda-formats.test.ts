@@ -938,6 +938,62 @@ test("New Wave: registra las tres muestras de Livewire y PCB Wizard y sus varian
   }
 });
 
+
+test("New Wave: diagnóstico temporal de bloques comunes para alinear las tres variantes", () => {
+  const alignedBlocks = (left: Buffer, right: Buffer) => {
+    const rows = left.length + 1;
+    const columns = right.length + 1;
+    const table = new Uint16Array(rows * columns);
+    for (let i = left.length - 1; i >= 0; i -= 1) {
+      for (let j = right.length - 1; j >= 0; j -= 1) {
+        const cell = i * columns + j;
+        table[cell] = left[i] === right[j]
+          ? table[(i + 1) * columns + j + 1] + 1
+          : Math.max(table[(i + 1) * columns + j], table[i * columns + j + 1]);
+      }
+    }
+    const blocks: Array<{ left: number; right: number; length: number }> = [];
+    let i = 0;
+    let j = 0;
+    while (i < left.length && j < right.length) {
+      if (left[i] === right[j]) {
+        const startLeft = i;
+        const startRight = j;
+        while (i < left.length && j < right.length && left[i] === right[j]) {
+          i += 1;
+          j += 1;
+        }
+        blocks.push({ left: startLeft, right: startRight, length: i - startLeft });
+      } else if (table[(i + 1) * columns + j] >= table[i * columns + j + 1]) {
+        i += 1;
+      } else {
+        j += 1;
+      }
+    }
+    return blocks.filter((block) => block.length >= 6)
+      .sort((a, b) => b.length - a.length || a.left - b.left)
+      .slice(0, 18);
+  };
+  const pairs = [
+    ["Livewire original→2a", "Mathelecprueba.lvw", "Mathelecprueba2a.lvw"],
+    ["Livewire original→2b", "Mathelecprueba.lvw", "Mathelecprueba2b.lvw"],
+    ["Livewire 2a→2b", "Mathelecprueba2a.lvw", "Mathelecprueba2b.lvw"],
+    ["PCB Wizard original→2a", "Mathelecprueba.pcb", "Mathelecprueba2a.pcb"],
+    ["PCB Wizard original→2b", "Mathelecprueba.pcb", "Mathelecprueba2b.pcb"],
+    ["PCB Wizard 2a→2b", "Mathelecprueba2a.pcb", "Mathelecprueba2b.pcb"],
+  ];
+  for (const [label, leftName, rightName] of pairs) {
+    const left = fixture(leftName);
+    const right = fixture(rightName);
+    console.log("NEWWAVE_ALIGNMENT", JSON.stringify({
+      label,
+      leftBytes: left.length,
+      rightBytes: right.length,
+      commonBlocks: alignedBlocks(left, right),
+    }));
+  }
+});
+
 test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin designador en las tres muestras", () => {
   const fileNames = [
     "mathelecprueba.pdsprj",
