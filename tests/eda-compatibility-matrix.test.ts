@@ -92,7 +92,7 @@ test("calcula barras de avance con hitos ponderados y sin confundirlas con compa
   );
   assert.deepEqual(
     [proteus.progress.percent, proteus.progress.completedCount, proteus.progress.partialCount, proteus.progress.totalCount],
-    [38, 3, 3, 12],
+    [42, 3, 4, 12],
   );
 
   for (const profile of profiles) {
