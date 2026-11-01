@@ -1074,6 +1074,7 @@ test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin d
       expected[index].unresolvedLibraries,
     );
 
+    const wireOffsets = new Set(result.schematicComponents.wireSegments.map((wire) => wire.objectOffset));
     if (expected[index].unresolvedLibraries.length > 0) {
       const unresolvedSwitch = result.schematicComponents.unresolvedObjects.find(
         (object) => object.libraryName === "SWITCH",
@@ -1090,7 +1091,6 @@ test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin d
     }
     assert.equal(result.schematicComponents.terminalPlacements.length, 0);
 
-    const wireOffsets = new Set(result.schematicComponents.wireSegments.map((wire) => wire.objectOffset));
     for (const component of result.schematicComponents.componentInstances) {
       assert.equal(component.pinSlotMappingStatus, "slot-table-valid-symbol-order-unverified");
       assert.equal(component.wireAddressReferences.length, 2);
