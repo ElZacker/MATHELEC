@@ -131,6 +131,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
       "El contenedor incluye PROJECT.XML, ROOT.DSN y ROOT.CDB.",
       "Mathelect limita las instancias colocadas a los marcadores COMPONENT ID dentro de OBJECT DATA, obtiene valor, identificador de biblioteca y todas las propiedades de texto, y contrasta biblioteca/dispositivo con ROOT.CDB.",
       "Los objetos de OBJECT DATA sin designador o con referencias repetidas se conservan como no resueltos; se preservan también dos palabras binarias posteriores al designador como datos opacos, sin afirmar que sean coordenadas.",
+      "Para B1, D1 y R1, las dos palabras binarias posteriores al designador son divisibles exactamente por 2540 al interpretarse como int32 con signo y generan candidatos X/Y en mils; siguen sin confirmación mediante guardados controlados.",
       "El inspector decodifica registros WIRE validados en cadenas de vértices int32 y agrupa segmentos que se tocan mediante vértices situados sobre los segmentos de otros cables; no fusiona cruces interiores sin vértices.",
       "ROOT.CDB aporta tablas de patas con nombre/número y ROOT.DSN sus slots de punteros WIRE; cuando el número de slots coincide y cada puntero resuelve, el informe enlaza pata→cable por orden de tabla.",
       "wireConnectedGroups agrupa cables, nodos T validados y patas de componentes ya enlazadas; las etiquetas de red y los terminales de alimentación/tierra todavía no se incluyen.",
@@ -139,7 +140,7 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
       "No se reconstruyen todavía posiciones con unidades, símbolos, pines, cables ni nets eléctricos.",
     ],
     nextEvidenceRequired: [
-      "Identificación de la semántica y escala de las dos palabras binarias de colocación, usando archivos de referencia con movimientos controlados.",
+      "Confirmar con archivos Proteus 8.13 guardados antes/después de mover un solo componente si los candidatos X/Y representan coordenadas absolutas, origen local u otro campo que use la misma escala.",
       "Decodificar geometría/orientación de símbolos y coordenadas físicas de cada pin; resolver terminales de alimentación/tierra y etiquetas de red, instrumentos y objetos especiales, y validar nets completos.",
       "Validación automatizada sobre varios proyectos Proteus 8.13 y mapeo completo con ROOT.CDB.",
       "Apertura y simulación del proyecto generado dentro de Proteus 8.13.",
