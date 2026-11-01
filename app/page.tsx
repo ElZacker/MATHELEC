@@ -43,6 +43,19 @@ type NativeInspectionResponse = {
   }>;
   schematicComponents?: {
     componentInstanceCount?: number;
+    unresolvedObjects?: Array<{
+      libraryName: string | null;
+      reference: string | null;
+      reason: string;
+      componentRecordParseStatus: string;
+      placement: {
+        origin: { x: number; y: number };
+        rotationDegrees: number;
+        mirrorFlag: number;
+        pinCount: number;
+      } | null;
+      wireAddressReferences: Array<{ wireObjectOffset: number }>;
+    }>;
     componentInstances?: Array<{
       reference: string;
       value: string | null;
@@ -1272,8 +1285,20 @@ function handleMoveComponent(
             ).join(" · ")
           : "ningún terminal POWER/GROUND colocado en esta muestra";
         const wireGroups = schematic?.wireConnectedGroups?.length ?? 0;
+        const unresolvedObjects = schematic?.unresolvedObjects ?? [];
+        const unresolvedSummary = unresolvedObjects.length
+          ? unresolvedObjects.map((object) => {
+              const name = object.libraryName ?? object.reference ?? "objeto sin identificar";
+              if (object.componentRecordParseStatus !== "decoded" || !object.placement) {
+                return `${name}: registro de colocación no decodificado (${object.reason})`;
+              }
+              const placement = object.placement;
+              const connectedSlots = object.wireAddressReferences.length;
+              return `${name} sin designador: origen (${placement.origin.x}, ${placement.origin.y}) mil; ${placement.rotationDegrees}°; ${connectedSlots}/${placement.pinCount} slots apuntan a WIRE`;
+            }).join(" · ")
+          : "ninguno";
         setNotice(
-          `Proteus reconocido (${size}). Archivos internos: ${entries || "sin listado"}. PROJECT.XML: ${result.hasProjectXml ? "presente" : "ausente"}; ROOT.DSN: ${result.hasRootDsn ? "presente" : "ausente"}; ROOT.CDB: ${result.hasRootCdb ? "presente" : "ausente"}. Componentes: ${componentSummary}. Terminales: ${terminalSummary}. Grupos geométricos de cable: ${wireGroups}. Las asociaciones CDB sin definición $PIN siguen sin confirmar el nombre físico de las patas; no es una netlist completa y el circuito no se importó.`,
+          `Proteus reconocido (${size}). Archivos internos: ${entries || "sin listado"}. PROJECT.XML: ${result.hasProjectXml ? "presente" : "ausente"}; ROOT.DSN: ${result.hasRootDsn ? "presente" : "ausente"}; ROOT.CDB: ${result.hasRootCdb ? "presente" : "ausente"}. Componentes: ${componentSummary}. Objetos especiales/no resueltos: ${unresolvedSummary}. Terminales: ${terminalSummary}. Grupos geométricos de cable: ${wireGroups}. Las asociaciones CDB sin definición $PIN siguen sin confirmar el nombre físico de las patas; no es una netlist completa y el circuito no se importó.`,
         );
       } else {
         const format = result.format === "livewire" ? "Livewire" : "PCB Wizard";
