@@ -27,7 +27,42 @@ const LIVEWIRE_TO_PCB_WIZARD_PATH: NativeEdaInteroperabilityPath = {
   applicationSmokeTested: false,
 };
 
+export type CompatibilityMilestoneStatus = "complete" | "partial" | "pending";
+
+export type NativeEdaCompatibilityMilestone = {
+  id: string;
+  label: string;
+  status: CompatibilityMilestoneStatus;
+  evidence: string;
+};
+
+export type NativeEdaProgress = {
+  percent: number;
+  completedCount: number;
+  partialCount: number;
+  totalCount: number;
+  note: string;
+  milestones: NativeEdaCompatibilityMilestone[];
+};
+
+function createNativeEdaProgress(
+  milestones: NativeEdaCompatibilityMilestone[],
+): NativeEdaProgress {
+  const completedCount = milestones.filter((milestone) => milestone.status === "complete").length;
+  const partialCount = milestones.filter((milestone) => milestone.status === "partial").length;
+  const weightedPoints = completedCount + partialCount * 0.5;
+  return {
+    percent: milestones.length > 0 ? Math.round((weightedPoints / milestones.length) * 100) : 0,
+    completedCount,
+    partialCount,
+    totalCount: milestones.length,
+    note: "Estimación de hitos técnicos: completo = 1 punto, parcial = 0,5 y pendiente = 0. No representa el porcentaje de archivos compatibles ni de importación/exportación funcional.",
+    milestones,
+  };
+}
+
 export type NativeEdaCompatibilityProfile = {
+  progress: NativeEdaProgress;
   format: NativeEdaFormat;
   documentedInteroperability: NativeEdaInteroperabilityPath[];
   application: string;
@@ -58,6 +93,16 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     versionSource: "user-confirmed",
     versionDetectedInsideFile: false,
     extension: ".lvw",
+    progress: createNativeEdaProgress([
+      { id: "family-signature", label: "Reconocimiento de familia binaria", status: "partial", evidence: "La muestra contiene Dsg\\0; la selección Livewire/PCB Wizard depende de la extensión y no hay firma exclusiva confirmada." },
+      { id: "document-markers", label: "Marcadores documentales", status: "partial", evidence: "Se localizaron page &p of &n y Arial con offsets de bytes probados; no describen el circuito." },
+      { id: "component-records", label: "Componentes, terminales y propiedades", status: "pending", evidence: "No se decodifican registros de componentes ni propiedades eléctricas." },
+      { id: "placement-symbols", label: "Posiciones y geometría de símbolos", status: "pending", evidence: "No se reconstruyen coordenadas, símbolos ni orientación." },
+      { id: "connectivity", label: "Cables y conectividad eléctrica", status: "pending", evidence: "No se reconstruyen terminales, nets ni conexiones." },
+      { id: "internal-import", label: "Importación al modelo interno", status: "pending", evidence: "No existe importador nativo Livewire." },
+      { id: "native-export", label: "Exportación nativa", status: "pending", evidence: "No existe escritor .lvw." },
+      { id: "application-roundtrip", label: "Apertura y prueba de ida/vuelta", status: "pending", evidence: "No se ha abierto un archivo generado en Livewire 1.11 ni validado su simulación." },
+    ]),
     capabilities: {
       fileRecognition: "signature-only",
       containerIntegrity: "not-applicable",
@@ -87,6 +132,16 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     versionSource: "user-confirmed",
     versionDetectedInsideFile: false,
     extension: ".pcb",
+    progress: createNativeEdaProgress([
+      { id: "family-signature", label: "Reconocimiento de familia binaria", status: "partial", evidence: "La muestra contiene Dsg\\0, compartido con Livewire; la extensión identifica el destino de forma contextual." },
+      { id: "document-markers", label: "Marcadores documentales", status: "partial", evidence: "Se localizaron page &p of &n y Arial con offsets probados; no describen footprints ni pistas." },
+      { id: "board-outline", label: "Contorno y capas de placa", status: "pending", evidence: "No se decodifican límites de placa ni capas." },
+      { id: "footprints-pads", label: "Footprints y pads numerados", status: "pending", evidence: "No se decodifican huellas, pads ni coordenadas." },
+      { id: "nets-tracks", label: "Nets y pistas de cobre", status: "pending", evidence: "No se reconstruyen redes ni pistas." },
+      { id: "internal-import", label: "Importación al modelo interno", status: "pending", evidence: "No existe importador de PCB Wizard." },
+      { id: "native-export", label: "Exportación nativa", status: "pending", evidence: "No existe escritor .pcb." },
+      { id: "application-roundtrip", label: "Apertura y prueba de ida/vuelta", status: "pending", evidence: "No se ha abierto una placa generada en PCB Wizard 3.50 ni ejecutado su verificador de ruteo." },
+    ]),
     capabilities: {
       fileRecognition: "signature-only",
       containerIntegrity: "not-applicable",
@@ -116,6 +171,20 @@ const PROFILES: readonly NativeEdaCompatibilityProfile[] = [
     versionSource: "user-confirmed",
     versionDetectedInsideFile: false,
     extension: ".pdsprj",
+    progress: createNativeEdaProgress([
+      { id: "container-integrity", label: "Contenedor ZIP y archivos esenciales", status: "complete", evidence: "La fixture valida el ZIP, PROJECT.XML, ROOT.DSN, ROOT.CDB, tamaños y CRC32." },
+      { id: "component-records", label: "Instancias y metadatos de componentes", status: "complete", evidence: "B1, D1 y R1 se decodifican y se contrastan con ROOT.CDB; objetos sin designador quedan sin resolver." },
+      { id: "placement", label: "Origen, rotación y espejo", status: "complete", evidence: "Los registros colocados de B1, D1 y R1 exponen origen físico, ángulo, espejo y slots exactos con regresiones." },
+      { id: "wire-geometry", label: "Geometría WIRE y nodos T", status: "partial", evidence: "Se decodifican los seis WIRE de la muestra y sus grupos/contactos geométricos; aún no equivalen a nets completas." },
+      { id: "slot-wire-links", label: "Slots de componente enlazados a WIRE", status: "partial", evidence: "Los punteros exactos resuelven a objetos WIRE, pero el orden físico de nombres CDB no se confirma sin $PIN." },
+      { id: "physical-pin-geometry", label: "Identidad y geometría física de patas", status: "pending", evidence: "La fixture no contiene definiciones $PIN coincidentes para BATTERY, LED-RED y 10WATT1K." },
+      { id: "power-ground-real-fixture", label: "Terminales POWER/GROUND con fixture real", status: "partial", evidence: "El parser y la geometría tienen prueba sintética; falta una instancia guardada desde Proteus 8.13." },
+      { id: "labels-instruments-symbols", label: "Etiquetas, instrumentos y cuerpo de símbolos", status: "pending", evidence: "Faltan net labels, instrumentos virtuales y geometría gráfica completa." },
+      { id: "complete-netlist", label: "Netlist eléctrica completa", status: "pending", evidence: "Los grupos geométricos no constituyen todavía un grafo eléctrico completo." },
+      { id: "internal-import", label: "Importación editable a Mathelect", status: "pending", evidence: "El inspector informa datos; no reemplaza ni crea el circuito actual." },
+      { id: "native-export", label: "Exportación nativa .pdsprj", status: "pending", evidence: "No existe escritor de proyecto Proteus." },
+      { id: "application-roundtrip", label: "Apertura, simulación y round-trip", status: "pending", evidence: "No se ha validado un proyecto generado dentro de Proteus 8.13." },
+    ]),
     capabilities: {
       fileRecognition: "verified",
       containerIntegrity: "partial",
@@ -155,6 +224,7 @@ export function getNativeEdaCompatibilityMatrix(): NativeEdaCompatibilityProfile
     ...profile,
     capabilities: { ...profile.capabilities },
     documentedInteroperability: profile.documentedInteroperability.map((path) => ({ ...path })),
+    progress: { ...profile.progress, milestones: profile.progress.milestones.map((milestone) => ({ ...milestone })) },
     knownFacts: [...profile.knownFacts],
     nextEvidenceRequired: [...profile.nextEvidenceRequired],
   }));
@@ -169,6 +239,7 @@ export function getNativeEdaCompatibilityProfile(
     ...profile,
     capabilities: { ...profile.capabilities },
     documentedInteroperability: profile.documentedInteroperability.map((path) => ({ ...path })),
+    progress: { ...profile.progress, milestones: profile.progress.milestones.map((milestone) => ({ ...milestone })) },
     knownFacts: [...profile.knownFacts],
     nextEvidenceRequired: [...profile.nextEvidenceRequired],
   };
