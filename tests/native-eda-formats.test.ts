@@ -675,3 +675,184 @@ test("New Wave fixtures: diagnostic differential map for format research", () =>
   assert.deepEqual([...livewire.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
   assert.deepEqual([...pcbWizard.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
 });
+
+
+test("Proteus DSN: verifica el orden y la geometría física de patas mediante una definición $PIN", () => {
+  const bytes = (...parts: Buffer[]) => Buffer.concat(parts);
+  const lengthPrefixed = (value: string) => {
+    const raw = Buffer.from(value, "ascii");
+    return bytes(Buffer.from([0xff, raw.length]), raw);
+  };
+  const labelBlock = (
+    text: string,
+    attribute: string,
+    anchor: { x: number; y: number },
+  ) => {
+    const textBytes = Buffer.from(text, "ascii");
+    return bytes(
+      Buffer.from([0xff, textBytes.length]),
+      textBytes,
+      (() => {
+        const result = Buffer.alloc(8);
+        result.writeInt32LE(anchor.x * 2540, 0);
+        result.writeInt32LE(anchor.y * 2540, 4);
+        return result;
+      })(),
+      Buffer.alloc(26),
+      Buffer.from("Default Font\\0", "ascii"),
+      Buffer.from(attribute + "\\0", "ascii"),
+      Buffer.alloc(4),
+    );
+  };
+  const wire = (points: Array<[number, number]>) => {
+    const header = Buffer.from([
+      0x00, 0x1d, 0x00, 0x00, 0x00,
+      0x00, 0xc0, 0x9e, 0x00, 0x00,
+      0x00, 0x40, 0x00,
+      0x00, 0x01, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00,
+      0x02, 0x7f, 0x57, 0x49, 0x52, 0x45, 0x00, 0x00, 0x00,
+      0x00, 0x00,
+    ]);
+    header.writeUInt16LE(points.length, 32);
+    const vertices = Buffer.alloc(points.length * 8);
+    points.forEach(([x, y], index) => {
+      vertices.writeInt32LE(x * 2540, index * 8);
+      vertices.writeInt32LE(y * 2540, index * 8 + 4);
+    });
+    return bytes(header, vertices);
+  };
+  const pinRecord = (name: string, number: string, x: number, y: number) => {
+    const marker = Buffer.from("$PINDEFAULT\\0", "ascii");
+    const prefix = Buffer.alloc(16);
+    prefix.writeUInt32LE(0, 0);
+    prefix.writeInt32LE(x * 2540, 4);
+    prefix.writeInt32LE(y * 2540, 8);
+    return bytes(
+      prefix,
+      marker,
+      Buffer.from(name + "\\0", "ascii"),
+      Buffer.from(number + "\\0", "ascii"),
+    );
+  };
+
+  // The embedded symbol order is B then A, deliberately different from CDB.
+  const symbolBody = bytes(
+    Buffer.alloc(16),
+    pinRecord("B", "2", 100, 0),
+    pinRecord("A", "1", -100, 0),
+  );
+  const device = Buffer.from("RESISTOR", "ascii");
+  const deviceTag = Buffer.alloc(2 + device.length);
+  deviceTag.writeUInt16LE(device.length, 0);
+  device.copy(deviceTag, 2);
+  const symbolHeader = bytes(
+    deviceTag,
+    (() => {
+      const timestamp = Buffer.alloc(4);
+      timestamp.writeUInt32LE(0x50000000, 0);
+      return timestamp;
+    })(),
+    Buffer.alloc(9),
+    (() => {
+      const length = Buffer.alloc(4);
+      length.writeUInt32LE(symbolBody.length, 0);
+      return length;
+    })(),
+  );
+  const librarySection = bytes(
+    symbolHeader,
+    symbolBody,
+    Buffer.from([0xff]),
+    Buffer.from("ISIS CIRCUIT FILE", "ascii"),
+  );
+
+  const fixedHeader = bytes(
+    Buffer.from("ISIS SCHEMATIC FILE", "ascii"),
+    Buffer.alloc(8),
+    librarySection,
+    Buffer.from("OBJECT DATA\\0", "ascii"),
+  );
+  const wireA = wire([[-200, 0], [-300, 0]]);
+  const wireB = wire([[200, 0], [300, 0]]);
+  const wireAOffset = fixedHeader.length;
+  const wireBOffset = wireAOffset + wireA.length;
+
+  const labels = bytes(
+    labelBlock("U1", "COMPONENT ID", { x: 0, y: 0 }),
+    labelBlock("100R", "COMPONENT VALUE", { x: 0, y: 0 }),
+    labelBlock("RESISTOR", "DEVICE", { x: 0, y: 0 }),
+    labelBlock("{PRIMTYPE=RESISTOR}", "PROPERTIES", { x: 0, y: 0 }),
+  );
+  const propertiesLength = Buffer.alloc(4);
+  propertiesLength.writeUInt32LE("{PRIMTYPE=RESISTOR}".length, 0);
+  const componentHeader = Buffer.alloc(3 + device.length + 8 + 17 + 8);
+  componentHeader.writeUInt16LE(2, 0);
+  componentHeader[2] = device.length;
+  device.copy(componentHeader, 3);
+  const originOffset = 3 + device.length;
+  componentHeader.writeInt32LE(0, originOffset);
+  componentHeader.writeInt32LE(0, originOffset + 4);
+  const slotTableOffset = originOffset + 8 + 17;
+  componentHeader.writeUInt32LE(wireBOffset, slotTableOffset);
+  componentHeader.writeUInt32LE(wireAOffset, slotTableOffset + 4);
+  const componentRecord = bytes(labels, propertiesLength, componentHeader);
+  const dsn = bytes(fixedHeader, wireA, wireB, componentRecord);
+
+  const result = inspectProteusSchematicBytes(dsn, [{
+    reference: "U1",
+    value: "100R",
+    device: "RESISTOR",
+    package: "RES",
+    properties: {},
+    pinEntryOffset: null,
+    pinEntryStatus: "decoded",
+    pins: [
+      { name: "A", number: "1" },
+      { name: "B", number: "2" },
+    ],
+  }]);
+
+  const component = result.componentInstances[0];
+  assert.equal(result.componentInstanceCount, 1);
+  assert.equal(component.componentRecordParseStatus, "decoded");
+  assert.equal(component.placement?.device, "RESISTOR");
+  assert.equal(component.placement?.pinCount, 2);
+  assert.equal(component.pinSlotMappingStatus, "matched-by-symbol-geometry");
+  assert.deepEqual(component.symbolDefinition?.pins.map((pin) => ({
+    name: pin.name,
+    number: pin.number,
+    base: pin.base,
+    direction: pin.direction,
+  })), [
+    { name: "B", number: "2", base: { x: 100, y: 0 }, direction: { x: 1, y: 0 } },
+    { name: "A", number: "1", base: { x: -100, y: 0 }, direction: { x: -1, y: 0 } },
+  ]);
+  assert.deepEqual(component.pinConnections.map((pin) => ({
+    slotIndex: pin.slotIndex,
+    pinName: pin.pinName,
+    mappingBasis: pin.mappingBasis,
+    wireObjectOffset: pin.wireObjectOffset,
+    symbolRoot: pin.symbolRoot,
+    connectionPoint: pin.connectionPoint,
+    connectionPointMatchesWire: pin.connectionPointMatchesWire,
+  })), [
+    {
+      slotIndex: 0,
+      pinName: "B",
+      mappingBasis: "symbol-pin-name",
+      wireObjectOffset: wireBOffset,
+      symbolRoot: { x: 100, y: 0 },
+      connectionPoint: { x: 200, y: 0 },
+      connectionPointMatchesWire: true,
+    },
+    {
+      slotIndex: 1,
+      pinName: "A",
+      mappingBasis: "symbol-pin-name",
+      wireObjectOffset: wireAOffset,
+      symbolRoot: { x: -100, y: 0 },
+      connectionPoint: { x: -200, y: 0 },
+      connectionPointMatchesWire: true,
+    },
+  ]);
+});
