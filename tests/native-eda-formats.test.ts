@@ -843,4 +843,57 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
       connectionPointMatchesWire: true,
     },
   ]);
+
+  // Repeat with the component mirrored and rotated by 90 degrees. The CDB
+  // slot pointers are swapped to follow the transformed physical endpoints.
+  const rotatedWireA = wire([[0, -200], [0, -300]]);
+  const rotatedWireB = wire([[0, 200], [0, 300]]);
+  const rotatedComponentRecord = Buffer.from(componentRecord);
+  const componentHeaderOffset = labels.length + propertiesLength.length;
+  const rotationOffset = componentHeaderOffset + originOffset + 8;
+  rotatedComponentRecord.writeInt16LE(900, rotationOffset);
+  rotatedComponentRecord.writeUInt16LE(1, rotationOffset + 2);
+  rotatedComponentRecord.writeUInt32LE(wireAOffset, componentHeaderOffset + slotTableOffset);
+  rotatedComponentRecord.writeUInt32LE(wireBOffset, componentHeaderOffset + slotTableOffset + 4);
+  const rotatedDsn = bytes(fixedHeader, rotatedWireA, rotatedWireB, rotatedComponentRecord);
+  const rotatedResult = inspectProteusSchematicBytes(rotatedDsn, [{
+    reference: "U1",
+    value: "100R",
+    device: "RESISTOR",
+    package: "RES",
+    properties: {},
+    pinEntryOffset: null,
+    pinEntryStatus: "decoded",
+    pins: [
+      { name: "A", number: "1" },
+      { name: "B", number: "2" },
+    ],
+  }]);
+  const rotatedComponent = rotatedResult.componentInstances[0];
+  assert.equal(rotatedComponent.placement?.rotationDegrees, 90);
+  assert.equal(rotatedComponent.placement?.mirrorFlag, 1);
+  assert.equal(rotatedComponent.pinSlotMappingStatus, "matched-by-symbol-geometry");
+  assert.deepEqual(rotatedComponent.pinConnections.map((pin) => ({
+    pinName: pin.pinName,
+    wireObjectOffset: pin.wireObjectOffset,
+    symbolRoot: pin.symbolRoot,
+    connectionPoint: pin.connectionPoint,
+    connectionPointMatchesWire: pin.connectionPointMatchesWire,
+  })), [
+    {
+      pinName: "B",
+      wireObjectOffset: wireAOffset,
+      symbolRoot: { x: 0, y: -100 },
+      connectionPoint: { x: 0, y: -200 },
+      connectionPointMatchesWire: true,
+    },
+    {
+      pinName: "A",
+      wireObjectOffset: wireBOffset,
+      symbolRoot: { x: 0, y: 100 },
+      connectionPoint: { x: 0, y: 200 },
+      connectionPointMatchesWire: true,
+    },
+  ]);
+
 });
