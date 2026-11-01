@@ -1058,6 +1058,21 @@ test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin d
       result.schematicComponents.unresolvedObjects.map((object) => object.libraryName),
       expected[index].unresolvedLibraries,
     );
+
+    if (expected[index].unresolvedLibraries.includes("SWITCH")) {
+      const unresolvedSwitch = result.schematicComponents.unresolvedObjects.find(
+        (object) => object.libraryName === "SWITCH",
+      );
+      assert.ok(unresolvedSwitch);
+      assert.equal(unresolvedSwitch.reference, null);
+      assert.equal(unresolvedSwitch.reason, "missing-reference-designator");
+      assert.equal(unresolvedSwitch.componentRecordParseStatus, "decoded");
+      assert.equal(unresolvedSwitch.placement?.device, "SWITCH");
+      assert.equal(unresolvedSwitch.placement?.pinCount, 2);
+      assert.ok(unresolvedSwitch.recordStartOffset !== null);
+      assert.equal(unresolvedSwitch.wireAddressReferences.length, 2);
+      assert.ok(unresolvedSwitch.wireAddressReferences.every((pointer) => wireOffsets.has(pointer.wireObjectOffset)));
+    }
     assert.equal(result.schematicComponents.terminalPlacements.length, 0);
 
     const wireOffsets = new Set(result.schematicComponents.wireSegments.map((wire) => wire.objectOffset));
