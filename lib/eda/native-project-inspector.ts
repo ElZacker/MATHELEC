@@ -20,6 +20,15 @@ function getTargetApplicationContext(format: NativeEdaFormat): TargetApplication
   };
 }
 
+export type NewWaveTextField = {
+  marker: string;
+  offset: number;
+  lengthPrefixOffset: number | null;
+  declaredLength: number | null;
+  decodedLength: number;
+  status: "length-prefix-validated" | "marker-only";
+};
+
 export type NewWaveInspection = {
   format: "livewire" | "pcb-wizard";
   targetApplication: TargetApplicationContext;
@@ -34,6 +43,7 @@ export type NewWaveInspection = {
   };
   textMarkers: string[];
   textMarkerOffsets: Array<{ marker: string; offset: number }>;
+  textFields: NewWaveTextField[];
   status: "recognized-binary-not-yet-decoded";
   componentDataDecoded: false;
   limitations: string[];
@@ -1862,6 +1872,27 @@ function getAsciiMarkerOffsets(
     .sort((left, right) => left.offset - right.offset);
 }
 
+function getNewWaveTextFields(buffer: Buffer): NewWaveTextField[] {
+  const markerOffsets = getAsciiMarkerOffsets(buffer);
+  return markerOffsets.map(({ marker, offset }) => {
+    const encoded = Buffer.from(marker, "ascii");
+    const lengthPrefixOffset = offset > 0 ? offset - 1 : null;
+    const declaredLength = lengthPrefixOffset === null
+      ? null
+      : buffer[lengthPrefixOffset];
+    return {
+      marker,
+      offset,
+      lengthPrefixOffset,
+      declaredLength,
+      decodedLength: encoded.length,
+      status: declaredLength === encoded.length
+        ? "length-prefix-validated"
+        : "marker-only",
+    };
+  });
+}
+
 function inspectNewWaveDocument(
   format: "livewire" | "pcb-wizard",
   buffer: Buffer,
@@ -1884,12 +1915,14 @@ function inspectNewWaveDocument(
     },
     textMarkers: getAsciiMarkers(buffer),
     textMarkerOffsets: getAsciiMarkerOffsets(buffer),
+    textFields: getNewWaveTextFields(buffer),
     status: "recognized-binary-not-yet-decoded",
     componentDataDecoded: false,
     limitations: [
       "La firma identifica la familia binaria New Wave, pero no demuestra que se hayan decodificado sus componentes.",
       "La clasificación específica Livewire/PCB Wizard se basa en la extensión: ambas muestras comparten Dsg\\0 y el inspector no ha verificado una firma exclusiva de cada aplicación.",
-      "Todavía no se interpretan instancias, pines, propiedades, nets, footprints ni pistas de cobre.",
+      "Se decodifican los campos documentales page &p of &n y Arial cuando su byte de longitud anterior coincide con la longitud ASCII exacta; son metadatos del documento, no componentes ni conexiones.",
+      "Todavía no se interpretan instancias, pines, propiedades eléctricas, nets, footprints ni pistas de cobre.",
       "No se genera ni modifica un archivo nativo de estos formatos en esta etapa.",
     ],
   };

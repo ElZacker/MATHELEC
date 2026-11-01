@@ -29,6 +29,10 @@ test("Livewire: reconoce la firma Dsg del archivo de referencia sin inventar com
     { marker: "page &p of &n", offset: 90 },
     { marker: "Arial", offset: 104 },
   ]);
+  assert.deepEqual(result.textFields, [
+    { marker: "page &p of &n", offset: 90, lengthPrefixOffset: 89, declaredLength: 13, decodedLength: 13, status: "length-prefix-validated" },
+    { marker: "Arial", offset: 104, lengthPrefixOffset: 103, declaredLength: 5, decodedLength: 5, status: "length-prefix-validated" },
+  ]);
   assert.ok(result.byteLength > 32);
 });
 
@@ -50,6 +54,10 @@ test("PCB Wizard: reconoce la firma Dsg y conserva su identidad por extensión",
   assert.deepEqual(result.textMarkerOffsets, [
     { marker: "page &p of &n", offset: 90 },
     { marker: "Arial", offset: 104 },
+  ]);
+  assert.deepEqual(result.textFields, [
+    { marker: "page &p of &n", offset: 90, lengthPrefixOffset: 89, declaredLength: 13, decodedLength: 13, status: "length-prefix-validated" },
+    { marker: "Arial", offset: 104, lengthPrefixOffset: 103, declaredLength: 5, decodedLength: 5, status: "length-prefix-validated" },
   ]);
   assert.ok(result.byteLength > 32);
 });
@@ -604,4 +612,291 @@ test("Proteus DSN: decodifica un terminal POWER y valida su puntero y punto de c
       }],
     },
   ]);
+});
+
+
+test("New Wave: mantiene separados los dos archivos de referencia y valida los campos documentales", () => {
+  const livewireBytes = fixture("Mathelecprueba.lvw");
+  const pcbWizardBytes = fixture("Mathelecprueba.pcb");
+  assert.equal(livewireBytes.length, 1144);
+  assert.equal(pcbWizardBytes.length, 1093);
+  assert.deepEqual([...livewireBytes.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
+  assert.deepEqual([...pcbWizardBytes.subarray(0, 4)], [0x44, 0x73, 0x67, 0x00]);
+
+  let commonPrefixLength = 0;
+  const sharedLength = Math.min(livewireBytes.length, pcbWizardBytes.length);
+  while (
+    commonPrefixLength < sharedLength &&
+    livewireBytes[commonPrefixLength] === pcbWizardBytes[commonPrefixLength]
+  ) {
+    commonPrefixLength += 1;
+  }
+  assert.equal(commonPrefixLength, 38);
+  assert.notEqual(livewireBytes[commonPrefixLength], pcbWizardBytes[commonPrefixLength]);
+
+  for (const [fileName, bytes] of [
+    ["Mathelecprueba.lvw", livewireBytes],
+    ["Mathelecprueba.pcb", pcbWizardBytes],
+  ] as const) {
+    const result = inspectNativeEdaProject(fileName, bytes);
+    if (result.format === "proteus") {
+      throw new Error("La fixture New Wave se clasificó inesperadamente como Proteus.");
+    }
+    assert.deepEqual(result.textFields, [
+      {
+        marker: "page &p of &n",
+        offset: 90,
+        lengthPrefixOffset: 89,
+        declaredLength: 13,
+        decodedLength: 13,
+        status: "length-prefix-validated",
+      },
+      {
+        marker: "Arial",
+        offset: 104,
+        lengthPrefixOffset: 103,
+        declaredLength: 5,
+        decodedLength: 5,
+        status: "length-prefix-validated",
+      },
+    ]);
+    assert.equal(result.componentDataDecoded, false);
+  }
+});
+
+
+test("Proteus DSN: verifica el orden y la geometría física de patas mediante una definición $PIN", () => {
+  const bytes = (...parts: Buffer[]) => Buffer.concat(parts);
+  const labelBlock = (
+    text: string,
+    attribute: string,
+    anchor: { x: number; y: number },
+  ) => {
+    const textBytes = Buffer.from(text, "ascii");
+    return bytes(
+      Buffer.from([0xff, textBytes.length]),
+      textBytes,
+      (() => {
+        const result = Buffer.alloc(8);
+        result.writeInt32LE(anchor.x * 2540, 0);
+        result.writeInt32LE(anchor.y * 2540, 4);
+        return result;
+      })(),
+      Buffer.alloc(26),
+      Buffer.from("Default Font\0", "ascii"),
+      Buffer.from(attribute + "\0", "ascii"),
+      Buffer.alloc(4),
+    );
+  };
+  const wire = (points: Array<[number, number]>) => {
+    const header = Buffer.from([
+      0x00, 0x1d, 0x00, 0x00, 0x00,
+      0x00, 0xc0, 0x9e, 0x00, 0x00,
+      0x00, 0x40, 0x00,
+      0x00, 0x01, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00,
+      0x02, 0x7f, 0x57, 0x49, 0x52, 0x45, 0x00, 0x00, 0x00,
+      0x00, 0x00,
+    ]);
+    header.writeUInt16LE(points.length, 32);
+    const vertices = Buffer.alloc(points.length * 8);
+    points.forEach(([x, y], index) => {
+      vertices.writeInt32LE(x * 2540, index * 8);
+      vertices.writeInt32LE(y * 2540, index * 8 + 4);
+    });
+    return bytes(header, vertices);
+  };
+  const pinRecord = (name: string, number: string, x: number, y: number) => {
+    const marker = Buffer.from("$PINDEFAULT\0", "ascii");
+    const prefix = Buffer.alloc(16);
+    prefix.writeUInt32LE(0, 0);
+    prefix.writeInt32LE(x * 2540, 4);
+    prefix.writeInt32LE(y * 2540, 8);
+    return bytes(
+      prefix,
+      marker,
+      Buffer.from(name + "\0", "ascii"),
+      Buffer.from(number + "\0", "ascii"),
+    );
+  };
+
+  // The embedded symbol order is B then A, deliberately different from CDB.
+  const symbolBody = bytes(
+    Buffer.alloc(16),
+    pinRecord("B", "2", 100, 0),
+    pinRecord("A", "1", -100, 0),
+  );
+  const device = Buffer.from("RESISTOR", "ascii");
+  const deviceTag = Buffer.alloc(2 + device.length);
+  deviceTag.writeUInt16LE(device.length, 0);
+  device.copy(deviceTag, 2);
+  const symbolHeader = bytes(
+    deviceTag,
+    (() => {
+      const timestamp = Buffer.alloc(4);
+      timestamp.writeUInt32LE(0x50000000, 0);
+      return timestamp;
+    })(),
+    Buffer.alloc(9),
+    (() => {
+      const length = Buffer.alloc(4);
+      length.writeUInt32LE(symbolBody.length + 4, 0);
+      return length;
+    })(),
+  );
+  const librarySection = bytes(
+    symbolHeader,
+    symbolBody,
+    Buffer.from([0xff]),
+    Buffer.from("ISIS CIRCUIT FILE", "ascii"),
+  );
+
+  const fixedHeader = bytes(
+    Buffer.from("ISIS SCHEMATIC FILE", "ascii"),
+    Buffer.alloc(8),
+    librarySection,
+    Buffer.from("OBJECT DATA\0", "ascii"),
+  );
+  const wireA = wire([[-200, 0], [-300, 0]]);
+  const wireB = wire([[200, 0], [300, 0]]);
+  const wireAOffset = fixedHeader.length;
+  const wireBOffset = wireAOffset + wireA.length;
+
+  const labels = bytes(
+    labelBlock("U1", "COMPONENT ID", { x: 0, y: 0 }),
+    labelBlock("100R", "COMPONENT VALUE", { x: 0, y: 0 }),
+    labelBlock("RESISTOR", "DEVICE", { x: 0, y: 0 }),
+    labelBlock("{PRIMTYPE=RESISTOR}", "PROPERTIES", { x: 0, y: 0 }),
+  );
+  const propertiesLength = Buffer.alloc(4);
+  propertiesLength.writeUInt32LE("{PRIMTYPE=RESISTOR}".length, 0);
+  const componentHeader = Buffer.alloc(3 + device.length + 8 + 17 + 8);
+  componentHeader.writeUInt16LE(2, 0);
+  componentHeader[2] = device.length;
+  device.copy(componentHeader, 3);
+  const originOffset = 3 + device.length;
+  componentHeader.writeInt32LE(0, originOffset);
+  componentHeader.writeInt32LE(0, originOffset + 4);
+  const slotTableOffset = originOffset + 8 + 17;
+  componentHeader.writeUInt32LE(wireBOffset, slotTableOffset);
+  componentHeader.writeUInt32LE(wireAOffset, slotTableOffset + 4);
+  const componentRecord = bytes(labels, propertiesLength, componentHeader);
+  const dsn = bytes(fixedHeader, wireA, wireB, componentRecord);
+
+  const result = inspectProteusSchematicBytes(dsn, [{
+    reference: "U1",
+    value: "100R",
+    device: "RESISTOR",
+    package: "RES",
+    properties: {},
+    pinEntryOffset: null,
+    pinEntryStatus: "decoded",
+    pins: [
+      { name: "A", number: "1" },
+      { name: "B", number: "2" },
+    ],
+  }]);
+
+  const component = result.componentInstances[0];
+  assert.equal(result.componentInstanceCount, 1, JSON.stringify({
+    objectDataSectionCount: result.objectDataSectionCount,
+    componentIdMarkersOutsideObjectData: result.componentIdMarkersOutsideObjectData,
+    unresolvedObjects: result.unresolvedObjects,
+    componentInstances: result.componentInstances,
+    wireSegments: result.wireSegments,
+    symbolDefinitionDiagnostics: component?.symbolDefinitionDiagnostics,
+  }));
+  assert.equal(component.componentRecordParseStatus, "decoded");
+  assert.equal(component.placement?.device, "RESISTOR");
+  assert.equal(component.placement?.pinCount, 2);
+  assert.equal(component.pinSlotMappingStatus, "matched-by-symbol-geometry");
+  assert.deepEqual(component.symbolDefinition?.pins.map((pin) => ({
+    name: pin.name,
+    number: pin.number,
+    base: pin.base,
+    direction: pin.direction,
+  })), [
+    { name: "B", number: "2", base: { x: 100, y: 0 }, direction: { x: 1, y: 0 } },
+    { name: "A", number: "1", base: { x: -100, y: 0 }, direction: { x: -1, y: 0 } },
+  ]);
+  assert.deepEqual(component.pinConnections.map((pin) => ({
+    slotIndex: pin.slotIndex,
+    pinName: pin.pinName,
+    mappingBasis: pin.mappingBasis,
+    wireObjectOffset: pin.wireObjectOffset,
+    symbolRoot: pin.symbolRoot,
+    connectionPoint: pin.connectionPoint,
+    connectionPointMatchesWire: pin.connectionPointMatchesWire,
+  })), [
+    {
+      slotIndex: 0,
+      pinName: "B",
+      mappingBasis: "symbol-pin-name",
+      wireObjectOffset: wireBOffset,
+      symbolRoot: { x: 100, y: 0 },
+      connectionPoint: { x: 200, y: 0 },
+      connectionPointMatchesWire: true,
+    },
+    {
+      slotIndex: 1,
+      pinName: "A",
+      mappingBasis: "symbol-pin-name",
+      wireObjectOffset: wireAOffset,
+      symbolRoot: { x: -100, y: 0 },
+      connectionPoint: { x: -200, y: 0 },
+      connectionPointMatchesWire: true,
+    },
+  ]);
+
+  // Repeat with the component mirrored and rotated by 90 degrees. The CDB
+  // slot pointers are swapped to follow the transformed physical endpoints.
+  const rotatedWireA = wire([[0, -200], [0, -300]]);
+  const rotatedWireB = wire([[0, 200], [0, 300]]);
+  const rotatedComponentRecord = Buffer.from(componentRecord);
+  const componentHeaderOffset = labels.length + propertiesLength.length;
+  const rotationOffset = componentHeaderOffset + originOffset + 8;
+  rotatedComponentRecord.writeInt16LE(900, rotationOffset);
+  rotatedComponentRecord.writeUInt16LE(1, rotationOffset + 2);
+  rotatedComponentRecord.writeUInt32LE(wireAOffset, componentHeaderOffset + slotTableOffset);
+  rotatedComponentRecord.writeUInt32LE(wireBOffset, componentHeaderOffset + slotTableOffset + 4);
+  const rotatedDsn = bytes(fixedHeader, rotatedWireA, rotatedWireB, rotatedComponentRecord);
+  const rotatedResult = inspectProteusSchematicBytes(rotatedDsn, [{
+    reference: "U1",
+    value: "100R",
+    device: "RESISTOR",
+    package: "RES",
+    properties: {},
+    pinEntryOffset: null,
+    pinEntryStatus: "decoded",
+    pins: [
+      { name: "A", number: "1" },
+      { name: "B", number: "2" },
+    ],
+  }]);
+  const rotatedComponent = rotatedResult.componentInstances[0];
+  assert.equal(rotatedComponent.placement?.rotationDegrees, 90);
+  assert.equal(rotatedComponent.placement?.mirrorFlag, 1);
+  assert.equal(rotatedComponent.pinSlotMappingStatus, "matched-by-symbol-geometry");
+  assert.deepEqual(rotatedComponent.pinConnections.map((pin) => ({
+    pinName: pin.pinName,
+    wireObjectOffset: pin.wireObjectOffset,
+    symbolRoot: pin.symbolRoot,
+    connectionPoint: pin.connectionPoint,
+    connectionPointMatchesWire: pin.connectionPointMatchesWire,
+  })), [
+    {
+      pinName: "B",
+      wireObjectOffset: wireAOffset,
+      symbolRoot: { x: 0, y: -100 },
+      connectionPoint: { x: 0, y: -200 },
+      connectionPointMatchesWire: true,
+    },
+    {
+      pinName: "A",
+      wireObjectOffset: wireBOffset,
+      symbolRoot: { x: 0, y: 100 },
+      connectionPoint: { x: 0, y: 200 },
+      connectionPointMatchesWire: true,
+    },
+  ]);
+
 });

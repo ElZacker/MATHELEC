@@ -33,6 +33,14 @@ type NativeInspectionResponse = {
   hasRootCdb?: boolean;
   entries?: { name: string }[];
   textMarkers?: string[];
+  textFields?: Array<{
+    marker: string;
+    offset: number;
+    lengthPrefixOffset: number | null;
+    declaredLength: number | null;
+    decodedLength: number;
+    status: "length-prefix-validated" | "marker-only";
+  }>;
   schematicComponents?: {
     componentInstanceCount?: number;
     componentInstances?: Array<{
@@ -49,6 +57,8 @@ type NativeInspectionResponse = {
         pinName: string;
         wireObjectOffset: number | null;
         mappingBasis: "symbol-pin-name" | "cdb-order-unverified";
+        symbolRoot: { x: number; y: number } | null;
+        connectionPoint: { x: number; y: number } | null;
         connectionPointMatchesWire: boolean | null;
       }>;
       symbolDefinitionDiagnostics: string[];
@@ -1243,7 +1253,16 @@ function handleMoveComponent(
                   : component.pinSlotMappingStatus === "slot-table-valid-symbol-order-unverified"
                     ? "slots conectados; nombres CDB sin validar contra $PIN"
                     : `mapeo de patas: ${component.pinSlotMappingStatus}`;
-              return `${component.reference} ${component.value ?? "(sin valor)"}: ${placement}; ${connectedSlots}/${component.pinConnections.length} slots con cable; ${pinMapping}`;
+              const physicalPinDetails = component.pinConnections
+                .filter((pin) => pin.mappingBasis === "symbol-pin-name" && pin.symbolRoot && pin.connectionPoint)
+                .map((pin) => {
+                  const root = pin.symbolRoot!;
+                  const point = pin.connectionPoint!;
+                  const wireStatus = pin.connectionPointMatchesWire === true ? "cable confirmado" : "cable no confirmado";
+                  return `${pin.pinName}: raíz (${root.x}, ${root.y}) → extremo (${point.x}, ${point.y}) mil, ${wireStatus}`;
+                }).join(", ");
+              const pinGeometry = physicalPinDetails ? `; geometría física: ${physicalPinDetails}` : "";
+              return `${component.reference} ${component.value ?? "(sin valor)"}: ${placement}; ${connectedSlots}/${component.pinConnections.length} slots con cable; ${pinMapping}${pinGeometry}`;
             }).join(" · ")
           : "sin instancias decodificadas";
         const terminals = schematic?.terminalPlacements ?? [];
@@ -1258,8 +1277,14 @@ function handleMoveComponent(
         );
       } else {
         const format = result.format === "livewire" ? "Livewire" : "PCB Wizard";
+        const documentFields = result.textFields ?? [];
+        const fieldSummary = documentFields.length
+          ? documentFields.map((field) =>
+              `${field.marker}: ${field.status === "length-prefix-validated" ? `longitud ${field.declaredLength} validada` : "longitud sin validar"} (offset ${field.offset})`,
+            ).join(" · ")
+          : "sin campos documentales conocidos";
         setNotice(
-          `${format} reconocido por su firma binaria (${size}). Esta inspección todavía no decodifica componentes, pines ni conexiones; no se importó ni modificó el circuito.`,
+          `${format} reconocido en la familia New Wave Dsg (${size}). Metadatos decodificados: ${fieldSummary}. Esto no representa componentes ni conexiones: el contenido del circuito aún no se importó ni modificó.`,
         );
       }
     } catch (error) {

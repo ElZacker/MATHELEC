@@ -1213,13 +1213,13 @@ Las barras de la interfaz se calculan con una rúbrica fija y visible: cada hito
 
 | Formato | Avance técnico | Hitos completos | Parciales | Total |
 |---|---:|---:|---:|---:|
-| Livewire 1.11 | 13% | 0 | 2 | 8 |
-| PCB Wizard 3.50 | 13% | 0 | 2 | 8 |
-| Proteus 8.13 | 38% | 3 | 3 | 12 |
+| Livewire 1.11 | 19% | 1 | 1 | 8 |
+| PCB Wizard 3.50 | 19% | 1 | 1 | 8 |
+| Proteus 8.13 | 42% | 3 | 4 | 12 |
 
-- **Livewire 1.11:** solo se ha confirmado la familia `Dsg\\0` y se han localizado los marcadores `page &p of &n` y `Arial`. La firma se comparte con PCB Wizard y la extensión selecciona el perfil; no se decodifican componentes, terminales, posiciones ni conexiones.
-- **PCB Wizard 3.50:** los marcadores documentales están identificados, pero aún no se decodifican contorno de placa, footprints, pads, nets ni pistas de cobre. La ruta Livewire → PCB Wizard documentada por el fabricante no es un importador de Mathelect ni una prueba de apertura.
-- **Proteus 8.13:** ZIP/archivos internos, registros B1/D1/R1, origen/rotación/espejo y slots exactos están decodificados y probados. Se decodifican los seis objetos WIRE y sus contactos geométricos. Las asociaciones slot→WIRE se sostienen por punteros, pero el nombre físico de las patas sigue sin confirmarse porque faltan definiciones de biblioteca `$PIN`; POWER/GROUND tiene cobertura sintética, no una muestra real. Etiquetas, instrumentos, símbolos completos y netlist total siguen pendientes.
+- **Livewire 1.11:** se validan los prefijos de longitud ASCII de `page &p of &n` (0x0D) y `Arial` (0x05). La firma `Dsg\\0` se comparte con PCB Wizard y la extensión selecciona el perfil; no se decodifican componentes, terminales, posiciones ni conexiones.
+- **PCB Wizard 3.50:** se validan esos dos campos documentales en su propia muestra, pero aún no se decodifican contorno de placa, footprints, pads, nets ni pistas de cobre. La ruta Livewire → PCB Wizard documentada por el fabricante no es un importador de Mathelect ni una prueba de apertura.
+- **Proteus 8.13:** ZIP/archivos internos, registros B1/D1/R1, origen/rotación/espejo y slots exactos están decodificados y probados. Se decodifican los seis objetos WIRE y sus contactos geométricos. Las asociaciones slot→WIRE se sostienen por punteros. Una fixture sintética ahora verifica el orden $PIN, la geometría de patas y la coincidencia con WIRE tanto en orientación normal como a 90° con espejo; los tres componentes reales del fixture aún carecen de definiciones $PIN. POWER/GROUND conserva cobertura sintética, no una muestra real. Etiquetas, instrumentos, símbolos completos y netlist total siguen pendientes.
 
 **Regla de publicación:** la matriz mantiene importación y exportación nativas como `not-implemented` en los tres formatos, y apertura/simulación/round-trip como `not-verified`. Las barras no pueden cambiar esos estados por sí solas: para ello se exige abrir un archivo generado en la aplicación objetivo y verificar su contenido.
 
@@ -1294,3 +1294,14 @@ La acción **Inspeccionar archivo nativo** ahora puede presentar los datos que y
 - Mantiene el aviso de que inspeccionar no importa el circuito y de que los grupos geométricos aún no representan una netlist completa.
 
 Este cambio es de presentación/diagnóstico: no convierte el inspector en importador editable ni habilita exportación nativa. La matriz continúa dejando esas capacidades como no implementadas.
+
+
+### Actualización New Wave — campos documentales con prefijo de longitud (1 de noviembre de 2026)
+
+En ambas muestras reales se verificó que los campos ASCII conocidos tienen un byte de longitud inmediatamente anterior:
+- `page &p of &n`: offset 90, byte de longitud en 89 = 13 (0x0D).
+- `Arial`: offset 104, byte de longitud en 103 = 5 (0x05).
+
+El inspector expone cada campo como `NewWaveTextField`: offset del texto, offset del prefijo, longitud declarada, longitud decodificada y estado `length-prefix-validated` o `marker-only`. Las pruebas cubren ambas muestras y un caso negativo con prefijo incorrecto. Las fixtures Livewire y PCB Wizard conservan decodificadores y pruebas independientes; comparten un prefijo de 38 bytes y difieren desde el offset 38, por lo que la firma común no se trata como identificación específica de aplicación.
+
+Este avance completa el hito de metadatos documentales en cada formato, pero no cambia los hitos de componentes, cableado, pads, nets, importación o exportación.

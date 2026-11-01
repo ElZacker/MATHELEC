@@ -42,6 +42,8 @@ test("distingue la inspección ZIP parcial de Proteus del reconocimiento por fir
   assert.equal(proteus.capabilities.projectMetadata, "partial");
   assert.equal(livewire.capabilities.fileRecognition, "signature-only");
   assert.equal(pcbWizard.capabilities.fileRecognition, "signature-only");
+  assert.equal(livewire.capabilities.projectMetadata, "partial");
+  assert.equal(pcbWizard.capabilities.projectMetadata, "partial");
 });
 
 test("resuelve perfiles por extensión sin confundir las versiones instaladas con versiones del archivo", () => {
@@ -82,15 +84,15 @@ test("calcula barras de avance con hitos ponderados y sin confundirlas con compa
 
   assert.deepEqual(
     [livewire.progress.percent, livewire.progress.completedCount, livewire.progress.partialCount, livewire.progress.totalCount],
-    [13, 0, 2, 8],
+    [19, 1, 1, 8],
   );
   assert.deepEqual(
     [pcbWizard.progress.percent, pcbWizard.progress.completedCount, pcbWizard.progress.partialCount, pcbWizard.progress.totalCount],
-    [13, 0, 2, 8],
+    [19, 1, 1, 8],
   );
   assert.deepEqual(
     [proteus.progress.percent, proteus.progress.completedCount, proteus.progress.partialCount, proteus.progress.totalCount],
-    [38, 3, 3, 12],
+    [42, 3, 4, 12],
   );
 
   for (const profile of profiles) {
