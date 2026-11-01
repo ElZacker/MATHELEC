@@ -28,6 +28,14 @@ The user supplied two saved variants for each New Wave format and two additional
 
 The New Wave files are demonstrably different binary documents, but differential byte ranges alone do not identify component or connection fields. The current reader intentionally does not label those regions as components, coordinates, pads or tracks without a reproducible record schema. The Livewire and PCB Wizard milestones therefore remain unchanged.
 
+A controlled byte comparison adds these narrower structural observations without assigning unsupported semantics:
+
+- All three Livewire samples share bytes 41–271 exactly. Their remaining binary sections differ, but the alignment does not yet expose a validated component or wire record boundary.
+- PCB Wizard variants 2a and 2b are both 1,428 bytes. They share bytes 0–920 and bytes 1,241–1,427 exactly; their changed bytes lie in the intervening 320-byte region.
+- A conservative one-byte-length ASCII scan finds candidate text tokens in PCB Wizard: original `B`, `9V`, `R`, `1K`, `D`; variants 2a/2b additionally contain `SW`. The Livewire original also contains a `1K` token. Their offsets and lengths are regression-tested, but they are reported only as candidate tokens: the parser does not yet claim they are confirmed reference designators, values or component-library names.
+
+This narrows the next investigation to the New Wave object payloads and provides stable regression anchors. It does not change the Livewire or PCB Wizard progress scores because record semantics, coordinates, pins, board pads and connectivity are still unverified.
+
 ### Proteus: three real project fixtures
 
 The original project and both user-saved variants retain the three identified CDB/DSN instances B1, D1 and R1. The current parser recovers their device, visible value, component origin, rotation, CDB pin entries and component slot-to-WIRE pointers. The three archives pass the same ZIP and essential-entry validation.
