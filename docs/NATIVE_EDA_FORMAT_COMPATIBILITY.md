@@ -12,7 +12,7 @@ The repository contains three reference projects under `archivosdeprueba/compati
 | `Mathelecprueba.pcb` | 1,093 bytes | Binary document beginning with the same `Dsg\\0` signature | Recognizable New Wave / PCB Wizard-family signature; body remains opaque |
 | `mathelecprueba.pdsprj` | 12,281 bytes | ZIP container | Contains `PROJECT.XML`, `ROOT.DSN`, `ROOT.CDB` and `SCRIPTS/PWRRAILS.DAT` |
 
-The Livewire and PCB Wizard samples share the first 38 bytes, but the binary content diverges at byte offset 38. Therefore, the signature and common prefix cannot distinguish these two applications; the file extension is the only discriminator currently used by the inspector. The report now states this explicitly through `formatIdentification.selectedBy = "file-extension"` and does not claim an application-specific signature check. Both samples contain the printable strings `page &p of &n` at byte offset 90 and `Arial` at byte offset 104. Mathelect reports these offsets for regression and controlled-diff work; they are document metadata, not decoded circuit objects.
+The Livewire and PCB Wizard samples share the first 38 bytes, but the binary content diverges at byte offset 38. Therefore, the signature and common prefix cannot distinguish these two applications; the file extension is the only discriminator currently used by the inspector. The report states this through `formatIdentification.selectedBy = "file-extension"` and does not claim an application-specific signature check. Both real fixtures contain two length-prefixed ASCII document fields: `page &p of &n` starts at offset 90 and has byte `0x0D` at offset 89; `Arial` starts at offset 104 and has byte `0x05` at offset 103. The inspector exposes `textFields` with the text offset, prefix offset, declared length, decoded length and validation status. A negative test confirms that a marker with a mismatched preceding byte remains `marker-only`. These are document-formatting fields, not decoded circuit objects, components or connections.
 
 The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `ROOT.DSN` and `ROOT.CDB` are binary. A valid ZIP wrapper is not sufficient to create a valid Proteus schematic: the DSN design content still needs a verified decoder/writer.
 
@@ -40,8 +40,8 @@ The version-aware registry lives in `lib/eda/compatibility-matrix.ts`. Every ins
 
 | Format / version | Recognition | Container / metadata | Circuit import | Native export | Open / run in target app |
 |---|---|---|---|---|---|
-| Livewire 1.11 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
-| PCB Wizard 3.50 | Signature only | Signature and printable markers only | Not implemented | Not implemented | Not verified |
+| Livewire 1.11 | Signature only | Partial: two length-prefixed document fields | Not implemented | Not implemented | Not verified |
+| PCB Wizard 3.50 | Signature only | Partial: two length-prefixed document fields | Not implemented | Not implemented | Not verified |
 | Proteus 8.13 | Project container recognized | Partial metadata from ROOT.CDB and component references/values from ROOT.DSN | Not implemented | Not implemented | Not verified |
 
 The registry is a version-target baseline, not a claim of native import/export compatibility. The tests enforce that distinction so a future change cannot accidentally advertise a decoder or writer before one exists.
@@ -59,7 +59,7 @@ A decoder is accepted only when it reproduces the known reference circuit's comp
 ## Implemented in Mathelect
 
 - `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
-- The New Wave inspector checks the `Dsg\\0` signature and returns only metadata that can be established safely. It deliberately reports that component data is not decoded.
+- The New Wave inspector checks the `Dsg\\0` family signature, records the extension as the contextual application selector, and decodes the byte-length prefixes for `page &p of &n` and `Arial` when the preceding byte matches the exact ASCII length. It still reports circuit components and connections as not decoded.
 - The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. In `ROOT.DSN`, it scopes component records to `OBJECT DATA\\0`, recovers the visible value, library identifier and brace-delimited properties, then decodes each placed-component record's four label blocks, device, physical origin, rotation, mirror flag and exact WIRE slot table. The repository fixture's B1, D1 and R1 records all decode. Slot-to-wire pointers are validated, but CDB pin names remain `cdb-order-unverified` because the fixture does not embed matching `$PIN` definitions. Duplicate or missing designators are reported as unresolved objects. POWER/GROUND terminal parsing is covered synthetically and cross-checks both the WIRE pointer and connection-point geometry.
 - `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report. The preview panel exposes this through **Inspeccionar archivo nativo**; it does not replace the current Mathelect circuit or claim to import it.
 - Proteus ZIP inspection is bounded: at most 256 entries, 16 MB per uncompressed entry, 32 MB total declared uncompressed data and 2 MB for `PROJECT.XML`. Local and central headers are cross-checked, unsafe entry paths are rejected, and extracted XML is size/CRC checked.
@@ -114,7 +114,7 @@ These references establish the initial investigation only. They do not substitut
 
 ## Incremental decoder diagnostics — 31 October 2026
 
-- Livewire 1.11 and PCB Wizard 3.50 reports now include byte offsets for the two confirmed printable document markers. These offsets are tested against each repository fixture (90 for `page &p of &n`, 104 for `Arial`).
+- Livewire 1.11 and PCB Wizard 3.50 reports now include byte offsets and validated length prefixes for the two document fields in both repository fixtures (offset 90 / prefix 0x0D for `page &p of &n`; offset 104 / prefix 0x05 for `Arial`).
 - Proteus 8.13 inspection now also attempts to read the length-prefixed library/part identifier that follows the NUL-terminated `COMPONENT VALUE` marker. It reports whether that identifier matches the `device` field from ROOT.CDB as a diagnostic only; a mismatch is not silently rewritten or treated as a fatal decode error.
 - This is additional inspection metadata, not component placement, pin, wire, net, footprint-pad or track decoding. Native import/export and application-level tests remain unimplemented.
 
