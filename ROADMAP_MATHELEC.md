@@ -1264,3 +1264,19 @@ Se decodificó la tabla de patas de ROOT.CDB y se enlazó con las ranuras de pun
 Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El lector solo declara `matched-by-cdb-order` cuando se cumple esa triple condición. Los grupos geométricos ahora también muestran sus nodos T y patas conectadas.
 
 Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.
+
+
+---
+
+## Compatibilidad EDA — candidato de coordenadas de colocación en Proteus 8.13 (1 de noviembre de 2026)
+
+Se avanzó un paso sobre los registros de componentes que ya estaban enlazados con ROOT.CDB y con los objetos WIRE:
+
+- Las dos palabras de 32 bits posteriores al designador de cada instancia B1, D1 y R1 se interpretan como enteros little-endian con signo.
+- En las tres instancias, ambos valores son divisibles exactamente por 2540, la misma escala de unidades internas por mil ya comprobada en los vértices WIRE.
+- Esto produce candidatos X/Y: B1 (-3792, 608) mil; D1 (-3022, 528) mil; R1 (-2402, 508) mil.
+- El inspector conserva los valores hexadecimales originales y expone además `placementCandidate` con estado `scale-consistent-unverified`.
+- La prueba automatizada verifica los seis valores crudos, las seis conversiones y que un registro sintético cuyos valores no respetan la escala no genere una posición candidata.
+
+**Límite:** todavía no se afirma que esos valores sean el origen gráfico del símbolo ni que describan sus pines o su orientación. Antes de usarlos para reconstrucción visual hay que guardar dos archivos de Proteus 8.13 con un único componente desplazado entre ambos y comprobar qué palabra cambia, con qué signo y con qué escala. La importación completa, las etiquetas, terminales de alimentación/tierra, instrumentos y la exportación nativa continúan pendientes. Este avance no modifica el estado de importación/exportación de la matriz.
+
