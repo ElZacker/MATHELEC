@@ -50,7 +50,7 @@ The registry is a version-target baseline, not a claim of native import/export c
 
 The next implementation milestone is not a native writer yet. It is to establish verified object-level decoding for the formats, in this order:
 
-1. **Proteus 8.13:** the reader isolates placed records under `OBJECT DATA\\0`, excluding a library/template `COMPONENT ID` marker outside that section. It extracts reference, visible value, the library identifier after `COMPONENT VALUE\\0`, brace-delimited instance properties, and two raw 32-bit words after the reference token. On the repository fixture, B1, D1 and R1 match their ROOT.CDB devices; the raw words are preserved as opaque bytes and are **not** yet interpreted as coordinates. Objects without a normal reference (for example virtual instruments) are retained in an unresolved-object list. Next decode coordinate semantics, symbols, pin identities and wire/net topology.
+1. **Proteus 8.13:** the reader isolates placed records under `OBJECT DATA\\0`, excluding library/template markers outside that section. For B1, D1 and R1 it decodes the complete placed-component record: label blocks, device, physical origin (converted to mils), rotation, mirror flag, exact WIRE slot table and its offsets. The matching CDB pin-name table is retained, but its order is not treated as physical pin identity because this fixture lacks embedded `$PIN` definitions for those devices. A bounded reader for `$TERPOWER` / `$TERGROUND` records is also covered by a synthetic regression fixture; the repository project itself contains no placed power/ground terminal. Objects without a normal reference (for example virtual instruments) remain in an unresolved-object list. Net labels, virtual instruments and complete symbol artwork/netlist still need decoding.
 2. **Livewire 1.11:** identify record boundaries and the serialized component / terminal / wire fields in the New Wave binary stream. A successful signature check is not enough.
 3. **PCB Wizard 3.50:** investigate its board-specific records independently, including board outline, footprints, numbered pads, nets and tracks. Do not reuse a Livewire decoder merely because both samples begin with `Dsg\\0`.
 
@@ -60,12 +60,12 @@ A decoder is accepted only when it reproduces the known reference circuit's comp
 
 - `lib/eda/native-project-inspector.ts` recognizes the `.lvw`, `.pcb` and `.pdsprj` file families.
 - The New Wave inspector checks the `Dsg\\0` signature and returns only metadata that can be established safely. It deliberately reports that component data is not decoded.
-- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. In `ROOT.DSN`, it scopes component records to `OBJECT DATA\\0`, recovers the visible value and library identifier across observed binary padding, reads brace-delimited properties, and cross-checks the device identifier against `ROOT.CDB`. The repository fixture's B1, D1 and R1 records all match. Duplicate or missing designators are reported as unresolved objects rather than silently discarded. Two 32-bit words after each designator are preserved in hexadecimal for later placement analysis; their units/meaning remain unknown.
+- The Proteus inspector parses the ZIP central directory, rejects unsupported/encrypted/unsafe entries, validates `PROJECT.XML` and verifies extracted entries' sizes and CRC32. In `ROOT.DSN`, it scopes component records to `OBJECT DATA\\0`, recovers the visible value, library identifier and brace-delimited properties, then decodes each placed-component record's four label blocks, device, physical origin, rotation, mirror flag and exact WIRE slot table. The repository fixture's B1, D1 and R1 records all decode. Slot-to-wire pointers are validated, but CDB pin names remain `cdb-order-unverified` because the fixture does not embed matching `$PIN` definitions. Duplicate or missing designators are reported as unresolved objects. POWER/GROUND terminal parsing is covered synthetically and cross-checks both the WIRE pointer and connection-point geometry.
 - `POST /api/eda/inspect` accepts a multipart field named `file` (up to 12 MB) and returns the inspection report. The preview panel exposes this through **Inspeccionar archivo nativo**; it does not replace the current Mathelect circuit or claim to import it.
 - Proteus ZIP inspection is bounded: at most 256 entries, 16 MB per uncompressed entry, 32 MB total declared uncompressed data and 2 MB for `PROJECT.XML`. Local and central headers are cross-checked, unsafe entry paths are rejected, and extracted XML is size/CRC checked.
 - `tests/native-eda-formats.test.ts` uses the three repository samples as regression fixtures. In addition to recognition and container integrity, the Proteus fixture asserts the recovered B1 / D1 / R1 component metadata. These tests do not prove that a generated project opens or simulates in the desktop applications.
 
-This is still **inspection only**. The Proteus reader now recovers three placed, metadata-matched components in the repository sample and preserves special unresolved objects plus raw placement words, but it does not reconstruct usable sheet coordinates, symbol geometry, pin mappings or electrical connections. A second public Proteus project was inspected manually to study a larger object list and virtual instruments; that file is not added to the automated fixtures, so automated regression coverage still relies on the repository's own sample plus synthetic edge-case records. No format has native import or export yet.
+This is still **inspection only**. The Proteus reader now recovers three placed, metadata-matched components, their physical origins and orientations, decoded WIRE geometry, and exact component slot-to-WIRE pointers. It attempts embedded `$PIN` lookup but cannot verify physical pin-name order for the three devices in the repository fixture. POWER/GROUND parsing has synthetic coverage only. Net labels, complete symbol artwork, virtual instruments and a full electrical netlist remain incomplete; no format has native import/export yet. A second public Proteus project was inspected manually to study a larger object list and virtual instruments; that file is not added to the automated fixtures, so automated regression coverage still relies on the repository's own sample plus synthetic edge-case records. No format has native import or export yet.
 
 ## What is still required for real import/export
 
@@ -75,7 +75,7 @@ The binary records must be decoded into component instances, values, positions, 
 
 ### Proteus
 
-The next decoder must interpret `ROOT.DSN` object coordinates, symbol/library references, pin identities, wire endpoints and nets, and correlate these with the component metadata recovered from `ROOT.CDB`. The current readers are deliberately partial and have only been checked against the single repository fixture; they need more real 8.13 projects before general support can be claimed. A writer must maintain valid internal references and package those records with the expected project metadata. Writing only `PROJECT.XML` or a netlist is not native project generation.
+The next Proteus stage is to obtain projects that embed the matching library `$PIN` definitions, verify the transformed physical pin roots/endpoints against WIRE geometry across rotations and mirrors, and add a real placed POWER/GROUND terminal fixture. Then decode net labels, virtual instruments and the complete symbol artwork before deriving a full electrical netlist. The current parser is still checked primarily against one repository project plus synthetic edge cases, so broader real 8.13 fixtures remain essential. A writer must preserve valid internal references and package the records with expected project metadata; writing only `PROJECT.XML` or a netlist is not native project generation.
 
 ### PCB Wizard
 
@@ -157,7 +157,7 @@ The decoded object offsets, lengths and vertices are asserted exactly in CI. A g
 
 The reader now decodes the 8.13 CDB pin-entry table (one-byte-length pin name and number fields) and the matching u32 pin-slot pointer array at the end of each placed DSN component record. It links a slot to a CDB pin in table order only if the slot count exactly matches the pin-table count and every nonzero pointer resolves to an already validated WIRE object. For the repository fixture, all three two-pin components meet that criterion.
 
-The geometric groups now expose their junction-node offsets and the component pins that attach to their wires. These are **wire-connected groups**, not yet full schematic nets: power/ground terminals, net labels, symbol pin geometry/orientation and virtual instrument terminals remain to be decoded. Therefore, `wireTouchGroups` is a wire-only geometric diagnostic, not a complete netlist or a simulation-ready imported circuit.
+The geometric groups now expose junction-node offsets, component pin-slot associations, and POWER/GROUND terminals when their records point to known WIRE objects and their connection points match the wire geometry. The current repository fixture has no placed POWER/GROUND instances, so terminal parsing is covered by a synthetic test. CDB pin names remain unverified against physical `$PIN` order, and net labels / virtual-instrument terminals are not decoded. These are **wire-connected groups**, not full schematic nets or a simulation-ready imported circuit.
 
 
 ### Component-record wire address references
@@ -168,7 +168,7 @@ The 8.13 fixture contains these pointer-sized values in the tails of the three p
 - D1: byte offsets 72391 and 72395 reference WIRE objects 73039 and 72806.
 - R1: byte offsets 72773 and 72777 reference WIRE objects 72856 and 72989.
 
-The parser reports these as `wireAddressReferences` only when a 32-bit value exactly matches an already validated WIRE object address. It deliberately does not expose a pin index or pin name: the complete table boundary, zero-valued unconnected slots and library `$PIN` mapping remain unresolved.
+The parser now uses the complete placed-component record to recover the exact slot-table offset and its WIRE object addresses. It preserves the CDB pin labels in table order, but marks their physical association as `cdb-order-unverified` until a matching library `$PIN` definition is found. Zero-valued unconnected slots are kept distinct from valid WIRE pointers.
 
 
 ### Proteus 8.13 — CDB pin table and DSN pin-slot mapping
@@ -189,6 +189,17 @@ The corresponding DSN pin-slot arrays are:
 - D1: byte offset 72391 → `A` → WIRE object 73039; byte offset 72395 → `K` → WIRE object 72806.
 - R1: byte offset 72773 → pin `1` → WIRE object 72856; byte offset 72777 → pin `2` → WIRE object 72989.
 
-All three CDB pin tables contain two entries, all three DSN pin-slot arrays contain two WIRE pointers, and every pointer resolves to a validated WIRE object. The code therefore emits `pinSlotMappingStatus = "matched-by-cdb-order"` and includes these pins in `wireConnectedGroups`. If the count or pointers do not match, the mapping stays unresolved; the code does not assign pins by guesswork.
+All three CDB pin tables contain two entries, all three DSN pin-slot arrays contain two WIRE pointers, and every pointer resolves to a validated WIRE object. The inspector can therefore preserve a two-slot association and display the CDB pin names in table order, but the status is `slot-table-valid-symbol-order-unverified`, not a confirmed pin-name-to-slot mapping.
 
-These checks establish the CDB-name-to-DSN-slot association for this fixture, but not physical pin coordinates, symbol rotation, net labels or power-rail terminals. They also do not replace opening and checking the design in Proteus 8.13.
+The embedded library lookup was also tested for the device names `BATTERY`, `LED-RED` and `10WATT1K`. The current fixture has no matching device-definition headers in the searched library section, so no `$PIN` geometry is available. Every component pin is consequently tagged `cdb-order-unverified`; its physical root, endpoint and endpoint-to-WIRE geometry remain null. This avoids claiming a physical pin connection from table order alone.
+
+
+## Proteus 8.13 — registros de componente, slots y terminales
+
+El lector consume la estructura de los registros colocados: cuatro bloques de etiqueta (texto, atributo y anclaje), el dispositivo, el origen físico, orientación/espejo y la tabla exacta de slots de conexión. Esta parte se contrasta contra los tres componentes reales B1, D1 y R1 del fixture.
+
+La búsqueda de definiciones de símbolo se ejecuta como intento separado: localiza la sección de biblioteca, busca el nombre del dispositivo y valida el bloque antes de leer entradas $PIN. En `mathelecprueba.pdsprj` no se encuentra una cabecera de definición para `BATTERY`, `LED-RED` ni `10WATT1K`. Por eso los nombres de patas CDB se conservan por orden de tabla, pero cada asociación queda marcada como `cdb-order-unverified`; no se generan raíces ni puntos físicos de pin ni se declara coincidencia geométrica con el cable.
+
+También se añadió un lector de terminales `$TERPOWER` y `$TERGROUND`: recupera origen, anclaje, punto de conexión y puntero WIRE. La prueba POWER está cubierta con una fixture sintética; la muestra real no incluye terminales colocados, por lo que aún falta una comparación con un terminal guardado desde Proteus 8.13.
+
+**Límites actuales:** no hay definición $PIN verificada para los dispositivos de la muestra, no se reconstruye el cuerpo gráfico completo ni las etiquetas/nombres de red o instrumentos virtuales, y los grupos conectados son parciales. Esto todavía no equivale a una netlist íntegra, importación editable o simulación aprobada en Proteus 8.13.

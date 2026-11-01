@@ -293,66 +293,100 @@ test("Proteus: valida el contenedor y los archivos internos esenciales del proye
       {
         reference: "B1",
         pinSlotTableOffset: 71975,
-        pinSlotMappingStatus: "matched-by-cdb-order",
+        pinSlotMappingStatus: "slot-table-valid-symbol-order-unverified",
         pinConnections: [
-          { slotIndex: 0, pinName: "+", pinNumber: "", wireObjectOffset: 73089 },
-          { slotIndex: 1, pinName: "-", pinNumber: "", wireObjectOffset: 72906 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "+", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 73089 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "-", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72906 },
         ],
       },
       {
         reference: "D1",
         pinSlotTableOffset: 72391,
-        pinSlotMappingStatus: "matched-by-cdb-order",
+        pinSlotMappingStatus: "slot-table-valid-symbol-order-unverified",
         pinConnections: [
-          { slotIndex: 0, pinName: "A", pinNumber: "", wireObjectOffset: 73039 },
-          { slotIndex: 1, pinName: "K", pinNumber: "", wireObjectOffset: 72806 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "A", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 73039 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "K", pinNumber: "", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72806 },
         ],
       },
       {
         reference: "R1",
         pinSlotTableOffset: 72773,
-        pinSlotMappingStatus: "matched-by-cdb-order",
+        pinSlotMappingStatus: "slot-table-valid-symbol-order-unverified",
         pinConnections: [
-          { slotIndex: 0, pinName: "1", pinNumber: "1", wireObjectOffset: 72856 },
-          { slotIndex: 1, pinName: "2", pinNumber: "2", wireObjectOffset: 72989 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 0, pinName: "1", pinNumber: "1", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72856 },
+          { mappingBasis: "cdb-order-unverified", slotIndex: 1, pinName: "2", pinNumber: "2", connectionPoint: null, connectionPointMatchesWire: null, symbolRoot: null, wireObjectOffset: 72989 },
         ],
       },
     ],
   );
   assert.deepEqual(
-    result.schematicComponents.wireConnectedGroups,
+    result.schematicComponents.wireConnectedGroups.map((group) => ({
+      wireObjectOffsets: group.wireObjectOffsets,
+      junctionNodeOffsets: group.junctionNodeOffsets,
+      componentPins: group.componentPins.map(({ reference, slotIndex, pinName, pinNumber, mappingBasis }) => ({
+        reference,
+        slotIndex,
+        pinName,
+        pinNumber,
+        mappingBasis,
+      })),
+    })),
     [
       {
         wireObjectOffsets: [72806, 72856, 72906],
         junctionNodeOffsets: [72781],
         componentPins: [
-          { reference: "B1", slotIndex: 1, pinName: "-", pinNumber: "" },
-          { reference: "D1", slotIndex: 1, pinName: "K", pinNumber: "" },
-          { reference: "R1", slotIndex: 0, pinName: "1", pinNumber: "1" },
+          { reference: "B1", slotIndex: 1, pinName: "-", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "D1", slotIndex: 1, pinName: "K", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "R1", slotIndex: 0, pinName: "1", pinNumber: "1", mappingBasis: "cdb-order-unverified" },
         ],
       },
       {
         wireObjectOffsets: [72989, 73039, 73089],
         junctionNodeOffsets: [72964],
         componentPins: [
-          { reference: "B1", slotIndex: 0, pinName: "+", pinNumber: "" },
-          { reference: "D1", slotIndex: 0, pinName: "A", pinNumber: "" },
-          { reference: "R1", slotIndex: 1, pinName: "2", pinNumber: "2" },
+          { reference: "B1", slotIndex: 0, pinName: "+", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "D1", slotIndex: 0, pinName: "A", pinNumber: "", mappingBasis: "cdb-order-unverified" },
+          { reference: "R1", slotIndex: 1, pinName: "2", pinNumber: "2", mappingBasis: "cdb-order-unverified" },
         ],
       },
     ],
   );
-  assert.deepEqual(
-    result.schematicComponents.componentInstances.map(({ reference, rawPlacementWords }) => ({
-      reference,
-      rawPlacementWords,
-    })),
-    [
-      { reference: "B1", rawPlacementWords: ["ff6d0840", "00179080"] },
-      { reference: "D1", rawPlacementWords: ["ff8ae018", "001476c0"] },
-      { reference: "R1", rawPlacementWords: ["ffa2e7a8", "0013b050"] },
-    ],
+  assert.ok(
+    result.schematicComponents.componentInstances.every((instance) => instance.placement !== null),
+    JSON.stringify(result.schematicComponents.componentInstances.map((instance) => ({
+      reference: instance.reference,
+      componentRecordParseStatus: instance.componentRecordParseStatus,
+      componentRecordCandidateOffsets: instance.componentRecordCandidateOffsets,
+      componentRecordDiagnostics: instance.componentRecordDiagnostics,
+    }))),
   );
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) =>
+      instance.placement !== null &&
+      Number.isFinite(instance.placement.origin.x) &&
+      Number.isFinite(instance.placement.origin.y) &&
+      Number.isFinite(instance.placement.rotationDegrees) &&
+      (instance.placement.mirrorFlag === 0 || instance.placement.mirrorFlag === 1),
+  ));
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) => instance.symbolDefinition === null,
+  ));
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) => instance.symbolDefinitionDiagnostics.some(
+      (diagnostic) => diagnostic.startsWith("device-definition-not-found:"),
+    ),
+  ));
+  assert.ok(result.schematicComponents.componentInstances.every(
+    (instance) =>
+      instance.pinSlotMappingStatus === "slot-table-valid-symbol-order-unverified" &&
+      instance.pinConnections.every((pin) =>
+        pin.mappingBasis === "cdb-order-unverified" &&
+        pin.symbolRoot === null &&
+        pin.connectionPoint === null &&
+        pin.connectionPointMatchesWire === null
+      ),
+  ));
   assert.ok(result.schematicComponents.componentInstances.every((instance) => instance.matchesComponentMetadata));
   assert.deepEqual(result.schematicComponents.componentReferencesWithoutMetadata, []);
   assert.deepEqual(result.schematicComponents.metadataReferencesWithoutSchematicInstance, []);
@@ -454,7 +488,7 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
   assert.equal(result.componentInstances[0].reference, "R1");
   assert.equal(result.componentInstances[0].libraryName, "RESISTOR");
   assert.equal(result.componentInstances[0].libraryNameMatchesDeviceMetadata, true);
-  assert.deepEqual(result.componentInstances[0].rawPlacementWords, ["00000001", "00000002"]);
+  assert.equal(result.componentInstances[0].placement, null);
   assert.equal(result.componentInstances[0].properties.PRIMTYPE, "RESISTOR");
   assert.equal(result.componentInstances[0].properties.PACKAGE, "RES180");
   assert.equal(result.unresolvedObjectCount, 1);
@@ -503,5 +537,71 @@ test("Proteus DSN: agrupa contactos geométricos pero no cruces interiores sin v
   assert.deepEqual(result.wireTouchGroups, [
     { wireObjectOffsets: [horizontal, tee] },
     { wireObjectOffsets: [crossing] },
+  ]);
+});
+
+
+test("Proteus DSN: decodifica un terminal POWER y valida su puntero y punto de conexión", () => {
+  const signature = Buffer.from("ISIS SCHEMATIC FILE", "ascii");
+  const objectData = Buffer.from("OBJECT DATA\0", "ascii");
+  const wireHeader = Buffer.from([
+    0x00, 0x1d, 0x00, 0x00, 0x00,
+    0x00, 0xc0, 0x9e, 0x00, 0x00,
+    0x00, 0x40, 0x00,
+    0x00, 0x01, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00,
+    0x02, 0x7f, 0x57, 0x49, 0x52, 0x45, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+  ]);
+  wireHeader.writeUInt16LE(2, 32);
+  const wireVertices = Buffer.alloc(16);
+  wireVertices.writeInt32LE(0, 0);
+  wireVertices.writeInt32LE(0, 4);
+  wireVertices.writeInt32LE(200 * 2540, 8);
+  wireVertices.writeInt32LE(0, 12);
+  const wire = Buffer.concat([wireHeader, wireVertices]);
+
+  const dsnPrefix = Buffer.concat([signature, Buffer.alloc(8), objectData]);
+  const wireObjectOffset = dsnPrefix.length;
+  const terminalName = Buffer.from("$TERPOWER", "ascii");
+  const terminal = Buffer.alloc(96 + terminalName.length);
+  terminal[0] = 0x10;
+  terminal.writeInt32LE(100 * 2540, 1);
+  terminal.writeInt32LE(100 * 2540, 5);
+  terminal.writeUInt16LE(terminalName.length, 13);
+  terminalName.copy(terminal, 15);
+  const tailOffset = 15 + terminalName.length;
+  // The read-only 8.13 terminal parser uses the persisted label anchor to
+  // reconstruct the connection point, as the terminal records do.
+  terminal.writeInt32LE(0, tailOffset + 11);
+  terminal.writeInt32LE(300 * 2540, tailOffset + 15);
+  Buffer.from("TERMINAL LABEL\0", "ascii").copy(terminal, tailOffset + 35);
+  terminal.writeUInt32LE(wireObjectOffset, tailOffset + 77);
+
+  const dsn = Buffer.concat([dsnPrefix, wire, terminal]);
+  const result = inspectProteusSchematicBytes(dsn);
+
+  assert.equal(result.terminalPlacements.length, 1);
+  assert.deepEqual(result.terminalPlacements[0], {
+    sourceOffset: wireObjectOffset + wire.length,
+    byteLength: 105,
+    kind: "POWER",
+    origin: { x: 100, y: 100 },
+    labelAnchor: { x: 0, y: 300 },
+    connectionPoint: { x: 100, y: 0 },
+    wireObjectOffset,
+    wireReferenceValid: true,
+    connectionPointMatchesWire: true,
+  });
+  assert.deepEqual(result.wireConnectedGroups, [
+    {
+      wireObjectOffsets: [wireObjectOffset],
+      junctionNodeOffsets: [],
+      componentPins: [],
+      terminals: [{
+        sourceOffset: wireObjectOffset + wire.length,
+        kind: "POWER",
+        connectionPointMatchesWire: true,
+      }],
+    },
   ]);
 });

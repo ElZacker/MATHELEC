@@ -1207,15 +1207,21 @@ Esto amplía los modelos, pero no constituye un simulador universal ni una equiv
 
 ---
 
-## Avance de compatibilidad EDA — 31 de octubre de 2026
+## Avance de compatibilidad EDA — 1 de noviembre de 2026
 
-Se continúa en paralelo con los tres formatos, conservando un indicador independiente por aplicación. Las cifras son estimaciones de hitos técnicos cubiertos dentro del objetivo completo de importación/exportación nativa; no son porcentajes de archivos que Mathelect ya abre correctamente.
+Las barras de la interfaz se calculan con una rúbrica fija y visible: cada hito completo suma 1 punto, cada hito parcial 0,5 y cada pendiente 0. El porcentaje es el puntaje ponderado dividido por la cantidad de hitos de ese formato. **No significa que ese porcentaje de archivos funcione**: mide cuánto trabajo técnico está respaldado por código, muestras y pruebas. Los estados se reflejan también en `/api/eda/capabilities`.
 
-- **Livewire 1.11:** el inspector informa los desplazamientos binarios exactos de `page &p of &n` y `Arial`, contrastados con el archivo de referencia. La estructura de componentes, pines y conexiones sigue pendiente.
-- **PCB Wizard 3.50:** comparte las pruebas de offsets como diagnóstico del contenedor New Wave y se registra la ruta oficial Livewire → PCB Wizard documentada por el fabricante. Mathelect todavía no produce proyectos PCB nativos ni valida pads, nets o pistas.
-- **Proteus 8.13:** el lector amplía ROOT.DSN para recuperar, cuando existe el marcador, el identificador de biblioteca que sigue a `COMPONENT VALUE`; lo compara de forma diagnóstica con el campo `device` de ROOT.CDB. No reconstruye todavía geometría, pines ni conectividad.
+| Formato | Avance técnico | Hitos completos | Parciales | Total |
+|---|---:|---:|---:|---:|
+| Livewire 1.11 | 13% | 0 | 2 | 8 |
+| PCB Wizard 3.50 | 13% | 0 | 2 | 8 |
+| Proteus 8.13 | 38% | 3 | 3 | 12 |
 
-Los nuevos resultados deben superar pruebas de regresión, TypeScript, ESLint y compilación de producción antes de actualizar los indicadores de avance. No se cambia la matriz de capacidades para declarar importación o exportación hasta validar archivos en las aplicaciones de destino.
+- **Livewire 1.11:** solo se ha confirmado la familia `Dsg\\0` y se han localizado los marcadores `page &p of &n` y `Arial`. La firma se comparte con PCB Wizard y la extensión selecciona el perfil; no se decodifican componentes, terminales, posiciones ni conexiones.
+- **PCB Wizard 3.50:** los marcadores documentales están identificados, pero aún no se decodifican contorno de placa, footprints, pads, nets ni pistas de cobre. La ruta Livewire → PCB Wizard documentada por el fabricante no es un importador de Mathelect ni una prueba de apertura.
+- **Proteus 8.13:** ZIP/archivos internos, registros B1/D1/R1, origen/rotación/espejo y slots exactos están decodificados y probados. Se decodifican los seis objetos WIRE y sus contactos geométricos. Las asociaciones slot→WIRE se sostienen por punteros, pero el nombre físico de las patas sigue sin confirmarse porque faltan definiciones de biblioteca `$PIN`; POWER/GROUND tiene cobertura sintética, no una muestra real. Etiquetas, instrumentos, símbolos completos y netlist total siguen pendientes.
+
+**Regla de publicación:** la matriz mantiene importación y exportación nativas como `not-implemented` en los tres formatos, y apertura/simulación/round-trip como `not-verified`. Las barras no pueden cambiar esos estados por sí solas: para ello se exige abrir un archivo generado en la aplicación objetivo y verificar su contenido.
 
 
 ---
@@ -1261,6 +1267,30 @@ Se decodificó la tabla de patas de ROOT.CDB y se enlazó con las ranuras de pun
 - D1: A y K.
 - R1: 1 y 2.
 
-Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El lector solo declara `matched-by-cdb-order` cuando se cumple esa triple condición. Los grupos geométricos ahora también muestran sus nodos T y patas conectadas.
+Los tres componentes tienen dos entradas en CDB, dos slots en DSN y cada puntero coincide con un objeto WIRE previamente validado. El informe conserva los nombres CDB en orden de tabla, pero el estado correcto es `slot-table-valid-symbol-order-unverified` y cada pin usa `mappingBasis=cdb-order-unverified`: no hay una definición $PIN de esos dispositivos en el fixture que permita certificar el orden físico.
 
-Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.
+Quedan pendientes la geometría y orientación de los símbolos, coordenadas de patas, terminales de alimentación/tierra con un fixture real, etiquetas de red e instrumentos especiales. La reconstrucción de estos grupos aún no equivale a una importación validada ni a una simulación en Proteus 8.13.
+
+
+## Proteus 8.13 — colocación, búsqueda de $PIN y terminales POWER/GROUND (31 de octubre de 2026)
+
+Se decodifica el registro de componente colocado: bloques de etiquetas, dispositivo, origen físico, orientación/espejo y tabla exacta de slots WIRE. La búsqueda de definiciones de biblioteca $PIN está instrumentada, pero el fixture `mathelecprueba.pdsprj` no contiene cabeceras de definición coincidentes para BATTERY, LED-RED o 10WATT1K. Por tanto, el nombre de pata se conserva provisionalmente en orden CDB y nunca se marca como correspondencia física confirmada.
+
+Se añadió además el lector de terminales $TERPOWER/$TERGROUND, con origen, anclaje, punto de conexión y puntero WIRE. La prueba automatizada actual es sintética porque el proyecto real no contiene terminales colocados.
+
+**Pendiente:** conseguir un proyecto Proteus 8.13 que incluya definiciones de biblioteca para validar $PIN en varios dispositivos y orientaciones; comparar terminales con un fixture real; decodificar etiquetas de red, instrumentos y cuerpo gráfico completo; y generar un proyecto que se pueda abrir y simular dentro de Proteus.
+
+
+---
+
+## Compatibilidad EDA — diagnóstico visible de registros Proteus en la interfaz (1 de noviembre de 2026)
+
+La acción **Inspeccionar archivo nativo** ahora puede presentar los datos que ya decodifica el parser de Proteus 8.13 en lugar de informar solamente que el ZIP fue reconocido:
+
+- Para B1, D1, R1 (o las instancias del archivo inspeccionado) muestra valor, origen físico en mils, rotación y bandera de espejo cuando el registro de colocación es válido.
+- Resume cuántos slots de pata apuntan a objetos WIRE y diferencia una correspondencia física confirmada por geometría de la asociación provisional `cdb-order-unverified`.
+- Informa terminales POWER/GROUND colocados y si su punto de conexión coincide con un cable cuando el archivo contiene esos objetos.
+- Muestra cuántos grupos geométricos de cables se han reconstruido.
+- Mantiene el aviso de que inspeccionar no importa el circuito y de que los grupos geométricos aún no representan una netlist completa.
+
+Este cambio es de presentación/diagnóstico: no convierte el inspector en importador editable ni habilita exportación nativa. La matriz continúa dejando esas capacidades como no implementadas.
