@@ -1207,15 +1207,21 @@ Esto amplía los modelos, pero no constituye un simulador universal ni una equiv
 
 ---
 
-## Avance de compatibilidad EDA — 31 de octubre de 2026
+## Avance de compatibilidad EDA — 1 de noviembre de 2026
 
-Se continúa en paralelo con los tres formatos, conservando un indicador independiente por aplicación. Las cifras son estimaciones de hitos técnicos cubiertos dentro del objetivo completo de importación/exportación nativa; no son porcentajes de archivos que Mathelect ya abre correctamente.
+Las barras de la interfaz se calculan con una rúbrica fija y visible: cada hito completo suma 1 punto, cada hito parcial 0,5 y cada pendiente 0. El porcentaje es el puntaje ponderado dividido por la cantidad de hitos de ese formato. **No significa que ese porcentaje de archivos funcione**: mide cuánto trabajo técnico está respaldado por código, muestras y pruebas. Los estados se reflejan también en `/api/eda/capabilities`.
 
-- **Livewire 1.11:** el inspector informa los desplazamientos binarios exactos de `page &p of &n` y `Arial`, contrastados con el archivo de referencia. La estructura de componentes, pines y conexiones sigue pendiente.
-- **PCB Wizard 3.50:** comparte las pruebas de offsets como diagnóstico del contenedor New Wave y se registra la ruta oficial Livewire → PCB Wizard documentada por el fabricante. Mathelect todavía no produce proyectos PCB nativos ni valida pads, nets o pistas.
-- **Proteus 8.13:** el lector amplía ROOT.DSN para recuperar, cuando existe el marcador, el identificador de biblioteca que sigue a `COMPONENT VALUE`; lo compara de forma diagnóstica con el campo `device` de ROOT.CDB. No reconstruye todavía geometría, pines ni conectividad.
+| Formato | Avance técnico | Hitos completos | Parciales | Total |
+|---|---:|---:|---:|---:|
+| Livewire 1.11 | 13% | 0 | 2 | 8 |
+| PCB Wizard 3.50 | 13% | 0 | 2 | 8 |
+| Proteus 8.13 | 38% | 3 | 3 | 12 |
 
-Los nuevos resultados deben superar pruebas de regresión, TypeScript, ESLint y compilación de producción antes de actualizar los indicadores de avance. No se cambia la matriz de capacidades para declarar importación o exportación hasta validar archivos en las aplicaciones de destino.
+- **Livewire 1.11:** solo se ha confirmado la familia `Dsg\\0` y se han localizado los marcadores `page &p of &n` y `Arial`. La firma se comparte con PCB Wizard y la extensión selecciona el perfil; no se decodifican componentes, terminales, posiciones ni conexiones.
+- **PCB Wizard 3.50:** los marcadores documentales están identificados, pero aún no se decodifican contorno de placa, footprints, pads, nets ni pistas de cobre. La ruta Livewire → PCB Wizard documentada por el fabricante no es un importador de Mathelect ni una prueba de apertura.
+- **Proteus 8.13:** ZIP/archivos internos, registros B1/D1/R1, origen/rotación/espejo y slots exactos están decodificados y probados. Se decodifican los seis objetos WIRE y sus contactos geométricos. Las asociaciones slot→WIRE se sostienen por punteros, pero el nombre físico de las patas sigue sin confirmarse porque faltan definiciones de biblioteca `$PIN`; POWER/GROUND tiene cobertura sintética, no una muestra real. Etiquetas, instrumentos, símbolos completos y netlist total siguen pendientes.
+
+**Regla de publicación:** la matriz mantiene importación y exportación nativas como `not-implemented` en los tres formatos, y apertura/simulación/round-trip como `not-verified`. Las barras no pueden cambiar esos estados por sí solas: para ello se exige abrir un archivo generado en la aplicación objetivo y verificar su contenido.
 
 
 ---
