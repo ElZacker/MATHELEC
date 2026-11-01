@@ -32,6 +32,33 @@ type NativeInspectionResponse = {
   hasRootCdb?: boolean;
   entries?: { name: string }[];
   textMarkers?: string[];
+  schematicComponents?: {
+    componentInstanceCount?: number;
+    componentInstances?: Array<{
+      reference: string;
+      value: string | null;
+      placement: {
+        origin: { x: number; y: number };
+        rotationDegrees: number;
+        mirrorFlag: number;
+        pinCount: number;
+      } | null;
+      pinSlotMappingStatus: string;
+      pinConnections: Array<{
+        pinName: string;
+        wireObjectOffset: number | null;
+        mappingBasis: "symbol-pin-name" | "cdb-order-unverified";
+        connectionPointMatchesWire: boolean | null;
+      }>;
+      symbolDefinitionDiagnostics: string[];
+    }>;
+    terminalPlacements?: Array<{
+      kind: "POWER" | "GROUND";
+      origin: { x: number; y: number };
+      connectionPointMatchesWire: boolean | null;
+    }>;
+    wireConnectedGroups?: unknown[];
+  };
   limitations?: string[];
 };
 
@@ -1198,8 +1225,33 @@ function handleMoveComponent(
       const size = result.byteLength ? `${result.byteLength.toLocaleString("es-AR")} bytes` : "tamaño no informado";
       if (result.format === "proteus") {
         const entries = (result.entries ?? []).map((entry) => entry.name).join(", ");
+        const schematic = result.schematicComponents;
+        const instances = schematic?.componentInstances ?? [];
+        const componentSummary = instances.length
+          ? instances.map((component) => {
+              const placement = component.placement
+                ? `origen (${component.placement.origin.x}, ${component.placement.origin.y}) mil; ${component.placement.rotationDegrees}°; espejo ${component.placement.mirrorFlag ? "sí" : "no"}`
+                : "colocación no decodificada";
+              const connectedSlots = component.pinConnections.filter((pin) => pin.wireObjectOffset !== null).length;
+              const pinMapping = component.pinSlotMappingStatus === "matched-by-symbol-geometry"
+                ? "patas verificadas por geometría"
+                : component.pinSlotMappingStatus === "symbol-geometry-mismatch"
+                  ? "geometría de patas no coincide con los cables"
+                  : component.pinSlotMappingStatus === "slot-table-valid-symbol-order-unverified"
+                    ? "slots conectados; nombres CDB sin validar contra $PIN"
+                    : `mapeo de patas: ${component.pinSlotMappingStatus}`;
+              return `${component.reference} ${component.value ?? "(sin valor)"}: ${placement}; ${connectedSlots}/${component.pinConnections.length} slots con cable; ${pinMapping}`;
+            }).join(" · ")
+          : "sin instancias decodificadas";
+        const terminals = schematic?.terminalPlacements ?? [];
+        const terminalSummary = terminals.length
+          ? terminals.map((terminal) =>
+              `${terminal.kind} en (${terminal.origin.x}, ${terminal.origin.y}) mil; ${terminal.connectionPointMatchesWire === true ? "punto unido a cable" : "unión geométrica no confirmada"}`,
+            ).join(" · ")
+          : "ningún terminal POWER/GROUND colocado en esta muestra";
+        const wireGroups = schematic?.wireConnectedGroups?.length ?? 0;
         setNotice(
-          `Proteus reconocido (${size}). Archivos internos: ${entries || "sin listado"}. PROJECT.XML: ${result.hasProjectXml ? "presente" : "ausente"}; ROOT.DSN: ${result.hasRootDsn ? "presente" : "ausente"}; ROOT.CDB: ${result.hasRootCdb ? "presente" : "ausente"}. El esquema binario todavía no fue decodificado y el circuito no se importó.`,
+          `Proteus reconocido (${size}). Archivos internos: ${entries || "sin listado"}. PROJECT.XML: ${result.hasProjectXml ? "presente" : "ausente"}; ROOT.DSN: ${result.hasRootDsn ? "presente" : "ausente"}; ROOT.CDB: ${result.hasRootCdb ? "presente" : "ausente"}. Componentes: ${componentSummary}. Terminales: ${terminalSummary}. Grupos geométricos de cable: ${wireGroups}. Las asociaciones CDB sin definición $PIN siguen sin confirmar el nombre físico de las patas; no es una netlist completa y el circuito no se importó.`,
         );
       } else {
         const format = result.format === "livewire" ? "Livewire" : "PCB Wizard";
