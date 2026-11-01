@@ -1064,7 +1064,7 @@ test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin d
       expected[index].unresolvedLibraries,
     );
 
-    if (expected[index].unresolvedLibraries.includes("SWITCH")) {
+    if (expected[index].unresolvedLibraries.length > 0) {
       const unresolvedSwitch = result.schematicComponents.unresolvedObjects.find(
         (object) => object.libraryName === "SWITCH",
       );
