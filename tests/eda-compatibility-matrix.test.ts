@@ -70,3 +70,34 @@ test("documenta el puente oficial Livewire a PCB Wizard sin declarar importació
   assert.equal(pcbWizard.capabilities.circuitImport, "not-implemented");
   assert.equal(pcbWizard.capabilities.nativeExport, "not-implemented");
 });
+
+
+test("calcula barras de avance con hitos ponderados y sin confundirlas con compatibilidad funcional", () => {
+  const profiles = getNativeEdaCompatibilityMatrix();
+  const byFormat = new Map(profiles.map((profile) => [profile.format, profile]));
+
+  const livewire = byFormat.get("livewire")!;
+  const pcbWizard = byFormat.get("pcb-wizard")!;
+  const proteus = byFormat.get("proteus")!;
+
+  assert.deepEqual(
+    [livewire.progress.percent, livewire.progress.completedCount, livewire.progress.partialCount, livewire.progress.totalCount],
+    [13, 0, 2, 8],
+  );
+  assert.deepEqual(
+    [pcbWizard.progress.percent, pcbWizard.progress.completedCount, pcbWizard.progress.partialCount, pcbWizard.progress.totalCount],
+    [13, 0, 2, 8],
+  );
+  assert.deepEqual(
+    [proteus.progress.percent, proteus.progress.completedCount, proteus.progress.partialCount, proteus.progress.totalCount],
+    [38, 3, 3, 12],
+  );
+
+  for (const profile of profiles) {
+    assert.match(profile.progress.note, /No representa el porcentaje de archivos compatibles/);
+    assert.equal(profile.progress.milestones.length, profile.progress.totalCount);
+    assert.ok(profile.progress.percent >= 0 && profile.progress.percent <= 100);
+    assert.equal(profile.capabilities.circuitImport, "not-implemented");
+    assert.equal(profile.capabilities.nativeExport, "not-implemented");
+  }
+});
