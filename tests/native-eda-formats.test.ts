@@ -755,7 +755,7 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
     Buffer.alloc(9),
     (() => {
       const length = Buffer.alloc(4);
-      length.writeUInt32LE(symbolBody.length, 0);
+      length.writeUInt32LE(symbolBody.length + 4, 0);
       return length;
     })(),
   );
@@ -813,7 +813,14 @@ test("Proteus DSN: verifica el orden y la geometría física de patas mediante u
   }]);
 
   const component = result.componentInstances[0];
-  assert.equal(result.componentInstanceCount, 1);
+  assert.equal(result.componentInstanceCount, 1, JSON.stringify({
+    objectDataSectionCount: result.objectDataSectionCount,
+    componentIdMarkersOutsideObjectData: result.componentIdMarkersOutsideObjectData,
+    unresolvedObjects: result.unresolvedObjects,
+    componentInstances: result.componentInstances,
+    wireSegments: result.wireSegments,
+    symbolDefinitionDiagnostics: component?.symbolDefinitionDiagnostics,
+  }));
   assert.equal(component.componentRecordParseStatus, "decoded");
   assert.equal(component.placement?.device, "RESISTOR");
   assert.equal(component.placement?.pinCount, 2);
