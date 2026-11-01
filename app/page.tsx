@@ -57,6 +57,8 @@ type NativeInspectionResponse = {
         pinName: string;
         wireObjectOffset: number | null;
         mappingBasis: "symbol-pin-name" | "cdb-order-unverified";
+        symbolRoot: { x: number; y: number } | null;
+        connectionPoint: { x: number; y: number } | null;
         connectionPointMatchesWire: boolean | null;
       }>;
       symbolDefinitionDiagnostics: string[];
@@ -1251,7 +1253,16 @@ function handleMoveComponent(
                   : component.pinSlotMappingStatus === "slot-table-valid-symbol-order-unverified"
                     ? "slots conectados; nombres CDB sin validar contra $PIN"
                     : `mapeo de patas: ${component.pinSlotMappingStatus}`;
-              return `${component.reference} ${component.value ?? "(sin valor)"}: ${placement}; ${connectedSlots}/${component.pinConnections.length} slots con cable; ${pinMapping}`;
+              const physicalPinDetails = component.pinConnections
+                .filter((pin) => pin.mappingBasis === "symbol-pin-name" && pin.symbolRoot && pin.connectionPoint)
+                .map((pin) => {
+                  const root = pin.symbolRoot!;
+                  const point = pin.connectionPoint!;
+                  const wireStatus = pin.connectionPointMatchesWire === true ? "cable confirmado" : "cable no confirmado";
+                  return `${pin.pinName}: raíz (${root.x}, ${root.y}) → extremo (${point.x}, ${point.y}) mil, ${wireStatus}`;
+                }).join(", ");
+              const pinGeometry = physicalPinDetails ? `; geometría física: ${physicalPinDetails}` : "";
+              return `${component.reference} ${component.value ?? "(sin valor)"}: ${placement}; ${connectedSlots}/${component.pinConnections.length} slots con cable; ${pinMapping}${pinGeometry}`;
             }).join(" · ")
           : "sin instancias decodificadas";
         const terminals = schematic?.terminalPlacements ?? [];
