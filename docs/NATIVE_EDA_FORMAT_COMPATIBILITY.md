@@ -16,6 +16,34 @@ The Livewire and PCB Wizard samples share the first 38 bytes, but the binary con
 
 The Proteus file is a ZIP project container. `PROJECT.XML` is text XML, while `ROOT.DSN` and `ROOT.CDB` are binary. A valid ZIP wrapper is not sufficient to create a valid Proteus schematic: the DSN design content still needs a verified decoder/writer.
 
+## Expanded reference fixtures (1 November 2026)
+
+The user supplied two saved variants for each New Wave format and two additional Proteus projects. All nine files are now included in regression tests.
+
+| Format | Original | Variant 2a | Variant 2b | What the current reader proves |
+|---|---:|---:|---:|---|
+| Livewire 1.11 | 1,144 B | 1,462 B | 1,616 B | All three are recognized as Dsg-family files and preserve validated document fields; component, symbol and wire records remain undecoded. |
+| PCB Wizard 3.50 | 1,093 B | 1,428 B | 1,428 B | All three are recognized as Dsg-family files and preserve validated document fields; board outline, footprints, pads, nets and copper tracks remain undecoded. |
+| Proteus 8.13 | 12,281 B | 12,756 B | 12,766 B | All three ZIP containers and their essential project entries pass integrity checks; instances, placement and WIRE geometry are regression-tested across the three projects. |
+
+The New Wave files are demonstrably different binary documents, but differential byte ranges alone do not identify component or connection fields. The current reader intentionally does not label those regions as components, coordinates, pads or tracks without a reproducible record schema. The Livewire and PCB Wizard milestones therefore remain unchanged.
+
+### Proteus: three real project fixtures
+
+The original project and both user-saved variants retain the three identified CDB/DSN instances B1, D1 and R1. The current parser recovers their device, visible value, component origin, rotation, CDB pin entries and component slot-to-WIRE pointers. The three archives pass the same ZIP and essential-entry validation.
+
+| Evidence | Original | Variant 2a | Variant 2b |
+|---|---:|---:|---:|
+| Placed identified components | 3 | 3 | 3 |
+| WIRE segments decoded | 6 | 10 | 10 |
+| T-junction nodes validated | 2 | 4 | 4 |
+| Geometric wire groups | 2 groups of 3 | 2 groups of 5 | 2 groups of 5 |
+| Unresolved object | — | `SWITCH` | `SWITCH` |
+
+In variant 2b the reader detects the saved placements B1 at (-4100, 400) mil, D1 at (-2900, 400) mil and R1 at (-2400, 300) mil; the original and variant 2a retain (-4000, 400), (-3200, 400) and (-2500, 300) mil respectively. The reader also reconstructs the changed multi-segment wire path in variant 2b. The `SWITCH` object has no conventional designator in the saved files; it is retained as unresolved with its library name instead of being assigned an invented reference.
+
+Every nonzero slot pointer for B1, D1 and R1 in all three projects resolves to a decoded WIRE object. This completes the wire-geometry and slot-to-WIRE milestones for the currently tested Proteus 8.13 subset. It does **not** confirm physical pin-name order: the three projects still lack matching embedded `$PIN` symbol definitions for BATTERY, LED-RED and 10WATT1K. The CDB pin names therefore remain `cdb-order-unverified`. No placed POWER/GROUND terminal was found in these three files, so real terminal coverage remains open.
+
 ## Vendor-documented interoperability path
 
 New Wave Concepts documents that PCB Wizard 3 can open a Livewire circuit file and convert it into a PCB layout: https://www.new-wave-concepts.com/ed/pw_faq.html. Mathelect records this as a vendor-documented **Livewire → PCB Wizard** path. This is an application workflow, not a Mathelect-native parser or writer: the application open/convert step has not been smoke-tested by Mathelect, and neither format is advertised as imported or exported by Mathelect.
