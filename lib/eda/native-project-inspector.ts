@@ -171,6 +171,8 @@ export type ProteusSchematicUnresolvedObject = {
   libraryName: string | null;
   reason: "missing-reference-designator" | "duplicate-reference";
   componentRecordParseStatus: "decoded" | "not-found" | "ambiguous";
+  componentRecordCandidateOffsets: number[];
+  componentRecordDiagnostics: string[];
   placement: ProteusSchematicComponentPlacement | null;
   wireAddressReferences: ProteusSchematicWireAddressReference[];
   properties: Record<string, string>;
@@ -1357,6 +1359,8 @@ function parseProteusDsnComponentInstances(
         libraryName,
         reason: "missing-reference-designator",
         componentRecordParseStatus: parsedRecord ? "decoded" : recordSearch.ambiguous ? "ambiguous" : "not-found",
+        componentRecordCandidateOffsets: recordSearch.candidateOffsets,
+        componentRecordDiagnostics: recordSearch.diagnostics,
         placement: parsedRecord?.placement ?? null,
         wireAddressReferences: parsedWireReferences,
         properties,
@@ -1372,6 +1376,8 @@ function parseProteusDsnComponentInstances(
         libraryName,
         reason: "duplicate-reference",
         componentRecordParseStatus: parsedRecord ? "decoded" : recordSearch.ambiguous ? "ambiguous" : "not-found",
+        componentRecordCandidateOffsets: recordSearch.candidateOffsets,
+        componentRecordDiagnostics: recordSearch.diagnostics,
         placement: parsedRecord?.placement ?? null,
         wireAddressReferences: parsedRecord?.placement.pinSlotAddresses
           .map((wireObjectOffset, slotIndex) => ({
