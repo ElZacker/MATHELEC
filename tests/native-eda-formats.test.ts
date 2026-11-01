@@ -936,63 +936,55 @@ test("New Wave: registra las tres muestras de Livewire y PCB Wizard y sus varian
       ]);
     }
   }
+
+  const livewireFiles = [
+    fixture("Mathelecprueba.lvw"),
+    fixture("Mathelecprueba2a.lvw"),
+    fixture("Mathelecprueba2b.lvw"),
+  ];
+  for (const bytes of livewireFiles.slice(1)) {
+    assert.deepEqual(bytes.subarray(41, 272), livewireFiles[0].subarray(41, 272));
+  }
+
+  const pcb2a = fixture("Mathelecprueba2a.pcb");
+  const pcb2b = fixture("Mathelecprueba2b.pcb");
+  assert.equal(pcb2a.length, 1428);
+  assert.equal(pcb2b.length, 1428);
+  assert.deepEqual(pcb2a.subarray(0, 921), pcb2b.subarray(0, 921));
+  assert.deepEqual(pcb2a.subarray(1241), pcb2b.subarray(1241));
+  assert.notDeepEqual(pcb2a.subarray(921, 1241), pcb2b.subarray(921, 1241));
 });
 
+test("New Wave: conserva tokens ASCII prefijados como evidencia sin clasificarlos como componentes", () => {
+  const cases = [
+    {
+      fileName: "Mathelecprueba.pcb",
+      fields: [[302, "B"], [304, "9V"], [450, "R"], [452, "1K"], [598, "D"]],
+    },
+    {
+      fileName: "Mathelecprueba2a.pcb",
+      fields: [[331, "B"], [333, "9V"], [479, "R"], [481, "1K"], [627, "D"], [773, "SW"]],
+    },
+    {
+      fileName: "Mathelecprueba2b.pcb",
+      fields: [[331, "B"], [333, "9V"], [479, "R"], [481, "1K"], [627, "D"], [773, "SW"]],
+    },
+    {
+      fileName: "Mathelecprueba.lvw",
+      fields: [[459, "1K"]],
+    },
+  ] as const;
 
-test("New Wave: diagnóstico temporal de bloques comunes para alinear las tres variantes", () => {
-  const alignedBlocks = (left: Buffer, right: Buffer) => {
-    const rows = left.length + 1;
-    const columns = right.length + 1;
-    const table = new Uint16Array(rows * columns);
-    for (let i = left.length - 1; i >= 0; i -= 1) {
-      for (let j = right.length - 1; j >= 0; j -= 1) {
-        const cell = i * columns + j;
-        table[cell] = left[i] === right[j]
-          ? table[(i + 1) * columns + j + 1] + 1
-          : Math.max(table[(i + 1) * columns + j], table[i * columns + j + 1]);
-      }
+  for (const sample of cases) {
+    const bytes = fixture(sample.fileName);
+    for (const [offset, expectedText] of sample.fields) {
+      const length = bytes[offset];
+      assert.equal(length, expectedText.length);
+      assert.equal(bytes.toString("ascii", offset + 1, offset + 1 + length), expectedText);
     }
-    const blocks: Array<{ left: number; right: number; length: number }> = [];
-    let i = 0;
-    let j = 0;
-    while (i < left.length && j < right.length) {
-      if (left[i] === right[j]) {
-        const startLeft = i;
-        const startRight = j;
-        while (i < left.length && j < right.length && left[i] === right[j]) {
-          i += 1;
-          j += 1;
-        }
-        blocks.push({ left: startLeft, right: startRight, length: i - startLeft });
-      } else if (table[(i + 1) * columns + j] >= table[i * columns + j + 1]) {
-        i += 1;
-      } else {
-        j += 1;
-      }
-    }
-    return blocks.filter((block) => block.length >= 6)
-      .sort((a, b) => b.length - a.length || a.left - b.left)
-      .slice(0, 18);
-  };
-  const pairs = [
-    ["Livewire original→2a", "Mathelecprueba.lvw", "Mathelecprueba2a.lvw"],
-    ["Livewire original→2b", "Mathelecprueba.lvw", "Mathelecprueba2b.lvw"],
-    ["Livewire 2a→2b", "Mathelecprueba2a.lvw", "Mathelecprueba2b.lvw"],
-    ["PCB Wizard original→2a", "Mathelecprueba.pcb", "Mathelecprueba2a.pcb"],
-    ["PCB Wizard original→2b", "Mathelecprueba.pcb", "Mathelecprueba2b.pcb"],
-    ["PCB Wizard 2a→2b", "Mathelecprueba2a.pcb", "Mathelecprueba2b.pcb"],
-  ];
-  for (const [label, leftName, rightName] of pairs) {
-    const left = fixture(leftName);
-    const right = fixture(rightName);
-    console.log("NEWWAVE_ALIGNMENT", JSON.stringify({
-      label,
-      leftBytes: left.length,
-      rightBytes: right.length,
-      commonBlocks: alignedBlocks(left, right),
-    }));
   }
 });
+
 
 test("Proteus 8.13: verifica componentes, movimiento, conexiones y objetos sin designador en las tres muestras", () => {
   const fileNames = [
