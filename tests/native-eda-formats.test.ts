@@ -502,10 +502,15 @@ test("Proteus DSN: conserva objetos especiales sin designador y no confunde plan
   assert.equal(result.unresolvedObjectCount, 1);
   assert.deepEqual(result.unresolvedObjects, [{
     sourceOffset: result.unresolvedObjects[0].sourceOffset,
+    recordStartOffset: null,
     reference: null,
     value: "$IOSCOPE",
     libraryName: "$IOSCOPE",
     reason: "missing-reference-designator",
+    componentRecordParseStatus: "not-found",
+    placement: null,
+    wireAddressReferences: [],
+    properties: {},
   }]);
 });
 
