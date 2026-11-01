@@ -536,3 +536,81 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .simulation-result p { white-space:pre-line; overflow-wrap:anywhere; }
 .simulation-result-limited > strong { color:#ffcf75; }
 .validation-issue { width:100%; text-align:left; }
+
+
+/* Compatibilidad EDA: barras basadas en hitos comprobables */
+.eda-progress-panel {
+  margin: 0 13px 14px;
+  padding: 12px;
+  border: 1px solid rgba(69,245,154,.16);
+  border-radius: 9px;
+  background: linear-gradient(145deg, rgba(17,31,21,.92), rgba(8,14,10,.96));
+}
+.eda-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.eda-progress-heading > div { display: grid; gap: 4px; }
+.eda-progress-heading strong { color: #dcebe0; font-size: 11px; }
+.eda-progress-heading small, .eda-progress-heading > span {
+  color: #819889;
+  font-size: 8px;
+  letter-spacing: .45px;
+}
+.eda-progress-card { border-top: 1px solid rgba(69,245,154,.1); }
+.eda-progress-card summary {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 34px;
+  gap: 7px 9px;
+  align-items: center;
+  padding: 10px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.eda-progress-card summary::-webkit-details-marker { display: none; }
+.eda-progress-name { display: grid; gap: 4px; min-width: 0; }
+.eda-progress-name strong { color: #d6e4da; font-size: 10px; }
+.eda-progress-name small { color: #819889; font-size: 8px; }
+.eda-progress-value { color: #72ffad; font-size: 12px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }
+.eda-progress-track {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(123,156,132,.14);
+  border-radius: 999px;
+  background: #080d09;
+}
+.eda-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #208c50, #63f59a);
+  box-shadow: 0 0 9px rgba(69,245,154,.24);
+  transition: width .25s ease;
+}
+.eda-progress-details { padding: 0 0 9px; }
+.eda-progress-details > p {
+  margin: 0 0 8px;
+  color: #a3b4a8;
+  font-size: 8px;
+  line-height: 1.55;
+}
+.eda-progress-details ol { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.eda-milestone { display: grid; grid-template-columns: 12px minmax(0,1fr); gap: 7px; align-items: start; }
+.eda-milestone > span { font-size: 10px; line-height: 1.25; }
+.eda-milestone-complete > span { color: #63f59a; }
+.eda-milestone-partial > span { color: #e6c16d; }
+.eda-milestone-pending > span { color: #59695e; }
+.eda-milestone > div { display: grid; gap: 3px; min-width: 0; }
+.eda-milestone strong { color: #c8d7cd; font-size: 8px; font-weight: 650; }
+.eda-milestone small { color: #7f9185; font-size: 7px; line-height: 1.5; }
+.eda-progress-disclaimer {
+  margin: 8px 0 0;
+  color: #788a7d;
+  font-size: 7px;
+  line-height: 1.5;
+}
